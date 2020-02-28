@@ -8,5 +8,5 @@
 
     // Set this to false to turn pep8 checking off completely.
     "pep8": false,
-    "python_interpreter": "~/miniconda3/envs/harl/bin/python"
+    "python_interpreter": "~/miniconda3/bin/python"
 }
