@@ -1,0 +1,14 @@
+[
+	{ "keys": ["f8"], "command": "cancel_build" },
+
+    {
+        "command": "anaconda_doc", "keys": ["shift+tab"], "context": [
+            {"key": "selector", "operator": "equal", "operand": "source.python"}
+        ]
+    },
+    {
+        "command": "anaconda_auto_format", "keys": ["ctrl+alt+r"], "context": [
+            {"key": "selector", "operator": "equal", "operand": "source.python"}
+        ]
+    }
+]

@@ -1,0 +1,12 @@
+{
+	"use_pylint": false,
+	"autoformat_ignore":
+    [
+        "E309",
+        "E501"
+    ],
+
+    // Set this to false to turn pep8 checking off completely.
+    "pep8": false,
+    "python_interpreter": "~/miniconda3/envs/harl/bin/python"
+}

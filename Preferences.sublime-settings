@@ -1,0 +1,12 @@
+{
+	"auto_complete": true,
+	"color_scheme": "Packages/Theme - Brogrammer/brogrammer.tmTheme",
+	"font_face": "Fira Code Regular",
+	"font_size": 12,
+	"ignored_packages":
+	[
+		"Jedi",
+		"Vintage"
+	],
+	"theme": "Brogrammer.sublime-theme"
+}
