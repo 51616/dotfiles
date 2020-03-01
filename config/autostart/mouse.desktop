@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=mouse
+Comment=slower mouse script
+Exec=/home/tan/.config/mouse.sh
+Hidden=true
+
