@@ -1,5 +1,11 @@
 [
-	{ "keys": ["f8"], "command": "cancel_build" },
+    { "keys": ["f8"], "command": "cancel_build" },
+    { "keys": ["ctrl+k","ctrl+m"], "command": "toggle_minimap" },
+    {
+        "keys": [ "ctrl+k", "ctrl+l" ],
+        "command": "toggle_setting",
+        "args": { "setting": "line_numbers" }
+    },
 
     {
         "command": "anaconda_doc", "keys": ["shift+tab"], "context": [

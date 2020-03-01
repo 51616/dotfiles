@@ -1,0 +1,9 @@
+{
+	"line_numbers": true,
+	"gutter": true,
+	"wrap_width": 100,
+	"word_wrap": true,
+	"scroll_past_end": true,
+	"draw_centered": true,
+	"fullscreen": false
+}
