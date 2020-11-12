@@ -1,20 +1,102 @@
 [
-    { "keys": ["f8"], "command": "cancel_build" },
+    { "keys": ["ctrl+shift+r"], "command": "goto_symbol_in_project" },
+	{ "keys": ["f8"], "command": "cancel_build" },
     { "keys": ["ctrl+k","ctrl+m"], "command": "toggle_minimap" },
+    { "keys": ["ctrl+k","ctrl+s"], "command": "toggle_status_bar" },
+    { "keys": ["ctrl+k","ctrl+t"], "command": "toggle_tabs" },
     {
         "keys": [ "ctrl+k", "ctrl+l" ],
         "command": "toggle_setting",
         "args": { "setting": "line_numbers" }
     },
-
     {
-        "command": "anaconda_doc", "keys": ["shift+tab"], "context": [
-            {"key": "selector", "operator": "equal", "operand": "source.python"}
-        ]
+        "keys": ["alt+ctrl+1"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 1.0],
+            "rows": [0.0, 1.0],
+            "cells": [[0, 0, 1, 1]]
+        }
     },
     {
-        "command": "anaconda_auto_format", "keys": ["ctrl+alt+r"], "context": [
-            {"key": "selector", "operator": "equal", "operand": "source.python"}
-        ]
+        "keys": ["alt+ctrl+2"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 0.5, 1.0],
+            "rows": [0.0, 1.0],
+            "cells": [[0, 0, 1, 1], [1, 0, 2, 1]]
+        }
+    },
+    {
+        "keys": ["alt+ctrl+3"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 0.33, 0.66, 1.0],
+            "rows": [0.0, 1.0],
+            "cells": [[0, 0, 1, 1], [1, 0, 2, 1], [2, 0, 3, 1]]
+        }
+    },
+    {
+        "keys": ["alt+ctrl+4"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 0.25, 0.5, 0.75, 1.0],
+            "rows": [0.0, 1.0],
+            "cells": [[0, 0, 1, 1], [1, 0, 2, 1], [2, 0, 3, 1], [3, 0, 4, 1]]
+        }
+    },
+    {
+        "keys": ["alt+ctrl+8"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 1.0],
+            "rows": [0.0, 0.5, 1.0],
+            "cells": [[0, 0, 1, 1], [0, 1, 1, 2]]
+        }
+    },
+    {
+        "keys": ["alt+ctrl+9"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 1.0],
+            "rows": [0.0, 0.33, 0.66, 1.0],
+            "cells": [[0, 0, 1, 1], [0, 1, 1, 2], [0, 2, 1, 3]]
+        }
+    },
+    {
+        "keys": ["alt+ctrl+5"],
+        "command": "set_layout",
+        "args":
+        {
+            "cols": [0.0, 0.5, 1.0],
+            "rows": [0.0, 0.5, 1.0],
+            "cells":
+            [
+                [0, 0, 1, 1], [1, 0, 2, 1],
+                [0, 1, 1, 2], [1, 1, 2, 2]
+            ]
+        }
     }
+
+    // {
+    //     "command": "anaconda_doc", "keys": ["shift+tab"], "context": [     
+    //         {"key": "selector", "operator": "equal", "operand": "source.python"},
+    //         {"key": "selection_empty"},
+    //     ]
+    // },
+    // {
+    //     "command": "anaconda_auto_format", "keys": ["ctrl+alt+r"], "context": [
+    //         {"key": "selector", "operator": "equal", "operand": "source.python"}
+    //     ]
+    // },
+    // { "keys": ["shift+tab"], "command": "unindent"}
+        // "context": { "key": "has_prev_field", "operator": "equal", "operand": true}},
+    // { "keys": ["shift+tab"], "command": "prev_field",
+    //     "context": { "key": "has_prev_field", "operator": "equal", "operand": true }}
 ]

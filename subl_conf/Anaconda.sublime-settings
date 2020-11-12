@@ -1,6 +1,6 @@
 {
-	"use_pylint": false,
-	"autoformat_ignore":
+    "use_pylint": false,
+    "autoformat_ignore":
     [
         "E309",
         "E501"

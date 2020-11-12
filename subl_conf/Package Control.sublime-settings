@@ -1,5 +1,4 @@
 {
-	"bootstrapped": true,
 	"in_process_packages":
 	[
 	],
@@ -12,6 +11,8 @@
 		"Package Control",
 		"Python 3",
 		"SideBarEnhancements",
-		"Theme - Brogrammer"
+		"TabNine",
+		"Theme - Brogrammer",
+		"TodoReview"
 	]
 }

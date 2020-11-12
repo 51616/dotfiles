@@ -1,7 +1,7 @@
 {
 	"line_numbers": true,
 	"gutter": true,
-	"wrap_width": 100,
+	"wrap_width": 80,
 	"word_wrap": true,
 	"scroll_past_end": true,
 	"draw_centered": true,
