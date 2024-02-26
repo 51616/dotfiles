@@ -1,10 +1,5 @@
 # Dotfiles
 
-```
-git clone https://github.com/51616/dotfiles.git ~/.dotfiles
-sh ~/.dotfiles/install.sh
-```
-
 with chezmoi
 ```
 cd ~
@@ -15,5 +10,5 @@ sh -c "$(curl -fsLS get.chezmoi.io/lb)" -- init --apply 51616
 install the rest
 ```
 chezmoi cd
-./install.sh
+. installers/install.sh
 ```
