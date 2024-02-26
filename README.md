@@ -3,7 +3,7 @@
 with chezmoi
 ```
 cd ~
-echo 'mode = "symlink"' > ~/.config/chezmoi/chezmoi.toml
+echo 'mode = "symlink"\n[edit]\n    watch = true\n' > ~/.config/chezmoi/chezmoi.toml
 sh -c "$(curl -fsLS get.chezmoi.io/lb)" -- init --apply 51616
 ```
 
