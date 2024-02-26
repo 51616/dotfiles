@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfce4-notifyd" version="1.0">
+  <property name="notify-location" type="empty"/>
+  <property name="theme" type="empty"/>
+  <property name="initial-opacity" type="empty"/>
+  <property name="expire-timeout" type="empty"/>
+  <property name="primary-monitor" type="empty"/>
+  <property name="do-fadeout" type="empty"/>
+  <property name="applications" type="empty">
+    <property name="known_applications" type="array">
+      <value type="string" value="/snap/discord/137"/>
+      <value type="string" value="/snap/discord/138"/>
+      <value type="string" value="/snap/discord/141"/>
+      <value type="string" value="discord"/>
+      <value type="string" value="discord_discord"/>
+      <value type="string" value="Firefox"/>
+      <value type="string" value="google-chrome"/>
+      <value type="string" value="nm-applet"/>
+      <value type="string" value="notify-send"/>
+      <value type="string" value="org.kde.kwin"/>
+      <value type="string" value="Rambox"/>
+      <value type="string" value="Slack"/>
+      <value type="string" value="Spotify"/>
+      <value type="string" value="Thunar"/>
+      <value type="string" value="thunar-volman"/>
+      <value type="string" value="ulauncher"/>
+      <value type="string" value="Unity"/>
+      <value type="string" value="vpnui"/>
+      <value type="string" value="Xfce volume daemon"/>
+    </property>
+  </property>
+  <property name="log-level" type="uint" value="0"/>
+  <property name="log-level-apps" type="uint" value="0"/>
+  <property name="do-not-disturb" type="bool" value="false"/>
+</channel>
