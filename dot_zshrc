@@ -270,12 +270,11 @@ unset __conda_setup
 #
 # set path
 
-hn="$(hostname)"
-if [[ $hn == "51616" ]]; then
-  conda activate python39
-fi
-
-PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
+# hn="$(hostname)"
+# if [[ $hn == "51616" ]]; then
+#   conda activate python39
+# fi
+# PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
 
 CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 export CPATH=${CONDA_PREFIX}/include:${CPATH}
