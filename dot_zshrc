@@ -8,6 +8,10 @@ fi
 # If you come from bash you might have to change your $PATH.
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
+# nice highlight in less by rich-cli
+export LESSOPEN="|rich -n -g --force-terminal %s"
+export RICH_THEME=lightbulb
+
 # faster paste
 DISABLE_MAGIC_FUNCTIONS=true
 
@@ -102,29 +106,18 @@ if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
 fi
 
-th(){
-  find "${1:-.}" -maxdepth "${2:-3}" \
-    -not -regex ".*\/((.idea|.git|.venv|node_modules|venv)\/.*|.DS_Store)" \
-  | sort | sed \
-    -e "s/[^-][^\/]*\// ├ /g" \
-    -e "s/├ \//├ /g" \
-    -e "s/├  ├/│  ├/g" \
-    -e "s/├  ├/│  ├/g" \
-    -e "s/├  │/│  │/g" \
-    -e '$s/├/└/' | less
-}
-
-t() {
-  find "${1:-.}" -maxdepth "${2:-3}" \
-    -not -regex ".*\/((.idea|.git|.venv|node_modules|venv)\/.*|.DS_Store)" \
-    -not -path '*/.*' \
-  | sort | sed \
-    -e "s/[^-][^\/]*\// ├ /g" \
-    -e "s/├ \//├ /g" \
-    -e "s/├  ├/│  ├/g" \
-    -e "s/├  ├/│  ├/g" \
-    -e "s/├  │/│  │/g" \
-    -e '$s/├/└/' | less
+t(){
+  local dir=${1:-.}
+  local depth=${2:-1}
+  local flags="-phCDF --dirsfirst --sort=name -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+  
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      flags+=" $arg"
+      break
+    fi
+  done
+  eval "tree $dir -L $depth $flags"
 }
 
 tm4() {
@@ -276,6 +269,14 @@ unset __conda_setup
 # <<< conda initialize <<<
 #
 # set path
+
+hn="$(hostname)"
+if [[ $hn == "51616" ]]; then
+  conda activate python39
+fi
+
+PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
+
 CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 export CPATH=${CONDA_PREFIX}/include:${CPATH}
 export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
