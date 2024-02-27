@@ -9,11 +9,13 @@ fi
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
 # nice highlight in less by rich-cli
-export LESSOPEN="|rich -n -g --force-terminal %s"
-export RICH_THEME=lightbulb
+if command -v rich >/dev/null 2>&1; then
+  export LESSOPEN="|rich -n -g --force-terminal %s"
+  export RICH_THEME=lightbulb
+fi
 
 # faster paste
-DISABLE_MAGIC_FUNCTIONS=true
+export DISABLE_MAGIC_FUNCTIONS=true
 
 # Path to your oh-my-zsh installation.
 omz="~/.oh-my-zsh"
