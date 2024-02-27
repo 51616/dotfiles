@@ -8,6 +8,7 @@ fi
 # If you come from bash you might have to change your $PATH.
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
+export LESS='-R'
 # nice highlight in less by rich-cli
 if command -v rich >/dev/null 2>&1; then
   export LESSOPEN="|rich -n -g --force-terminal %s"
@@ -80,7 +81,6 @@ HIST_STAMPS="yyyy-mm-dd"
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(
   git
-  fzf
   extract
   colored-man-pages
 )
@@ -362,6 +362,7 @@ ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=23'
 source-git https://github.com/changyuheng/zsh-interactive-cd.git 
 source-git https://github.com/zsh-users/zsh-autosuggestions.git
 source-git https://github.com/zsh-users/zsh-syntax-highlighting.git
+source-git https://github.com/supasorn/fzf-z.git
 
 # zoxide (must be at the end)
 _ZO_ECHO=1
