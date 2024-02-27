@@ -6,4 +6,3 @@ conda update -n base conda
 conda install -n base python=3.9
 conda install -n base conda-libmamba-solver
 conda config --set solver libmamba
-conda run -v -n base pip install Pygments rich-cli --upgrade
