@@ -127,7 +127,8 @@ fi
 # # <<< conda initialize <<<
 
 
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
 # export "PATH=/home/tan/.cargo/bin/cargo:$PATH"
 # . "$HOME/.cargo/env"
+
+[ -f ~/.fzf.bash ] && source ~/.fzf.bash

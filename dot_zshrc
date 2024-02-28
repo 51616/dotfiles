@@ -9,9 +9,10 @@ fi
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
 export LESS='-R'
+eval $(lesspipe)
 # nice highlight in less by rich-cli
 if command -v rich >/dev/null 2>&1; then
-  export LESSOPEN="|rich -n -g --force-terminal %s"
+  # export LESSOPEN="|rich -n -g --force-terminal %s"
   export RICH_THEME=lightbulb
 fi
 
@@ -103,7 +104,16 @@ export LD_LIBRARY_PATH="/usr/local/lib/"
 
 export TERM="xterm-256color"
 
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# tomasr/molokai
+# export FZF_DEFAULT_OPTS='--color=fg:-1,bg:-1,bg+:#293739,border:#808080,spinner:#E6DB74,hl:#7E8E91,header:#7E8E91,info:#A6E22E,pointer:#A6E22E,marker:#F92672,fg+:#F8F8F2,prompt:#F92672,hl+:#F92672'
+
+export FZF_DEFAULT_OPTS='--color=fg:-1,fg+:#d0d0d0,bg:-1,bg+:#262626
+  --color=hl:#5f87af,hl+:#5fd7ff,info:#afaf87,marker:#87ff00
+  --color=prompt:#d7005f,spinner:#af5fff,pointer:#87ff00,header:#87afaf
+  --color=border:#262626,query:#d9d9d9
+  --border="rounded" --preview-window="border-rounded" --prompt=": "
+  --marker=">" --pointer=">>" --separator="─" --scrollbar="│"'
+
 
 if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
@@ -134,7 +144,7 @@ if command -v eza >/dev/null 2>&1; then
   t(){
     local dir
     local depth
-    local flags="-l --icons -F=always --group-directories-first --color=always -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+    local flags="-hl --icons -F=always --group-directories-first --color=always -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
 
     for arg in "$@"; do
       if [[ "$arg" == -* ]]; then
@@ -406,12 +416,32 @@ zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
 # force zsh not to show completion menu, which allows fzf-tab to capture the unambiguous prefix
 zstyle ':completion:*' menu no
 # preview directory's content with eza when completing cd
-zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+# zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 # switch group using `<` and `>`
 zstyle ':fzf-tab:*' switch-group '<' '>'
 # tmux integration
 zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
+# give a preview of commandline arguments when completing `kill`
+zstyle ':completion:*:*:*:*:processes' command "ps -u $USER -o pid,user,comm -w -w"
+zstyle ':fzf-tab:complete:(kill|ps):argument-rest' fzf-preview \
+  '[[ $group == "[process ID]" ]] && ps --pid=$word -o cmd --no-headers -w -w'
+zstyle ':fzf-tab:complete:(kill|ps):argument-rest' fzf-flags --preview-window=down:3:wrap
+zstyle ':fzf-tab:complete:(-command-|-parameter-|-brace-parameter-|export|unset|expand):*' \
+	fzf-preview 'echo ${(P)word}'
+zstyle ':fzf-tab:complete:systemctl-*:*' fzf-preview 'SYSTEMD_COLORS=1 systemctl status $word'
+
+
+# custom
+zstyle ':fzf-tab:*' continuous-trigger 'tab'
+# zstyle ':fzf-tab:complete:less:*' fzf-preview 'eza -1 --color=always $realpath'
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'less ${(Q)realpath}'
+zstyle ':fzf-tab:complete:less:*' fzf-preview 'less ${(Q)realpath}'
+zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
+
+# zstyle ':fzf-tab:complete:less:*' fzf-preview 'rich -n -g --force-terminal $realpath'
 
 # # zoxide (must be at the end)
 # _ZO_ECHO=1
 # eval "$(zoxide init --cmd cd zsh)"
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
