@@ -109,19 +109,49 @@ if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
 fi
 
-t(){
-  local dir=${1:-.}
-  local depth=${2:-1}
-  local flags="-phCDF --dirsfirst --sort=name -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
-  
-  for arg in "$@"; do
-    if [[ "$arg" == -* ]]; then
-      flags+=" $arg"
-      break
-    fi
-  done
-  eval "tree $dir -L $depth $flags"
-}
+if command -v tree >/dev/null 2>&1; then
+  t(){
+    local dir
+    local depth
+    local flags="-phCDF --dirsfirst --sort=name -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+    
+    for arg in "$@"; do
+      if [[ "$arg" == -* ]]; then
+        flags+=" $arg"
+      elif [ -z "$dir" ]; then
+        dir="$arg"
+      elif [ -z "$depth" ]; then
+        depth="$arg"
+      fi
+    done
+    dir="${dir:-.}"
+    depth="${depth:-1}"
+    eval "tree $dir -L $depth $flags"
+  }
+fi
+# replace tree when eza is available
+if command -v eza >/dev/null 2>&1; then
+  t(){
+    local dir
+    local depth
+    local flags="-l --icons -F=always --group-directories-first --color=always -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+
+    for arg in "$@"; do
+      if [[ "$arg" == -* ]]; then
+        flags+=" $arg"
+      elif [ -z "$dir" ]; then
+        dir="$arg"
+      elif [ -z "$depth" ]; then
+        depth="$arg"
+      fi
+    done
+    dir="${dir:-.}"
+    depth="${depth:-1}"
+    eval "eza $dir -TL $depth $flags"
+  }
+  alias tsm="t -s=modified -r"
+fi
+
 
 tm4() {
   tmux new-session \; \
@@ -362,9 +392,25 @@ ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=23'
 # source additional zsh plugins
 source-git https://github.com/supasorn/fzf-z.git
 source-git https://github.com/Aloxaf/fzf-tab.git
-source-git https://github.com/changyuheng/zsh-interactive-cd.git 
 source-git https://github.com/zsh-users/zsh-autosuggestions.git
 source-git https://github.com/zsh-users/zsh-syntax-highlighting.git
+
+# common config for fzf-tab
+# disable sort when completing `git checkout`
+zstyle ':completion:*:git-checkout:*' sort false
+# set descriptions format to enable group support
+# NOTE: don't use escape sequences here, fzf-tab will ignore them
+zstyle ':completion:*:descriptions' format '[%d]'
+# set list-colors to enable filename colorizing
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+# force zsh not to show completion menu, which allows fzf-tab to capture the unambiguous prefix
+zstyle ':completion:*' menu no
+# preview directory's content with eza when completing cd
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+# switch group using `<` and `>`
+zstyle ':fzf-tab:*' switch-group '<' '>'
+# tmux integration
+zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
 
 # # zoxide (must be at the end)
 # _ZO_ECHO=1

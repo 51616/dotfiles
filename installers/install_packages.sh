@@ -1,9 +1,19 @@
 #!/bin/bash
 sudo apt update
 sudo apt install git tree wget zip cmake build-essential htop net-tools -y
-sudo apt install zsh tmux curl openssh-server sshfs -y
+sudo apt install zsh tmux curl openssh-server sshfs gpg -y
 sudo apt install ffmpeg openmpi-bin openmpi-common openmpi-doc libopenmpi-dev -y
-curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+
+# zoxide
+# curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+
+# eza
+sudo mkdir -p /etc/apt/keyrings
+wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+sudo apt update
+sudo apt install -y eza
 
 # pipx and rich-cli
 # for ubuntu 18
