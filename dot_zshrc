@@ -227,7 +227,7 @@ set_camera() {
 
 cmd_to_clip () { xclip -sel clip <<< $BUFFER }
 zle -N cmd_to_clip
-bindkey '^U' cmd_to_clip
+bindkey '^Y' cmd_to_clip
 
 bindkey ' ' magic-space
 
@@ -404,6 +404,36 @@ source-git https://github.com/supasorn/fzf-z.git
 source-git https://github.com/Aloxaf/fzf-tab.git
 source-git https://github.com/zsh-users/zsh-autosuggestions.git
 source-git https://github.com/zsh-users/zsh-syntax-highlighting.git
+
+if ! (( ${+FZFZ_PREVIEW_COMMAND} )); then
+    command -v eza >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        # FZFZ_PREVIEW_COMMAND='tree -C -L 2 -x --noreport --dirsfirst {}'
+        export FZFZ_PREVIEW_COMMAND='eza -TL 1 -h -F=always --color=always --group-directories-first --icons {}'
+    else
+        export FZFZ_PREVIEW_COMMAND='ls -1 -R {}'
+    fi
+fi
+
+# Preview file content using bat (https://github.com/sharkdp/bat)
+export FZF_CTRL_T_OPTS="
+  --preview 'bat -n --color=always {}'
+  --bind 'ctrl-/:change-preview-window(down|hidden|)'"
+
+# CTRL-/ to toggle small preview window to see the full command
+# CTRL-Y to copy the command into clipboard using pbcopy
+export FZF_CTRL_R_OPTS="
+  --preview 'echo {}'
+  --preview-window up:3:hidden:wrap
+  --bind 'ctrl-/:toggle-preview'
+  --bind 'ctrl-y:execute-silent(echo -n {2..} | xclip -sel clip)+abort'
+  --color header:italic
+  --height 60%
+  --header 'Press CTRL-/ to toggle preview, CTRL-Y to copy command into clipboard'"
+
+# Print tree structure in the preview window
+# export FZF_ALT_C_OPTS="--preview 'tree -C {}'"
+export FZF_ALT_C_OPTS="--preview 'eza -TL 1 -h --color=always --group-directories-first --icons {}'" 
 
 # common config for fzf-tab
 # disable sort when completing `git checkout`
