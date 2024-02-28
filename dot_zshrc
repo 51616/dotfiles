@@ -81,6 +81,7 @@ HIST_STAMPS="yyyy-mm-dd"
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(
   git
+  z
   extract
   colored-man-pages
 )
@@ -359,11 +360,12 @@ ZSH_HIGHLIGHT_PATTERNS+=('sudo shred *' 'fg=magenta,bold,standout')
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=23'
 
 # source additional zsh plugins
+source-git https://github.com/supasorn/fzf-z.git
+source-git https://github.com/Aloxaf/fzf-tab.git
 source-git https://github.com/changyuheng/zsh-interactive-cd.git 
 source-git https://github.com/zsh-users/zsh-autosuggestions.git
 source-git https://github.com/zsh-users/zsh-syntax-highlighting.git
-source-git https://github.com/supasorn/fzf-z.git
 
-# zoxide (must be at the end)
-_ZO_ECHO=1
-eval "$(zoxide init --cmd cd zsh)"
+# # zoxide (must be at the end)
+# _ZO_ECHO=1
+# eval "$(zoxide init --cmd cd zsh)"
