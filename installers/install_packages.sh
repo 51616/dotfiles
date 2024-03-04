@@ -36,5 +36,8 @@ ln -s /usr/bin/batcat ~/.local/bin/bat
 # for ubuntu 20-22
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
-python3 -m pipx install rich-cli
-python3 -m pipx inject rich-cli Pygments
+pipx install rich-cli
+# pipx inject rich-cli Pygments
+pipx install gdown
+pipx install tldr
+
