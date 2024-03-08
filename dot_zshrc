@@ -145,7 +145,7 @@ if command -v eza >/dev/null 2>&1; then
   t(){
     local dir
     local depth
-    local flags="-hl --icons -F=always --group-directories-first --color=always -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+    local flags="-hl --icons=auto -F=auto --group-directories-first --color=auto -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
 
     for arg in "$@"; do
       if [[ "$arg" == -* ]]; then

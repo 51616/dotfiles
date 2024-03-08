@@ -6,5 +6,6 @@
 ./install_nerd_font.sh
 ./install_zsh.sh
 ./install_vim.sh
+./install_oh_my_tmux.sh
 ./install_conda.sh
 ./install_nvidia_driver.sh
