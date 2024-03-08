@@ -7,6 +7,8 @@ sudo apt install libevent-dev ncurses-dev bison pkg-config
 # zoxide
 # curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
 
+# git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
 # fzf
 git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/uninstall
