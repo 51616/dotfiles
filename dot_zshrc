@@ -120,6 +120,10 @@ if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
 fi
 
+cdtm(){
+  eval "z $1 && tmn $1"
+}
+
 if command -v tree >/dev/null 2>&1; then
   t(){
     local dir
