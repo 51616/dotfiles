@@ -123,6 +123,7 @@ fi
 cdtm(){
   eval "z $1 && tmn $1"
 }
+alias ztm='cdtm'
 
 if command -v tree >/dev/null 2>&1; then
   t(){
@@ -149,7 +150,7 @@ if command -v eza >/dev/null 2>&1; then
   t(){
     local dir
     local depth
-    local flags="-hl --icons=auto -F=auto --group-directories-first --color=auto -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+    local flags="-l --git --icons=auto -F=auto --group-directories-first --color=auto -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
 
     for arg in "$@"; do
       if [[ "$arg" == -* ]]; then
@@ -189,6 +190,15 @@ ssync() {
   cmd="ssh server 'rsync -hvrt --progress --update --delete \"/home/tan/research/$1\" cluster:\"/ist/ist-share/all/$1\"'"
   echo $cmd
   eval $cmd
+}
+
+# gh-copilot-cli functions
+explain(){
+  eval "gh copilot explain '$@'"
+}
+
+suggest(){
+  eval "gh copilot suggest '$@'"
 }
 
 fshere() {
@@ -450,8 +460,6 @@ zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
 # force zsh not to show completion menu, which allows fzf-tab to capture the unambiguous prefix
 zstyle ':completion:*' menu no
-# preview directory's content with eza when completing cd
-# zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 # switch group using `<` and `>`
 zstyle ':fzf-tab:*' switch-group '<' '>'
 # tmux integration
