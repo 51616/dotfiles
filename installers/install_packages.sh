@@ -27,6 +27,22 @@ sudo apt install bat
 mkdir -p ~/.local/bin
 ln -s /usr/bin/batcat ~/.local/bin/bat
 
+# theme fot bat
+mkdir -p "$(bat --config-dir)/themes"
+wget -P "$(bat --config-dir)/themes" https://github.com/catppuccin/bat/raw/main/themes/Catppuccin%20Mocha.tmTheme
+bat cache --build
+
+# delta
+# get the .deb latest release
+curl -s https://api.github.com/repos/dandavison/delta/releases/latest \
+| grep "browser_download_url.*musl.*amd.*.*deb" \
+| cut -d : -f 2,3 | tr -d \" | wget -qi -
+sudo dpkg -i git-delta*.deb
+
+# clone theme for delta
+# the theme config is set in .gitconfig
+git clone https://github.com/catppuccin/delta.git ~/delta
+
 # pipx and rich-cli
 # for ubuntu 18
 # sudo apt-get install python3.8 python3-pip python3.8-venv -y

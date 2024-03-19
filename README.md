@@ -12,3 +12,11 @@ install the rest
 chezmoi cd
 . installers/install.sh
 ```
+
+see also
+
+- https://github.com/catppuccin/cursors
+- https://github.com/catppuccin/firefox
+- https://github.com/catppuccin/userstyles (e.g., github, google) 
+- https://github.com/catppuccin/grub
+

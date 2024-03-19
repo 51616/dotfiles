@@ -1,0 +1,24 @@
+[user]
+	email = rujikorn.ch@gmail.com
+	name = 51616
+[safe]
+	directory = /home/tan/research/coop_marl
+	directory = /home/tan/research/PyRL-text-to-testcase
+	directory = /home/tan/research/coop_marl/rebar
+[credential "https://github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+  required = true
+[include]
+	path = ~/delta/themes/mocha.gitconfig
+[delta]
+  side-by-side = true
+	features = catppuccin-mocha
+
