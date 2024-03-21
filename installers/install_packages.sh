@@ -1,11 +1,14 @@
 #!/bin/bash
 sudo apt update
 sudo apt install git tree wget zip cmake build-essential htop net-tools -y
-sudo apt install zsh tmux curl openssh-server sshfs gpg jq -y
+sudo apt install zsh tmux curl openssh-server sshfs gpg jq python3 -y
 sudo apt install ffmpeg openmpi-bin openmpi-common openmpi-doc libopenmpi-dev -y
-sudo apt install libevent-dev ncurses-dev bison pkg-config -y
+sudo apt install libfreetype6-dev libevent-dev ncurses-dev bison pkg-config -y
+sudo apt install libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev -y
+
 # zoxide
-# curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+# curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
+# | bash
 
 # git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 
@@ -16,8 +19,10 @@ git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 
 # eza
 sudo mkdir -p /etc/apt/keyrings
-wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
-echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \ 
+| sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
+| sudo tee /etc/apt/sources.list.d/gierens.list
 sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
 sudo apt update
 sudo apt install -y eza
@@ -29,7 +34,8 @@ ln -s /usr/bin/batcat ~/.local/bin/bat
 
 # theme fot bat
 mkdir -p "$(bat --config-dir)/themes"
-wget -P "$(bat --config-dir)/themes" https://github.com/catppuccin/bat/raw/main/themes/Catppuccin%20Mocha.tmTheme
+wget -P "$(bat --config-dir)/themes" \
+https://github.com/catppuccin/bat/raw/main/themes/Catppuccin%20Mocha.tmTheme
 bat cache --build
 
 # delta
@@ -42,6 +48,12 @@ sudo dpkg -i git-delta*.deb
 # clone theme for delta
 # the theme config is set in .gitconfig
 git clone https://github.com/catppuccin/delta.git ~/delta
+
+# rust
+# curl https://sh.rustup.rs -sSf | sh
+
+# alacritty
+# cargo install alacritty
 
 # pipx and rich-cli
 # for ubuntu 18

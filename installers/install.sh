@@ -8,3 +8,5 @@
 ./install_vim.sh
 ./install_conda.sh
 ./install_nvidia_driver.sh
+./install_xfce_term_theme.sh
+
