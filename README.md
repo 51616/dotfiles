@@ -19,4 +19,6 @@ see also
 - https://github.com/catppuccin/firefox
 - https://github.com/catppuccin/userstyles (e.g., github, google) 
 - https://github.com/catppuccin/grub
+- https://github.com/catppuccin/xed
+- https://github.com/catppuccin/gedit
 

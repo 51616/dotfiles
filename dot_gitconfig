@@ -20,7 +20,7 @@
 	path = ~/.config/delta/themes/mocha.gitconfig
 [delta]
   side-by-side = true
-	features = catppuccin-mocha
+ 	features = catppuccin-mocha
   navigate = true    # use n and N to move between diff sections
 [core]
     pager = delta
