@@ -53,10 +53,10 @@
     <property name="snap_to_border" type="empty"/>
     <property name="snap_to_windows" type="empty"/>
     <property name="snap_width" type="empty"/>
-    <property name="theme" type="string" value="Sweet-mars"/>
+    <property name="theme" type="string" value="Catppuccin-Mocha-B"/>
     <property name="tile_on_move" type="empty"/>
     <property name="title_alignment" type="string" value="center"/>
-    <property name="title_font" type="string" value="Droid Sans Fallback 9"/>
+    <property name="title_font" type="string" value="Droid Sans Fallback 10"/>
     <property name="title_horizontal_offset" type="empty"/>
     <property name="title_shadow_active" type="empty"/>
     <property name="title_shadow_inactive" type="empty"/>

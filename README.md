@@ -22,3 +22,10 @@ see also
 - https://github.com/catppuccin/xed
 - https://github.com/catppuccin/gedit
 
+gtk themes + icons
+
+- https://github.com/ljmill/catppuccin-icons/releases/
+- https://www.xfce-look.org/p/1715554/
+
+system font
+- droid sans fallback
