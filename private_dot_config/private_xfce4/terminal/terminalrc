@@ -1,7 +1,7 @@
 [Configuration]
-BackgroundDarkness=0.900000
-ColorCursor=#3fffbfff95a2
-ColorPalette=#000000;#cc0000;#4e9a06;#c4a000;#3465a4;#75507b;#06989a;#d3d7cf;#555753;#ef2929;#8ae234;#fce94f;#739fcf;#ad7fa8;#34e2e2;#eeeeec
+BackgroundDarkness=0.950000
+ColorCursor=#F5E0DC
+ColorPalette=#45475A;#F38BA8;#A6E3A1;#F9E2AF;#89B4FA;#F5C2E7;#94E2D5;#BAC2DE;#585B70;#F38BA8;#A6E3A1;#F9E2AF;#89B4FA;#F5C2E7;#94E2D5;#A6ADC8
 FontName=FiraCode Nerd Font weight=450 14
 MiscAlwaysShowTabs=FALSE
 MiscBell=FALSE
@@ -31,12 +31,17 @@ MiscNewTabAdjacent=FALSE
 CommandLoginShell=TRUE
 ColorCursorUseDefault=FALSE
 ScrollingLines=10000
-ColorForeground=#fffff361dddd
+ColorForeground=#CDD6F4
 ScrollingOnOutput=FALSE
 ScrollingOnKeystroke=FALSE
 TitleMode=TERMINAL_TITLE_HIDE
 TitleInitial=
 ScrollingBar=TERMINAL_SCROLLBAR_NONE
 BackgroundMode=TERMINAL_BACKGROUND_TRANSPARENT
-ColorBackground=#101014141c1c
+ColorBackground=#1E1E2E
+ColorCursorForeground=#11111B
+ColorSelection=#CDD6F4
+ColorSelectionBackground=#585B70
+ColorSelectionUseDefault=FALSE
+TabActivityColor=#FAB387
 

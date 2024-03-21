@@ -47,7 +47,7 @@ sudo dpkg -i git-delta*.deb
 
 # clone theme for delta
 # the theme config is set in .gitconfig
-git clone https://github.com/catppuccin/delta.git ~/delta
+git clone https://github.com/catppuccin/delta.git ~/.config/delta
 
 # rust
 # curl https://sh.rustup.rs -sSf | sh
