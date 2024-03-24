@@ -15,6 +15,8 @@ chezmoi cd
 
 see also
 
+- https://www.warp.dev/
+- https://github.com/catppuccin/warp
 - https://github.com/catppuccin/cursors
 - https://github.com/catppuccin/firefox
 - https://github.com/catppuccin/userstyles (e.g., github, google) 
@@ -28,4 +30,6 @@ gtk themes + icons
 - https://www.xfce-look.org/p/1715554/
 
 system font
+
 - droid sans fallback
+

@@ -8,9 +8,9 @@ chsh -s /usr/bin/zsh
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/themes/powerlevel10k
 
 # download syntax-highlight theme
-git clone https://github.com/catppuccin/zsh-syntax-highlighting.git
-cd zsh-syntax-highlighting/themes/
-cp -v catppuccin_mocha-zsh-syntax-highlighting.zsh ~/.zsh/
+# git clone https://github.com/catppuccin/zsh-syntax-highlighting.git
+# cd zsh-syntax-highlighting/themes/
+# cp -v catppuccin_mocha-zsh-syntax-highlighting.zsh ~/.zsh/
 
 # download syntax-highlight theme
 # mkdir -p ~/.config/fsh
