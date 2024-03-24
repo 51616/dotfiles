@@ -26,6 +26,8 @@ see also
 
 gtk themes + icons
 
+- https://github.com/M7S/dockbarx
+- https://snapcraft.io/install/gtk-common-themes/ubuntu
 - https://github.com/ljmill/catppuccin-icons/releases/
 - https://www.xfce-look.org/p/1715554/
 
