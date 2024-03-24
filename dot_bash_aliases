@@ -28,3 +28,6 @@ alias rgf='rg --files | rg'
 alias c!="fc -ln -1 | xclip -sel clip"
 alias pdfdiff="/home/tan/git/pdfdiff/pdfdiff.py"
 alias copy="xclip -sel clip"
+
+alias lg='lazygit'
+
