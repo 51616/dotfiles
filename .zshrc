@@ -199,6 +199,25 @@ vdot(){
     --layout=reverse --bind 'enter:execute(nvim {})' --preview 'bat --color=always {}' --preview-window=right,70% --color header:italic --header 'Managed dotfiles' --bind 'change:reload:(eval "$FZF_DEFAULT_COMMAND")'
 }
 
+tma(){
+  last_sess=$(tm ls -F '#{session_name} #{session_last_attached}' | sort -k2n | tail -n 1 | awk '{print $1}')
+  # echo "$last_sess"
+  local sess_name
+  local args
+  local flags=""
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+        flags+=" $arg"
+    elif [ -z "$sess_name" ]; then
+        sess_name="$arg"
+    fi
+  done
+  if [ -z "$sess_name" ]; then
+    sess_name="$last_sess"
+  fi
+  eval "tmux a -t $flags $sess_name"
+}
+
 tm4() {
   tmux new-session \; \
   send-keys "cd $1" C-m \; \
