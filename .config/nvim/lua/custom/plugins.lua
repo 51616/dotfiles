@@ -4,9 +4,8 @@ local plugins = {
     lazy = false
   },
   {
-    "xiyaowong/virtcolumn.nvim",
-    lazy = false
-  },
+    "artempyanykh/marksman"
+  }
 }
 
 return plugins
