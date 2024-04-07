@@ -28,7 +28,6 @@ MiscRewrapOnResize=TRUE
 MiscUseShiftArrowsToScroll=FALSE
 MiscSlimTabs=FALSE
 MiscNewTabAdjacent=FALSE
-CommandLoginShell=TRUE
 ColorCursorUseDefault=FALSE
 ScrollingLines=10000
 ColorForeground=#CDD6F4
@@ -44,4 +43,5 @@ ColorSelection=#CDD6F4
 ColorSelectionBackground=#585B70
 ColorSelectionUseDefault=FALSE
 TabActivityColor=#FAB387
+CommandLoginShell=TRUE
 
