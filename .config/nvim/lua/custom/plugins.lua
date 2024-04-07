@@ -4,8 +4,20 @@ local plugins = {
     lazy = false
   },
   {
-    "artempyanykh/marksman"
-  }
+    "nvim-treesitter/nvim-treesitter",
+    opts = {
+      ensure_installed = {
+        "vim",
+        "lua",
+        "vimdoc",
+        "html",
+        "css",
+        "python",
+        "markdown",
+        "markdown_inline"
+       },
+    },
+  },
 }
 
 return plugins
