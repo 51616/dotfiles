@@ -17,6 +17,12 @@ if command -v rich >/dev/null 2>&1; then
   export RICH_THEME=lightbulb
 fi
 
+if command -v nvim >/dev/null 2>&1; then
+  # export LESSOPEN="|rich -n -g --force-terminal %s"
+  export SUDO_EDITOR=/opt/nvim/nvim
+  export EDITOR=opt/nvim/nvim 
+fi
+
 # faster paste
 export DISABLE_MAGIC_FUNCTIONS=true
 
