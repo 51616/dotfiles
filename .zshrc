@@ -109,7 +109,7 @@ export FZF_CTRL_R_OPTS="--reverse"
 
 export LD_LIBRARY_PATH="/usr/local/lib/"
 
-export TERM="xterm-256color"
+# export TERM="xterm-256color"
 
 # tomasr/molokai
 # export FZF_DEFAULT_OPTS='--color=fg:-1,bg:-1,bg+:#293739,border:#808080,spinner:#E6DB74,hl:#7E8E91,header:#7E8E91,info:#A6E22E,pointer:#A6E22E,marker:#F92672,fg+:#F8F8F2,prompt:#F92672,hl+:#F92672'
