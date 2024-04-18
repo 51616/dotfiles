@@ -5,6 +5,8 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+# TODO: refactor .zshrc to self-contain files to be sourced, this file is getting big!
+
 # If you come from bash you might have to change your $PATH.
 export PATH="$PATH:/opt/nvim/" 
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
@@ -148,7 +150,7 @@ if command -v tree >/dev/null 2>&1; then
   t(){
     local dir
     local depth
-    local flags="-phCDF --dirsfirst --sort=name -I '.*\\.(idea|git|venv|node_modules|venv).*|\\.DS_Store'"
+    local flags="-phCDF --dirsfirst --sort=name -I '.*\\.(idea|git|node_modules|venv).*|\\.DS_Store'"
     
     for arg in "$@"; do
       if [[ "$arg" == -* ]]; then
@@ -366,6 +368,8 @@ precmd_functions+=(_fix_cursor)
 # fix no match problem
 unsetopt nomatch
 
+# TODO: dont do conda init on zsh
+# TODO: move this block to another file
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
 __conda_setup="$('/home/tan/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
@@ -380,7 +384,6 @@ else
 fi
 unset __conda_setup
 # <<< conda initialize <<<
-#
 # set path
 
 # hn="$(hostname)"
@@ -389,12 +392,44 @@ unset __conda_setup
 # fi
 # PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
 
-CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
-export CPATH=${CONDA_PREFIX}/include:${CPATH}
-export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
-export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}
+# CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
+# export CPATH=${CONDA_PREFIX}/include:${CPATH}
+# export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
+# export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}
+
 export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+
+# conda utils
+if command -v conda >/dev/null 2>&1; then
+    # deactivate all conda envs
+    deact() {
+        while [ ! -z $CONDA_PREFIX ]; do conda deactivate; done
+    }
+    alias act='conda activate'
+    # vact
+    vact() {
+        # current path venv folder
+        rel_venv_path=$(ls -a | grep venv)
+        # check if venv exists
+        if [ -z $rel_venv_path ]; then
+            echo "No venv found in current path"
+            return
+        fi
+        eval "act $rel_venv_path/"
+    }
+    # automate conda env create and symlink to current path
+    venv_here() {
+      eval "conda create $@"
+      # get env name, arg that follows -n or --name with a white space
+      env_name=$(echo $@ | grep -m1 -oP '(?<=--name |-n )([\S]+)')
+      eval "act" # activate base env just to get $CONDA_PREFIX
+      # eval "echo $CONDA_PREFIX/envs/$env_name"
+      eval "ln -s $CONDA_PREFIX/envs/$env_name .venv"
+      eval "deact"
+    }
+fi
+
 
 # poetry
 export PATH="$HOME/.poetry/bin:$PATH"
