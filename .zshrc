@@ -131,7 +131,6 @@ export FZF_DEFAULT_OPTS=" \
 --border='rounded' --preview-window='border-rounded' --prompt=': ' \
 --marker='>' --pointer='>>' --separator='─' --scrollbar='│'"
 
-
 if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
 fi
@@ -297,10 +296,9 @@ set_camera() {
 # zle -N copy_line_to_x_clipboard
 # bindkey '^U' copy_line_to_x_clipboard # binded to ctrl-u
 
-cmd_to_clip () { xclip -sel clip <<< $BUFFER }
+cmd_to_clip () { echo -n $BUFFER | xclip -sel clip }
 zle -N cmd_to_clip
 bindkey '^Y' cmd_to_clip
-
 bindkey ' ' magic-space
 
 ### Fix slowness of pastes with zsh-syntax-highlighting.zsh
@@ -368,8 +366,7 @@ precmd_functions+=(_fix_cursor)
 # fix no match problem
 unsetopt nomatch
 
-# TODO: dont do conda init on zsh
-# TODO: move this block to another file
+# TODO: This block is handled by conda init, shouldn't be in VCS 
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
 __conda_setup="$('/home/tan/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
@@ -392,21 +389,13 @@ unset __conda_setup
 # fi
 # PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
 
-# CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
-# export CPATH=${CONDA_PREFIX}/include:${CPATH}
-# export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
-# export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}
-
-export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
-export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
-
 # conda utils
 if command -v conda >/dev/null 2>&1; then
     # deactivate all conda envs
+    alias act='conda activate'
     deact() {
         while [ ! -z $CONDA_PREFIX ]; do conda deactivate; done
     }
-    alias act='conda activate'
     # vact
     vact() {
         # current path venv folder
@@ -428,15 +417,20 @@ if command -v conda >/dev/null 2>&1; then
       eval "ln -s $CONDA_PREFIX/envs/$env_name .venv"
       eval "deact"
     }
+    
+    # TODO: get rid of these!
+    eval "act"
+    # CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
+    # export CPATH=${CONDA_PREFIX}/include:${CPATH}
+    # export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
+    export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
+    # export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
+    # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+    eval "deact"
 fi
-
 
 # poetry
 export PATH="$HOME/.poetry/bin:$PATH"
-
-# SC2
-export SC2PATH='/home/tan/research/coop_marl/StarCraftII'
-
 # ROS
 # export PATH="/usr/lib/llvm-10/bin:$PATH"
 # export MANPATH="/home/linuxbrew/.linuxbrew/share/man:$MANPATH"
@@ -530,6 +524,7 @@ export FZF_CTRL_T_OPTS="
 
 # CTRL-/ to toggle small preview window to see the full command
 # CTRL-Y to copy the command into clipboard using pbcopy
+# enter to execute the command right away
 export FZF_CTRL_R_OPTS="
   --preview 'echo {}'
   --preview-window up:3:hidden:wrap
@@ -576,7 +571,7 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 # zstyle ':fzf-tab:complete:less:*' fzf-preview 'rich -n -g --force-terminal $realpath'
 
-# # zoxide (must be at the end)
+# zoxide (must be at the end)
 # _ZO_ECHO=1
 # eval "$(zoxide init --cmd cd zsh)"
 
