@@ -105,31 +105,7 @@ SAVEHIST=$HISTSIZE
 # Appends every command to the history file once it is executed
 setopt inc_append_history
 
-export FZFZ_SUBDIR_LIMIT=0
-export FZFZ_EXTRA_OPTS="--reverse"
-export FZF_CTRL_R_OPTS="--reverse"
-
 export LD_LIBRARY_PATH="/usr/local/lib/"
-
-# export TERM="xterm-256color"
-
-# tomasr/molokai
-# export FZF_DEFAULT_OPTS='--color=fg:-1,bg:-1,bg+:#293739,border:#808080,spinner:#E6DB74,hl:#7E8E91,header:#7E8E91,info:#A6E22E,pointer:#A6E22E,marker:#F92672,fg+:#F8F8F2,prompt:#F92672,hl+:#F92672'
-
-# export FZF_DEFAULT_OPTS='--color=fg:-1,fg+:#d0d0d0,bg:-1,bg+:#262626
-#   --color=hl:#5f87af,hl+:#5fd7ff,info:#afaf87,marker:#87ff00
-#   --color=prompt:#d7005f,spinner:#af5fff,pointer:#87ff00,header:#87afaf
-#   --color=border:#262626,query:#d9d9d9
-#   --border="rounded" --preview-window="border-rounded" --prompt=": "
-#   --marker=">" --pointer=">>" --separator="─" --scrollbar="│"'
-
-export FZF_DEFAULT_OPTS=" \
---color=fg:-1,bg:-1 \
---color=bg+:#313244,bg:#1e1e2e,spinner:#f5e0dc,hl:#f38ba8 \
---color=fg:#cdd6f4,header:#f38ba8,info:#cba6f7,pointer:#f5e0dc \
---color=marker:#f5e0dc,fg+:#cdd6f4,prompt:#cba6f7,hl+:#f38ba8 \
---border='rounded' --preview-window='border-rounded' --prompt=': ' \
---marker='>' --pointer='>>' --separator='─' --scrollbar='│'"
 
 if [ -f ~/.bash_aliases ]; then
 . ~/.bash_aliases
@@ -517,6 +493,17 @@ if ! (( ${+FZFZ_PREVIEW_COMMAND} )); then
     fi
 fi
 
+export FZF_DEFAULT_OPTS=" \
+--color=fg:-1,bg:-1 \
+--color=bg+:#313244,bg:#1e1e2e,spinner:#f5e0dc,hl:#f38ba8 \
+--color=fg:#cdd6f4,header:#f38ba8,info:#cba6f7,pointer:#f5e0dc \
+--color=marker:#f5e0dc,fg+:#cdd6f4,prompt:#cba6f7,hl+:#f38ba8 \
+--border='rounded' --preview-window='border-rounded' --prompt=': ' \
+--marker='>' --pointer='>>' --separator='─' --scrollbar='│'"
+export FZFZ_SUBDIR_LIMIT=0
+# export FZFZ_EXTRA_OPTS="--reverse"
+# export FZF_CTRL_R_OPTS="--reverse"
+
 # Preview file content using bat (https://github.com/sharkdp/bat)
 export FZF_CTRL_T_OPTS="
   --preview 'bat -n --color=always {}'
@@ -526,6 +513,7 @@ export FZF_CTRL_T_OPTS="
 # CTRL-Y to copy the command into clipboard using pbcopy
 # enter to execute the command right away
 export FZF_CTRL_R_OPTS="
+  --layout=reverse
   --preview 'echo {}'
   --preview-window up:3:hidden:wrap
   --bind 'ctrl-/:toggle-preview'
@@ -576,3 +564,11 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 # eval "$(zoxide init --cmd cd zsh)"
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+#
+fzf-history-widget-accept() {
+  fzf-history-widget
+  zle accept-line
+}
+zle     -N   fzf-history-widget-accept
+bindkey '^R' fzf-history-widget-accept
+
