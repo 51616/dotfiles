@@ -178,7 +178,7 @@ dot(){
 }
 
 vdot(){
-  FZF_DEFAULT_COMMAND='git --git-dir=$HOME/.dotfiles --work-tree=$HOME ls-files' fzf \
+  FZF_DEFAULT_COMMAND='git --git-dir=$HOME/.dotfiles --work-tree=$HOME ls-files $HOME' fzf \
     --layout=reverse --bind 'enter:execute(nvim {})' --preview 'bat --color=always {}' --preview-window=right,70% --color header:italic --header 'Managed dotfiles' --bind 'change:reload:(eval "$FZF_DEFAULT_COMMAND")'
 }
 
