@@ -513,7 +513,6 @@ export FZF_CTRL_T_OPTS="
 # CTRL-Y to copy the command into clipboard using pbcopy
 # enter to execute the command right away
 export FZF_CTRL_R_OPTS="
-  --layout=reverse
   --preview 'echo {}'
   --preview-window up:3:hidden:wrap
   --bind 'ctrl-/:toggle-preview'
