@@ -130,5 +130,9 @@ fi
 
 # export "PATH=/home/tan/.cargo/bin/cargo:$PATH"
 # . "$HOME/.cargo/env"
-
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
+
+if [[ $- == *i* ]]; then
+  zsh
+  exit
+fi

@@ -5,6 +5,7 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+
 # TODO: refactor .zshrc to self-contain files to be sourced, this file is getting big!
 
 # If you come from bash you might have to change your $PATH.
@@ -108,7 +109,11 @@ setopt inc_append_history
 export LD_LIBRARY_PATH="/usr/local/lib/"
 
 if [ -f ~/.bash_aliases ]; then
-. ~/.bash_aliases
+  source ~/.bash_aliases
+fi
+
+if [ -f ~/.profile.local ]; then
+  source ~/.profile.local
 fi
 
 cdtm(){
@@ -395,11 +400,11 @@ if command -v conda >/dev/null 2>&1; then
     }
     
     # TODO: get rid of these!
-    eval "act"
+    # eval "act"
     # CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
     # export CPATH=${CONDA_PREFIX}/include:${CPATH}
     # export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
-    export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
+    # export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
     # export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
     # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
     eval "deact"
