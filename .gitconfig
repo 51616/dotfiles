@@ -1,10 +1,6 @@
 [user]
 	email = rujikorn.ch@gmail.com
 	name = 51616
-[safe]
-	directory = /home/tan/research/coop_marl
-	directory = /home/tan/research/PyRL-text-to-testcase
-	directory = /home/tan/research/coop_marl/rebar
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
