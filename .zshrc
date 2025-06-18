@@ -9,8 +9,8 @@ fi
 # TODO: refactor .zshrc to self-contain files to be sourced, this file is getting big!
 
 # If you come from bash you might have to change your $PATH.
-export PATH="$PATH:/opt/nvim/" 
-export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
+# export PATH="$PATH:/opt/nvim/" 
+# export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
 export LESS='-R'
 eval $(lesspipe)
@@ -22,8 +22,8 @@ fi
 
 if command -v nvim >/dev/null 2>&1; then
   # export LESSOPEN="|rich -n -g --force-terminal %s"
-  export SUDO_EDITOR=/opt/nvim/nvim
-  export EDITOR=opt/nvim/nvim 
+  export SUDO_EDITOR=$(which nvim)
+  export EDITOR=$(which nvim)
 fi
 
 # faster paste
@@ -411,7 +411,7 @@ if command -v conda >/dev/null 2>&1; then
 fi
 
 # poetry
-export PATH="$HOME/.poetry/bin:$PATH"
+# export PATH="$HOME/.poetry/bin:$PATH"
 # ROS
 # export PATH="/usr/lib/llvm-10/bin:$PATH"
 # export MANPATH="/home/linuxbrew/.linuxbrew/share/man:$MANPATH"
