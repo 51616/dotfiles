@@ -13,7 +13,7 @@
 	process = git-lfs filter-process
   required = true
 [include]
-	path = ~/.config/delta/themes/mocha.gitconfig
+	path = ~/.config/delta/themes/catppuccin/catppuccin.gitconfig
 [delta]
   features = default
 [delta "default"]
