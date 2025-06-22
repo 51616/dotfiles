@@ -360,7 +360,7 @@ unsetopt nomatch
 #         export PATH="/home/tan/miniconda3/bin:$PATH"
 #     fi
 # fi
-unset __conda_setup
+# unset __conda_setup
 # <<< conda initialize <<<
 # set path
 
@@ -371,44 +371,44 @@ unset __conda_setup
 # PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
 
 # conda utils
-if command -v conda >/dev/null 2>&1; then
-    # deactivate all conda envs
-    alias act='conda activate'
-    deact() {
-        while [ ! -z $CONDA_PREFIX ]; do conda deactivate; done
-    }
-    # vact
-    vact() {
-        # current path venv folder
-        rel_venv_path=$(ls -a | grep venv)
-        # check if venv exists
-        if [ -z $rel_venv_path ]; then
-            echo "No venv found in current path"
-            return
-        fi
-        eval "act $rel_venv_path/"
-    }
-    # automate conda env create and symlink to current path
-    venv_here() {
-      eval "conda create $@"
-      # get env name, arg that follows -n or --name with a white space
-      env_name=$(echo $@ | grep -m1 -oP '(?<=--name |-n )([\S]+)')
-      eval "act" # activate base env just to get $CONDA_PREFIX
-      # eval "echo $CONDA_PREFIX/envs/$env_name"
-      eval "ln -s $CONDA_PREFIX/envs/$env_name .venv"
-      eval "deact"
-    }
-    
-    # TODO: get rid of these!
-    # eval "act"
-    # CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
-    # export CPATH=${CONDA_PREFIX}/include:${CPATH}
-    # export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
-    # export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
-    # export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
-    # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
-    eval "deact"
-fi
+# if command -v conda >/dev/null 2>&1; then
+#     # deactivate all conda envs
+#     alias act='conda activate'
+#     deact() {
+#         while [ ! -z $CONDA_PREFIX ]; do conda deactivate; done
+#     }
+#     # vact
+#     vact() {
+#         # current path venv folder
+#         rel_venv_path=$(ls -a | grep venv)
+#         # check if venv exists
+#         if [ -z $rel_venv_path ]; then
+#             echo "No venv found in current path"
+#             return
+#         fi
+#         eval "act $rel_venv_path/"
+#     }
+#     # automate conda env create and symlink to current path
+#     venv_here() {
+#       eval "conda create $@"
+#       # get env name, arg that follows -n or --name with a white space
+#       env_name=$(echo $@ | grep -m1 -oP '(?<=--name |-n )([\S]+)')
+#       eval "act" # activate base env just to get $CONDA_PREFIX
+#       # eval "echo $CONDA_PREFIX/envs/$env_name"
+#       eval "ln -s $CONDA_PREFIX/envs/$env_name .venv"
+#       eval "deact"
+#     }
+#
+#     # TODO: get rid of these!
+#     # eval "act"
+#     # CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
+#     # export CPATH=${CONDA_PREFIX}/include:${CPATH}
+#     # export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
+#     # export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
+#     # export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
+#     # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+#     eval "deact"
+# fi
 
 # poetry
 # export PATH="$HOME/.poetry/bin:$PATH"
@@ -423,9 +423,9 @@ fi
 # source /opt/ros/melodic/setup.zsh
 
 # NVM
-# export NVM_DIR="$HOME/.nvm"
-# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # golang
 # export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
@@ -569,10 +569,35 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 #
-fzf-history-widget-accept() {
-  fzf-history-widget
-  zle accept-line
+# fzf-history-widget-accept() {
+#   fzf-history-widget
+#   zle accept-line
+# }
+# zle     -N   fzf-history-widget-accept
+# bindkey '^R' fzf-history-widget-accept
+fzf-history-widget() {
+   local selected num
+   setopt localoptions noglobsubst noposixbuiltins pipefail 2> /dev/null
+   selected=( $(fc -rl 1 |
+     FZF_DEFAULT_OPTS="--height ${FZF_TMUX_HEIGHT:-40%} $FZF_DEFAULT_OPTS -n2..,.. --tiebreak=index --bind=ctrl-r:toggle-sort --expect=ctrl-e $FZF_CTRL_R_OPTS --query=${(qqq)LBUFFER} +m" $(__fzfcmd)) )
+   echo $selected
+   local ret=$?
+   if [ -n "$selected" ]; then
+     local accept=0
+     if [[ $selected[1] = ctrl-e ]]; then
+       accept=1
+       shift selected
+     fi
+     num=$selected[1]
+     if [ -n "$num" ]; then
+       zle vi-fetch-history -n $num
+       [[ $accept = 0 ]] && zle accept-line
+     fi
+   fi
+   zle reset-prompt
+   return $ret
 }
-zle     -N   fzf-history-widget-accept
-bindkey '^R' fzf-history-widget-accept
+zle     -N   fzf-history-widget
+bindkey '^R' fzf-history-widget
+
 
