@@ -563,30 +563,21 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 # zstyle ':fzf-tab:complete:less:*' fzf-preview 'rich -n -g --force-terminal $realpath'
 
-# zoxide (must be at the end)
-# _ZO_ECHO=1
-# eval "$(zoxide init --cmd cd zsh)"
-
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-#
-# fzf-history-widget-accept() {
-#   fzf-history-widget
-#   zle accept-line
-# }
-# zle     -N   fzf-history-widget-accept
-# bindkey '^R' fzf-history-widget-accept
+
 fzf-history-widget() {
    local selected num
    setopt localoptions noglobsubst noposixbuiltins pipefail 2> /dev/null
    selected=( $(fc -rl 1 |
-     FZF_DEFAULT_OPTS="--height ${FZF_TMUX_HEIGHT:-40%} $FZF_DEFAULT_OPTS -n2..,.. --tiebreak=index --bind=ctrl-r:toggle-sort --expect=ctrl-e $FZF_CTRL_R_OPTS --query=${(qqq)LBUFFER} +m" $(__fzfcmd)) )
-   echo $selected
+     FZF_DEFAULT_OPTS="--height ${FZF_TMUX_HEIGHT:-40%} $FZF_DEFAULT_OPTS --tiebreak=index --bind=ctrl-r:toggle-sort --expect=ctrl-e $FZF_CTRL_R_OPTS --query=${(qqq)LBUFFER} +m" $(__fzfcmd)) )
    local ret=$?
    if [ -n "$selected" ]; then
      local accept=0
      if [[ $selected[1] = ctrl-e ]]; then
        accept=1
        shift selected
+       BUFFER="fc $selected[1]" && zle accept-line
+       return $ret 
      fi
      num=$selected[1]
      if [ -n "$num" ]; then
@@ -599,5 +590,4 @@ fzf-history-widget() {
 }
 zle     -N   fzf-history-widget
 bindkey '^R' fzf-history-widget
-
 
