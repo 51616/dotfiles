@@ -1,11 +1,3 @@
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block, everything else may go below.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
-  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
-fi
-
-
 # TODO: refactor .zshrc to self-contain files to be sourced, this file is getting big!
 
 # If you come from bash you might have to change your $PATH.
@@ -106,7 +98,6 @@ SAVEHIST=$HISTSIZE
 # Appends every command to the history file once it is executed
 setopt inc_append_history
 
-export LD_LIBRARY_PATH="/usr/local/lib/"
 
 if [ -f ~/.bash_aliases ]; then
   source ~/.bash_aliases
@@ -229,15 +220,6 @@ ssync() {
   eval $cmd
 }
 
-# gh-copilot-cli functions
-explain(){
-  eval "gh copilot explain '$@'"
-}
-
-suggest(){
-  eval "gh copilot suggest '$@'"
-}
-
 fshere() {
   cmd="sshfs -o cache=no -o IdentityFile=/home/$USER/.ssh/id_rsa $USER@$@ $PWD"
   echo $cmd
@@ -262,20 +244,6 @@ source-git() {
 _fix_cursor() {
    echo -ne '\e[5 q'
 }
-
-set_camera() {
-  v4l2-ctl --set-ctrl zoom_absolute=140
-  v4l2-ctl --set-ctrl sharpness=160
-  v4l2-ctl --set-ctrl brightness=80
-  v4l2-ctl --set-ctrl white_balance_temperature_auto=0
-  v4l2-ctl --set-ctrl white_balance_temperature=4700
-}
-
-# copy_line_to_x_clipboard () {
-#   printf %s "$READLINE_LINE" | xclip -sel clip
-# }
-# zle -N copy_line_to_x_clipboard
-# bindkey '^U' copy_line_to_x_clipboard # binded to ctrl-u
 
 cmd_to_clip () { echo -n $BUFFER | xclip -sel clip }
 zle -N cmd_to_clip
@@ -341,86 +309,10 @@ precmd_functions+=(_fix_cursor)
   ####-tns-completion-end-###
 #fi
 
-# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-[[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
+eval "$(oh-my-posh init zsh)"
 
 # fix no match problem
 unsetopt nomatch
-
-# TODO: This block is handled by conda init, shouldn't be in VCS 
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-# __conda_setup="$('/home/tan/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-# if [ $? -eq 0 ]; then
-#     eval "$__conda_setup"
-# else
-#     if [ -f "/home/tan/miniconda3/etc/profile.d/conda.sh" ]; then
-#         . "/home/tan/miniconda3/etc/profile.d/conda.sh"
-#     else
-#         export PATH="/home/tan/miniconda3/bin:$PATH"
-#     fi
-# fi
-# unset __conda_setup
-# <<< conda initialize <<<
-# set path
-
-# hn="$(hostname)"
-# if [[ $hn == "51616" ]]; then
-#   conda activate python39
-# fi
-# PATH="/home/tan/miniconda3/bin:$PATH" # always add base conda env to path
-
-# conda utils
-# if command -v conda >/dev/null 2>&1; then
-#     # deactivate all conda envs
-#     alias act='conda activate'
-#     deact() {
-#         while [ ! -z $CONDA_PREFIX ]; do conda deactivate; done
-#     }
-#     # vact
-#     vact() {
-#         # current path venv folder
-#         rel_venv_path=$(ls -a | grep venv)
-#         # check if venv exists
-#         if [ -z $rel_venv_path ]; then
-#             echo "No venv found in current path"
-#             return
-#         fi
-#         eval "act $rel_venv_path/"
-#     }
-#     # automate conda env create and symlink to current path
-#     venv_here() {
-#       eval "conda create $@"
-#       # get env name, arg that follows -n or --name with a white space
-#       env_name=$(echo $@ | grep -m1 -oP '(?<=--name |-n )([\S]+)')
-#       eval "act" # activate base env just to get $CONDA_PREFIX
-#       # eval "echo $CONDA_PREFIX/envs/$env_name"
-#       eval "ln -s $CONDA_PREFIX/envs/$env_name .venv"
-#       eval "deact"
-#     }
-#
-#     # TODO: get rid of these!
-#     # eval "act"
-#     # CONDA_PREFIX=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
-#     # export CPATH=${CONDA_PREFIX}/include:${CPATH}
-#     # export LIBRARY_PATH=${CONDA_PREFIX}/lib:${LIBRARY_PATH}
-#     # export LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH} # this is needed for tmux!?
-#     # export LD_LIBRARY_PATH=${HOME}/.mujoco/mujoco200/bin:${LD_LIBRARY_PATH}
-#     # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
-#     eval "deact"
-# fi
-
-# poetry
-# export PATH="$HOME/.poetry/bin:$PATH"
-# ROS
-# export PATH="/usr/lib/llvm-10/bin:$PATH"
-# export MANPATH="/home/linuxbrew/.linuxbrew/share/man:$MANPATH"
-# export INFOPATH="/home/linuxbrew/.linuxbrew/share/info:$INFOPATH"
-# export PATH="/home/tan/.local/share/solana/install/active_release/bin:$PATH"
-# export PATH="/home/tan/.avm/bin:$PATH"
-# export ROS_HOSTNAME=localhost # 10.204.226.74 # localhost
-# export ROS_MASTER_URI=http://localhost:11311 # http://10.204.226.74:11311 # http://localhost:11311
-# source /opt/ros/melodic/setup.zsh
 
 # NVM
 export NVM_DIR="$HOME/.nvm"
