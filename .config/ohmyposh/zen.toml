@@ -12,17 +12,7 @@ blue     = "#8AADF4"
 type = "prompt"
 alignment = "left"
 newline = true
-
-  # Path with " ~" only when cwd is ~, otherwise " <path>"
-  # [[blocks.segments]]
-  # type = "path"
-  # style = "plain"
-  # foreground = "p:blue"
-  # template = "{{ if eq .Path \"~\" }} ~{{ else }} {{ .Path }}{{ end }} "
-  # Bold first + last path parts (best-effort).
-  # - Works great for "~/<...>/<last>"
-  # - For "/" it will just show "/"
-    # ICON (separate segment)
+  # ICON segment (separate)
   [[blocks.segments]]
   type = "path"
   style = "plain"
@@ -30,29 +20,43 @@ newline = true
   template = '{{ if eq .Path "~" }} {{ else }} {{ end }}'
   separator = " "
 
-  # PATH FIRST (bold): "~" or "/<firstdir>" or "/" (root)
+# PATH segment (one segment, handles / correctly; slashes always non-bold + middle-colored)
   [[blocks.segments]]
   type = "path"
   style = "plain"
-  foreground = "#0ba7f1"
-  template = '{{ $p := .Path }}{{ $parts := splitList "/" $p }}{{ if eq $p "~" }}<b>~</b> {{ else if eq $p "/" }}/ {{ else if eq (index $parts 0) "~" }}<b>~</b>{{ else }}/<b>{{ index $parts 1 }}</b>{{ end }}'
+  template = '{{ $p := .Path }}{{ $firstColor := "#0ba7f1" }}{{ $midColor := "#86aeae" }}{{ if eq $p "~" }}<b><{{ $firstColor }}>~</></b>{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{/* absolute */}}{{ if eq $p "/" }}<{{ $midColor }}>/</>{{ else }}<{{ $midColor }}>/</>{{ range $i, $s := $parts }}{{ if gt $i 0 }}{{ if or (eq $i 1) (eq $i $last) }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ if lt $i $last }}<{{ $midColor }}>/</>{{ end }}{{ end }}{{ end }}{{ end }}{{ else }}{{/* home: starts with "~" */}}<b><{{ $firstColor }}>~</></b>{{ range $i, $s := $parts }}{{ if gt $i 0 }}<{{ $midColor }}>/</>{{ if eq $i $last }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ end }}{{ end }}{{ end }}{{ end }} '
   properties = { style = "full", home_icon = "~" } 
+  # # FIRST (cyan, bold): "~" for home paths, or first dir for absolute paths ("tmp"), or "/" for root
+  # [[blocks.segments]]
+  # type = "path"
+  # style = "plain"
+  # foreground = "#0ba7f1"
+  # template = '{{ $p := .Path }}{{ $parts := splitList "/" $p }}{{ if eq $p "~" }}<b>~</b> {{ else if eq $p "/" }}/ {{ else if eq (index $parts 0) "~" }}<b>~</b>{{ else }}<b>{{ index $parts 1 }}</b>{{ end }}'
+  # properties = { style = "full", home_icon = "~" }
+  #
+  # # MIDDLE (blue): directories between first and last (no leading/trailing extra slash beyond "/name")
+  # [[blocks.segments]]
+  # type = "path"
+  # style = "plain"
+  # foreground = "#86aeae"
+  # template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{ range $i, $s := $parts }}{{ if and (gt $i 1) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ else }}{{ range $i, $s := $parts }}{{ if and (gt $i 0) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ end }}{{ end }}'
+  # properties = { style = "full", home_icon = "~" }
+  #
+  # # SLASH BEFORE LAST (blue): always the separator between previous and last, except at "~" or "/"
+  # [[blocks.segments]]
+  # type = "path"
+  # style = "plain"
+  # foreground = "#86aeae"
+  # template = '{{ $p := .Path }}{{ if and (ne $p "~") (ne $p "/") }}/{{ end }}'
+  #
+  # # LAST (cyan, bold): last directory name only (no slash)
+  # [[blocks.segments]]
+  # type = "path"
+  # style = "plain"
+  # foreground = "#0ba7f1"
+  # template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}<b>{{ index $parts (sub (len $parts) 1) }}</b>{{ end }} '
+  # properties = { style = "full", home_icon = "~" }
 
-  # PATH 2/3: MIDDLE sections (not bold)
-  [[blocks.segments]]
-  type = "path"
-  style = "plain"
-  foreground = "#86aeae"
-  template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{ range $i, $s := $parts }}{{ if and (gt $i 1) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ else }}{{ range $i, $s := $parts }}{{ if and (gt $i 0) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ end }}{{ end }}'
-  properties = { style = "full", home_icon = "~" }
-
-  # PATH 3/3: LAST section (bold)
-  [[blocks.segments]]
-  type = "path"
-  style = "plain"
-  foreground = "#0ba7f1"
-  template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := index $parts (sub $n 1) }}/<b>{{ $last }}</b>{{ end }} '
-  properties = { style = "full", home_icon = "~" }
   # Git branch (only shows when inside a git repo)
   [[blocks.segments]]
   type = "git"
@@ -74,7 +78,7 @@ newline = true
 [[blocks]]
 type = "prompt"
 alignment = "right"
-filler = "·"
+filler = "<#575757,transparent>·</>"
   [[blocks.segments]]
   type = 'executiontime'
   style = 'plain'
