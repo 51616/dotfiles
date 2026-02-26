@@ -1,0 +1,122 @@
+version = 2
+final_space = true
+
+[palette]
+os       = "#ACB0BE"
+closer   = "p:os"
+pink     = "#F5BDE6"
+lavender = "#B7BDF8"
+blue     = "#8AADF4"
+
+[[blocks]]
+type = "prompt"
+alignment = "left"
+newline = true
+
+  # Path with " ~" only when cwd is ~, otherwise " <path>"
+  # [[blocks.segments]]
+  # type = "path"
+  # style = "plain"
+  # foreground = "p:blue"
+  # template = "{{ if eq .Path \"~\" }} ~{{ else }} {{ .Path }}{{ end }} "
+  # Bold first + last path parts (best-effort).
+  # - Works great for "~/<...>/<last>"
+  # - For "/" it will just show "/"
+    # ICON (separate segment)
+  [[blocks.segments]]
+  type = "path"
+  style = "plain"
+  foreground = "#86aeae"
+  template = '{{ if eq .Path "~" }} {{ else }} {{ end }}'
+  separator = " "
+
+  # PATH FIRST (bold): "~" or "/<firstdir>" or "/" (root)
+  [[blocks.segments]]
+  type = "path"
+  style = "plain"
+  foreground = "#0ba7f1"
+  template = '{{ $p := .Path }}{{ $parts := splitList "/" $p }}{{ if eq $p "~" }}<b>~</b> {{ else if eq $p "/" }}/ {{ else if eq (index $parts 0) "~" }}<b>~</b>{{ else }}/<b>{{ index $parts 1 }}</b>{{ end }}'
+  properties = { style = "full", home_icon = "~" } 
+
+  # PATH 2/3: MIDDLE sections (not bold)
+  [[blocks.segments]]
+  type = "path"
+  style = "plain"
+  foreground = "#86aeae"
+  template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{ range $i, $s := $parts }}{{ if and (gt $i 1) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ else }}{{ range $i, $s := $parts }}{{ if and (gt $i 0) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ end }}{{ end }}'
+  properties = { style = "full", home_icon = "~" }
+
+  # PATH 3/3: LAST section (bold)
+  [[blocks.segments]]
+  type = "path"
+  style = "plain"
+  foreground = "#0ba7f1"
+  template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := index $parts (sub $n 1) }}/<b>{{ $last }}</b>{{ end }} '
+  properties = { style = "full", home_icon = "~" }
+  # Git branch (only shows when inside a git repo)
+  [[blocks.segments]]
+  type = "git"
+  style = "plain"
+  foreground = "p:lavender"
+  template = "{{ .HEAD }} "
+  [blocks.segments.properties]
+  branch_icon = "\ue725 "
+  cherry_pick_icon = "\ue29b "
+  commit_icon = "\uf417 "
+  fetch_status = false
+  fetch_upstream_icon = false
+  merge_icon = "\ue727 "
+  no_commits_icon = "\uf0c3 "
+  rebase_icon = "\ue728 "
+  revert_icon = "\uf0e2 "
+  tag_icon = "\uf412 "
+
+[[blocks]]
+type = "prompt"
+alignment = "right"
+filler = "·"
+  [[blocks.segments]]
+  type = 'executiontime'
+  style = 'plain'
+  foreground = '#86865f'
+  background = 'transparent'
+  template = ' {{ .FormattedMs }}'
+
+    [blocks.segments.properties]
+    threshold = 5000
+    style = 'round'
+
+
+  [[blocks.segments]]
+  type = "text"
+  style = "plain"
+  foreground = "#d6ae87"
+  template = " {{ .UserName }}@{{ .HostName }}"
+
+[[blocks]]
+type = 'prompt'
+alignment = 'left'
+newline = true
+
+  [[blocks.segments]]
+  type = 'text'
+  style = 'plain'
+  foreground_templates = [
+    "{{if gt .Code 0}}red{{end}}",
+    "{{if eq .Code 0}}#5dfeb0{{end}}",
+  ]
+  background = 'transparent'
+  template = '❯'
+
+[transient_prompt]
+foreground_templates = [
+  "{{if gt .Code 0}}red{{end}}",
+  "{{if eq .Code 0}}#5dfeb0{{end}}",
+]
+background = 'transparent'
+template = '❯ '
+
+[secondary_prompt]
+foreground = '#5dfeb0'
+background = 'transparent'
+template = '❯❯ '
