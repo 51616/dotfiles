@@ -1,0 +1,29 @@
+---
+name: <skill-name>
+description: |
+  Use when: <concrete trigger(s)>
+  Don’t use when: <common confusion> (use <other-skill> or <alternative> instead)
+  Outputs: <artifacts + success criteria>
+---
+
+# <skill-name>
+
+## Flow
+
+1) ...
+2) ...
+3) ...
+
+## Supporting files (only open when needed)
+
+- `templates/...`
+- `examples/...`
+- `scripts/...`
+
+## Verification
+
+- ... (one command or one observable check)
+
+## Edge cases / negative examples (optional)
+
+- Don’t use when ...; instead ...
