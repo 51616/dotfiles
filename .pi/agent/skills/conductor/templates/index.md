@@ -3,8 +3,8 @@
 This folder contains the durable context that should guide agent work.
 
 ## Definition
-- [Product Definition](./product.md)
-- [Product Guidelines](./product-guidelines.md)
+- [Project Definition](./project.md)
+- [Project Guidelines](./project-guidelines.md)
 - [Tech Stack](./tech-stack.md)
 
 ## Workflow

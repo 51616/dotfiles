@@ -1,6 +1,6 @@
-# Product Guidelines
+# Project Guidelines
 
-This file encodes product identity and communication rules (voice/tone/UX principles). Edit carefully.
+This file encodes project identity and communication rules (voice/tone/UX principles). Edit carefully.
 
 ## Voice & tone
 - 

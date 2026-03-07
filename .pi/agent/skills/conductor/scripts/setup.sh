@@ -11,7 +11,7 @@ Usage: setup.sh [--root <path>] [--force]
 Scaffold Conductor-style context files in a target repo.
 
 Creates (under <root>):
-  conductor/{index.md,product.md,product-guidelines.md,tech-stack.md,workflow.md,tracks.md}
+  conductor/{index.md,project.md,project-guidelines.md,tech-stack.md,workflow.md,tracks.md}
   conductor/tracks/
   conductor/code_styleguides/
 EOF
@@ -62,8 +62,8 @@ copy_tpl() {
 }
 
 copy_tpl "index.md" "conductor/index.md"
-copy_tpl "product.md" "conductor/product.md"
-copy_tpl "product-guidelines.md" "conductor/product-guidelines.md"
+copy_tpl "project.md" "conductor/project.md"
+copy_tpl "project-guidelines.md" "conductor/project-guidelines.md"
 copy_tpl "tech-stack.md" "conductor/tech-stack.md"
 copy_tpl "workflow.md" "conductor/workflow.md"
 copy_tpl "tracks.md" "conductor/tracks.md"

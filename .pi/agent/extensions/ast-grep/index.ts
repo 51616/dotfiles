@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -10,8 +10,10 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { Type, type Static } from "@sinclair/typebox";
 import { accessSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Text } from "@mariozechner/pi-tui";
 
 const JsonStyle = StringEnum(["pretty", "stream", "compact"] as const);
 
@@ -89,7 +91,6 @@ interface AstGrepToolDetails {
 }
 
 function getThisDir(): string {
-	// Works in both CJS and ESM-ish execution environments.
 	try {
 		// @ts-expect-error - __dirname may not exist in ESM.
 		return __dirname as string;
@@ -105,8 +106,6 @@ function resolveAstGrepBinary(): { binary: string; hint?: string } {
 		accessSync(local);
 		return { binary: local };
 	} catch {
-		// Fall back to PATH. (We intentionally do NOT try `sg` because it commonly
-		// conflicts with the system `sg` command from util-linux/shadow.)
 		return {
 			binary: "ast-grep",
 			hint:
@@ -120,6 +119,94 @@ function writeTempOutputFile(output: string): string {
 	const file = join(dir, "output.txt");
 	writeFileSync(file, output, "utf8");
 	return file;
+}
+
+function shortenPath(p: unknown): string {
+	if (typeof p !== "string") return "";
+	const home = os.homedir();
+	if (p.startsWith(home)) return `~${p.slice(home.length)}`;
+	return p;
+}
+
+function truncateInline(text: string, max = 72): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= max) return normalized;
+	return `${normalized.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function summarizeList(values: string[], maxItems = 2): string {
+	if (values.length === 0) return "";
+	const shown = values.slice(0, maxItems).join(", ");
+	const remaining = values.length - maxItems;
+	return remaining > 0 ? `${shown} +${remaining}` : shown;
+}
+
+function buildCallSummary(args: any): string {
+	const parts: string[] = [];
+
+	if (typeof args?.pattern === "string" && args.pattern.trim()) {
+		parts.push(`pattern=${JSON.stringify(truncateInline(args.pattern, 80))}`);
+	} else if (args?.pattern != null) {
+		parts.push("pattern=[invalid]");
+	} else {
+		parts.push("pattern=...");
+	}
+
+	if (typeof args?.lang === "string" && args.lang.trim()) {
+		parts.push(`lang=${args.lang.trim()}`);
+	}
+
+	if (typeof args?.rewrite === "string" && args.rewrite.trim()) {
+		parts.push(`rewrite=${JSON.stringify(truncateInline(args.rewrite, 72))}`);
+	}
+
+	if (args?.apply === true) {
+		parts.push("apply=true");
+	}
+
+	if (Array.isArray(args?.paths) && args.paths.length > 0) {
+		const paths = args.paths.map((value: unknown) => shortenPath(value)).filter(Boolean);
+		if (paths.length > 0) parts.push(`paths=${summarizeList(paths, 2)}`);
+	}
+
+	if (Array.isArray(args?.globs) && args.globs.length > 0) {
+		const globs = args.globs
+			.map((value: unknown) => (typeof value === "string" ? value.trim() : ""))
+			.filter(Boolean);
+		if (globs.length > 0) parts.push(`globs=${summarizeList(globs, 2)}`);
+	}
+
+	if (Number.isInteger(args?.context)) {
+		parts.push(`context=${args.context}`);
+	} else {
+		if (Number.isInteger(args?.before)) parts.push(`before=${args.before}`);
+		if (Number.isInteger(args?.after)) parts.push(`after=${args.after}`);
+	}
+
+	if (typeof args?.json === "string" && args.json.trim()) {
+		parts.push(`json=${args.json.trim()}`);
+	}
+
+	if (Number.isInteger(args?.timeoutMs)) {
+		parts.push(`timeoutMs=${args.timeoutMs}`);
+	}
+
+	return parts.join(" ");
+}
+
+function joinTextBlocks(result: { content?: Array<{ type: string; text?: string }> } | undefined): string {
+	if (!result?.content) return "";
+	return result.content
+		.filter((c) => c.type === "text")
+		.map((c) => (c.text ?? "").replace(/\r/g, ""))
+		.join("\n");
+}
+
+function styleToolOutput(theme: any, text: string): string {
+	return text
+		.split("\n")
+		.map((line) => theme.fg("toolOutput", line))
+		.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -146,14 +233,12 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-
 			const { binary, hint } = resolveAstGrepBinary();
 
 			const args: string[] = ["run", "--pattern", params.pattern, "--color", "never"];
 			if (params.lang) args.push("--lang", params.lang);
 			if (params.rewrite) args.push("--rewrite", params.rewrite);
 
-			// Context flags: if `context` is provided, prefer it over before/after.
 			if (typeof params.context === "number") {
 				args.push("--context", String(params.context));
 			} else {
@@ -162,7 +247,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (params.json) {
-				// NOTE: ast-grep requires `=` when specifying a style.
 				args.push(`--json=${params.json}`);
 			}
 
@@ -177,7 +261,6 @@ export default function (pi: ExtensionAPI) {
 				const res = await pi.exec(binary, args, {
 					signal,
 					timeout: params.timeoutMs ?? 120000,
-					// Ensure we run from the project cwd (not the extension folder)
 					cwd: ctx.cwd,
 				});
 				stdout = res.stdout ?? "";
@@ -203,7 +286,6 @@ export default function (pi: ExtensionAPI) {
 
 			const combined = [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join("\n\n");
 
-			// ast-grep uses exit code 1 for "no matches". That shouldn't be treated as a tool error.
 			if (exitCode === 1 && combined.length === 0) {
 				return {
 					content: [{ type: "text", text: "No matches found." }],
@@ -235,7 +317,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (exitCode !== 0 && exitCode !== 1) {
-				// Keep the output (often contains the reason), but make the failure explicit.
 				text = `ast-grep exited with code ${exitCode}.\n\n` + (text || "(no output)");
 			}
 
@@ -243,6 +324,20 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: text || "(no output)" }],
 				details,
 			};
+		},
+
+		renderCall(args: any, theme: any) {
+			const title = theme.fg("accent", theme.bold("ast-grep"));
+			const summary = buildCallSummary(args);
+			const body = summary ? theme.fg("toolTitle", summary) : theme.fg("toolOutput", "...");
+			return new Text(`${title} ${body}`, 0, 0);
+		},
+
+		renderResult(result: any, options: ToolRenderResultOptions, theme: any) {
+			if (!options.expanded) return undefined;
+			const output = joinTextBlocks(result);
+			if (!output.trim()) return undefined;
+			return new Text(`\n${styleToolOutput(theme, output)}`, 0, 0);
 		},
 	});
 }

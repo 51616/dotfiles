@@ -53,6 +53,10 @@ export default function (pi: ExtensionAPI) {
 	// - expanded view (Ctrl+O): show the output inside the same tool block
 	// - keep background coloring unchanged (pending/success/error)
 	// - color-code the command text (read/write/edit/bash)
+	//
+	// ast-grep is intentionally rendered by the dedicated ast-grep extension.
+	// Re-registering it here creates duplicate tool conflicts when global/project
+	// copies are both present (common with symlinked shared extensions).
 
 	// read
 	{
@@ -136,7 +140,6 @@ export default function (pi: ExtensionAPI) {
 					out = highlighted ? text : styleToolOutput(theme, text);
 				}
 
-				// If tool produced additional text (e.g. error), include it underneath.
 				const toolText = joinTextBlocks(result);
 				if (toolText.trim()) {
 					const styledToolText = styleToolOutput(theme, toolText);

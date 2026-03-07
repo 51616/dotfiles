@@ -1,88 +1,182 @@
 ---
 name: conductor
 description: |
-  Use when: the user asks to plan or start/resume a track. When the user says "good luck" is also a good sign that you have a lot of work ahead and should use this skill.
+  Use when: the user asks to plan or start/resume a track, or when the work is large enough to benefit from a durable spec/plan/resume workflow. Trigger on phrases like "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly needs repo audit or explicit planning before implementation.
   Don’t use when: the task is a tiny one-off edit or simple Q&A (use normal repo editing instead), or when the user explicitly wants a repeated scrutiny loop with per-round `review -> trim -> implement` artifacts (use `conductor-scrutinize` instead).
 ---
 
 # conductor
 
-Conductor is a *repo-native* agent workflow: **Context → Spec & Plan → Implement**.
+Conductor is a *repo-native* workflow for larger work: **Audit → Structured Context → Spec & Behaviors → Plan → Implement → Review → Completion Sync**.
 
 If the work is explicitly a multi-round audit/scrutiny loop (review/trim/implement per round), switch to `conductor-scrutinize`.
 
-This skill ports the Conductor ideas (from the Google Developers blog + the Gemini CLI Conductor extension) into pi’s world: we keep durable context in Markdown files in the repo, and we drive implementation from `plan.md` checklists. Do not stop until the track implementation has been fully verified (except required manual tests). Do not resume existing tracks unless explicitly asked.
-
+This skill ports the Conductor ideas into pi’s world, but keeps the durable state in repo Markdown files instead of hiding the important bits in session history. Do not stop until the track implementation has been fully verified (except required manual tests). Do not resume existing tracks unless explicitly asked.
 
 ## Flow (practical)
 
-### 0) Decide if Conductor is worth it
+### 1) Audit the repo first (always)
 
-Use this when the task is complex enough that you’ll benefit from:
-- a written spec you can review
-- an explicit plan with checkboxes
-- resumability across sessions/machines
+Before setup or track planning, audit the repo to infer the current reality.
 
-If it’s “change two lines”, don’t spin up a track.
+Inspect enough to answer the important questions, preferring high-signal files first:
+- `README.md` and other top-level docs
+- dependency manifests / lockfiles
+- source layout / major entrypoints
+- test layout and test tooling
+- existing `conductor/` docs if present
 
-### 1) Setup project context (once per repo)
+From the audit, infer:
+- project summary / purpose
+- tech stack and architecture shape
+- workflow/testing conventions
+- obvious doc/code mismatches
+- missing or ambiguous decisions that need confirmation
+
+Rule:
+- infer first
+- confirm those inferences with the user
+- ask only for missing or ambiguous decisions
+
+Do **not** pretend the repo is blank if the code already tells us what it is.
+
+### 2) Setup project context (once per repo)
 
 1. Run scaffolding script (from anywhere):
    - `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/setup.sh" --root /path/to/repo`
-2. Interview the user briefly to fill in:
-   - `conductor/product.md`
-   - `conductor/product-guidelines.md` (optional, but useful for user-facing products)
+2. Use the audit to draft/fill:
+   - `conductor/project.md`
+   - `conductor/project-guidelines.md` (optional, but useful for user-facing projects)
    - `conductor/tech-stack.md`
-   - `conductor/workflow.md` (defaults are OK; customize if needed)
-3. Ensure `conductor/index.md` and `conductor/tracks.md` exist.
+   - `conductor/workflow.md`
+3. Confirm inferred answers with the user, then ask only for missing/ambiguous decisions.
+4. Ensure `conductor/index.md` and `conductor/tracks.md` exist.
 
-### 2) Create a track (spec + plan)
+This is a structured intake, not a vague “interview briefly”.
 
-1. Ask for a track description (or infer from the user's request).
-2. Create a **spec** first (what/why, constraints, acceptance criteria).
-3. Draft a **plan** with:
+### 3) Create a track (spec first, then plan)
+
+1. Infer track description from the user's request.
+2. Create a **spec** first. The spec must define the behavior contract before implementation.
+3. `spec.md` must include:
+   - context / goal / non-goals
+   - requirements
+   - **acceptance criteria**
+   - **expected behaviors**
+   - **scenario examples** (plain language, not Gherkin)
+   - constraints / assumptions / risks / open questions
+4. Propose a balanced set of scenarios by default:
+   - happy path
+   - key validation failures
+   - important edge cases
+   - ambiguity checks where needed
+5. **Require approval** of `spec.md` unless Tan explicitly says to skip approval. Return to the user before moving on.
+6. Draft a **plan** from the approved spec + behaviors:
    - phases → tasks → subtasks
    - `[ ]` checkboxes everywhere
-   - TDD-first implementation steps (red → green → refactor) for feature/bug phases
-   - one final “manual verification” meta-task per phase (if relevant)
-4. Create/maintain a **resume** (`resume.md`) with:
-   - current state + what’s in progress
+   - behavior-driven implementation slices
+   - tests-first steps when feasible
+   - verification + completion sync tasks
+7. **Require approval** of `plan.md` unless Tan explicitly says to skip approval. Return to the user before moving on.
+8. Create/maintain a **resume** (`resume.md`) with:
+   - current state
+   - active phase/task
+   - last completed step
+   - behaviors currently in scope
+   - blockers / risks / deviations
    - the next 1–3 concrete steps
    - exact verification commands
-   (This is what checkpoint notes should link to, and what a fresh `/new` session should read first.)
-4. Create the track artifacts:
+9. Create the track artifacts:
    - `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "..." --type feature`
 
-### 3) Implement from the plan
+The script scaffolds files. The agent still owns the thinking and should replace the template content with the approved spec/plan/resume state.
+
+### 4) Explicit user return points
+
+Keep the workflow tight. Return to the user only at these checkpoints:
+
+1. **After repo audit**
+   - purpose: confirm inferred project reality and resolve missing/ambiguous decisions before drafting context docs
+2. **After project-context drafts**
+   - purpose: approve or correct `project.md`, `project-guidelines.md`, `tech-stack.md`, and `workflow.md`
+3. **After `spec.md` draft**
+   - purpose: approve or revise acceptance criteria, expected behaviors, and scenario examples
+4. **After `plan.md` draft**
+   - purpose: approve or revise the execution plan
+5. **After review + track completion**
+   - purpose: summarize implementation, verification, review findings/fixes, and best-effort project doc sync
+
+Do **not** return during implementation to ask ad hoc behavior or scope questions. If anything is still ambiguous, resolve it before implementation starts.
+
+The review stage is also non-interactive by default. The agent should fix straightforward review findings itself, rerun review/verification as needed, and only return early if the review exposes a real contradiction or missing decision that should have been resolved during planning.
+
+### 5) Implement from the plan
+
+Implementation should be non-interactive once it starts.
 
 Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - when starting a work session (especially after `/new`), read `conductor/tracks/<track_id>/resume.md` first
+- map the current task back to the approved behaviors/scenarios in `spec.md`
 - mark the current task `[~]` before starting
-- implement + tests per `conductor/workflow.md`
-- mark `[x]` when done (optionally append a short commit SHA)
+- write tests first **when feasible**, using the approved behaviors/scenarios as the source of truth
+- if tests-first is not feasible, record why and define another verification method before coding
+- implement the smallest code change that satisfies the approved behavior
+- run the smallest meaningful verification command(s)
+- mark `[x]` when done
 - when stopping, update `resume.md` with the new current state + next steps
 
 Update `conductor/tracks.md` track status:
 - `[ ]` → `[~]` when starting implementation
 - `[~]` → `[x]` when complete
 
-### 4) Status / review / revert (optional)
+Conductor stays composable with nearby pi skills. Use companion skills where they help:
+- `verification-gate` for stronger handoff verification
+- `checkpointing` for long interruptions / compaction
+- `regular-commits` for git hygiene
 
-- Quick overview: `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/status.sh" --root /path/to/repo`
-- Review: compare what was built vs spec+plan and recommend fixes.
-- Revert: if you want Conductor-style logical reverts, you’ll need additional tooling; this skill only provides the file structure and protocol.
+### 6) Review before completion sync
+
+After implementation is done, run a lightweight review gate before marking the track complete.
+
+The review should be driven by the approved `spec.md` and `plan.md`, not by random style nitpicking. Check:
+- behavior/spec compliance
+- plan compliance / scope drift
+- whether tests and verification actually prove the approved behavior
+- obvious correctness, maintainability, safety, and observability issues
+- which docs now need sync
+
+Review outcomes:
+- **pass** → proceed to completion sync
+- **pass with minor notes** → fix the cheap issues, rerun the review if needed, then proceed
+- **fail** → return to implementation with explicit findings captured in `resume.md` (and `plan.md` if the plan itself needs correction)
+
+Keep this stage mostly agent-driven and non-interactive. The user should see the review result in the final handoff summary unless the review reveals a real contradiction that requires replanning.
+
+### 7) Completion sync
+
+At track completion, do a best-effort sync so the repo does not lie about current reality.
+
+Review and update as needed:
+- `conductor/project.md`
+- `conductor/tech-stack.md`
+- `conductor/workflow.md` (only if process assumptions materially changed)
+- the track docs for final consistency
+- `resume.md` so the terminal state is clear
+
+Keep this practical. The goal is to leave accurate docs behind, not to create ritual.
 
 ## Supporting files
 
 Templates (copied by scripts):
-- `templates/product.md`
-- `templates/product-guidelines.md`
+- `templates/project.md`
+- `templates/project-guidelines.md`
 - `templates/tech-stack.md`
 - `templates/workflow.md`
 - `templates/index.md`
 - `templates/tracks.md`
 - `templates/track/spec.md`
 - `templates/track/plan.md`
+- `templates/track/resume.md`
 - `templates/code_styleguides/*.md`
 
 Scripts:
@@ -95,11 +189,11 @@ Scripts:
 In any scratch repo:
 1. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/setup.sh" --root /path/to/repo`
 2. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "Test track" --type chore`
-3. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/status.sh" --root /path/to/repo`
+3. Inspect `conductor/project.md`, `conductor/tracks.md`, and `conductor/tracks/<track_id>/{spec.md,plan.md,resume.md}` to confirm the new sections are present.
+4. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/status.sh" --root /path/to/repo`
 
 You should see:
-- `conductor/index.md`, `conductor/tracks.md`
+- `conductor/index.md`, `conductor/tracks.md`, `conductor/project.md`, `conductor/tech-stack.md`, `conductor/workflow.md`
 - `conductor/tracks/<track_id>/{spec.md,plan.md,resume.md,metadata.json,index.md}`
-
 
 based on: https://developers.googleblog.com/conductor-introducing-context-driven-development-for-gemini-cli/
