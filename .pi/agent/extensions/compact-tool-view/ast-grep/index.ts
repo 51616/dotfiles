@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const JsonStyle = StringEnum(["pretty", "stream", "compact"] as const);
 
-const AstGrepToolParams = Type.Object({
+export const AstGrepToolParams = Type.Object({
 	pattern: Type.String({
 		description:
 			"AST pattern to match. Write it like code, using $VARS (e.g. $A, $MATCH) as wildcards.",
@@ -78,9 +78,9 @@ const AstGrepToolParams = Type.Object({
 	),
 });
 
-type AstGrepToolParams = Static<typeof AstGrepToolParams>;
+export type AstGrepToolParams = Static<typeof AstGrepToolParams>;
 
-interface AstGrepToolDetails {
+export interface AstGrepToolDetails {
 	binary: string;
 	args: string[];
 	exitCode: number;
@@ -105,8 +105,6 @@ function resolveAstGrepBinary(): { binary: string; hint?: string } {
 		accessSync(local);
 		return { binary: local };
 	} catch {
-		// Fall back to PATH. (We intentionally do NOT try `sg` because it commonly
-		// conflicts with the system `sg` command from util-linux/shadow.)
 		return {
 			binary: "ast-grep",
 			hint:
@@ -122,8 +120,8 @@ function writeTempOutputFile(output: string): string {
 	return file;
 }
 
-export default function (pi: ExtensionAPI) {
-	pi.registerTool({
+export function createAstGrepToolDefinition(pi: ExtensionAPI) {
+	return {
 		name: "ast-grep",
 		label: "ast-grep",
 		description:
@@ -146,14 +144,12 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-
 			const { binary, hint } = resolveAstGrepBinary();
 
 			const args: string[] = ["run", "--pattern", params.pattern, "--color", "never"];
 			if (params.lang) args.push("--lang", params.lang);
 			if (params.rewrite) args.push("--rewrite", params.rewrite);
 
-			// Context flags: if `context` is provided, prefer it over before/after.
 			if (typeof params.context === "number") {
 				args.push("--context", String(params.context));
 			} else {
@@ -162,7 +158,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (params.json) {
-				// NOTE: ast-grep requires `=` when specifying a style.
 				args.push(`--json=${params.json}`);
 			}
 
@@ -177,7 +172,6 @@ export default function (pi: ExtensionAPI) {
 				const res = await pi.exec(binary, args, {
 					signal,
 					timeout: params.timeoutMs ?? 120000,
-					// Ensure we run from the project cwd (not the extension folder)
 					cwd: ctx.cwd,
 				});
 				stdout = res.stdout ?? "";
@@ -203,7 +197,6 @@ export default function (pi: ExtensionAPI) {
 
 			const combined = [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join("\n\n");
 
-			// ast-grep uses exit code 1 for "no matches". That shouldn't be treated as a tool error.
 			if (exitCode === 1 && combined.length === 0) {
 				return {
 					content: [{ type: "text", text: "No matches found." }],
@@ -235,7 +228,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (exitCode !== 0 && exitCode !== 1) {
-				// Keep the output (often contains the reason), but make the failure explicit.
 				text = `ast-grep exited with code ${exitCode}.\n\n` + (text || "(no output)");
 			}
 
@@ -244,5 +236,9 @@ export default function (pi: ExtensionAPI) {
 				details,
 			};
 		},
-	});
+	};
+}
+
+export default function (pi: ExtensionAPI) {
+	pi.registerTool(createAstGrepToolDefinition(pi));
 }

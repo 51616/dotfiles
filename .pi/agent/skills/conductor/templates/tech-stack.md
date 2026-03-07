@@ -1,5 +1,7 @@
 # Tech Stack
 
+> Record current implementation reality first. Proposed stack changes belong in track specs until they are actually adopted.
+
 ## Languages
 - 
 
