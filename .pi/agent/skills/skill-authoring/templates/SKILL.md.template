@@ -3,7 +3,6 @@ name: <skill-name>
 description: |
   Use when: <concrete trigger(s)>
   Don’t use when: <common confusion> (use <other-skill> or <alternative> instead)
-  Outputs: <artifacts + success criteria>
 ---
 
 # <skill-name>
