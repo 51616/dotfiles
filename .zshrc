@@ -487,3 +487,36 @@ fzf-history-widget() {
 zle     -N   fzf-history-widget
 bindkey '^R' fzf-history-widget
 
+
+# bun completions
+[ -s "/home/tan/.bun/_bun" ] && source "/home/tan/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+# >>> PI_VAULT_ROOT (pi bootstrap) >>>
+export PI_VAULT_ROOT="/home/tan/vault"
+# <<< PI_VAULT_ROOT (pi bootstrap) <<<
+
+# >>> PI agent bin PATH (pi bootstrap) >>>
+export PATH="$HOME/.pi/agent/bin:$PATH"
+# <<< PI agent bin PATH (pi bootstrap) <<<
+
+# >>> vault-local pi wrapper >>>
+pi() {
+  local vault_root="${PI_VAULT_ROOT:-$HOME/vault}"
+  local pwd_real vault_real
+  pwd_real="$(pwd -P 2>/dev/null || pwd)"
+  vault_real="$(cd "$vault_root" 2>/dev/null && pwd -P)" || {
+    command pi "$@"
+    return
+  }
+
+  if [[ "$pwd_real" == "$vault_real" || "$pwd_real" == "$vault_real"/* ]]; then
+    "$vault_real/pi" "$@"
+  else
+    command pi "$@"
+  fi
+}
+# <<< vault-local pi wrapper <<<
