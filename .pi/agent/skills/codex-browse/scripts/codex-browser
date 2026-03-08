@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from typing import Optional
+
+MODEL = "gpt-5.3-codex"
+
+EXTRACT_TEMPLATE = (
+    "Extract the text of the main content from {url} and format it nicely as a markdown file. "
+    "Save the resulting text at /tmp. Reply whether or not you sucessfully extracted the content. "
+    "If so, print the path to the file in your response. Do not print the content itself in your response."
+)
+
+PROMPT_PREAMBLE = (
+    "You are acting as an internet access helper for pi. Use web search and open web pages as needed. "
+    "Be honest about uncertainty. When citing sources, include URLs. "
+    "If the user asks for large copied content, prefer saving it to /tmp and returning the path unless they explicitly ask to print it.\n\n"
+    "User request:\n"
+)
+
+
+def _require_codex_on_path() -> None:
+    if shutil.which("codex") is None:
+        print(
+            "Error: `codex` CLI not found on PATH. Install/login Codex first (e.g. `codex login`).",
+            file=sys.stderr,
+        )
+        raise SystemExit(127)
+
+
+def _last_agent_message_from_codex_jsonl(cmd: list[str]) -> str:
+    # We intentionally do not forward codex JSONL to stdout; we only return the last agent message.
+    # stderr is forwarded so failures are debuggable.
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr,
+        text=True,
+        bufsize=1,
+    )
+
+    last_msg: Optional[str] = None
+
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            # Shouldn't happen with --json, but don't hard-fail on a stray line.
+            continue
+
+        if ev.get("type") != "item.completed":
+            continue
+        item = ev.get("item")
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "agent_message":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            last_msg = text
+
+    rc = proc.wait()
+    if rc != 0:
+        raise SystemExit(rc)
+    if not last_msg:
+        print("Error: codex produced no agent_message in JSON output.", file=sys.stderr)
+        raise SystemExit(2)
+
+    return last_msg
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="codex-browser",
+        add_help=True,
+        description=(
+            "Codex-backed internet helper for pi.\n\n"
+            "Modes:\n"
+            "  codex-browser --extract-content <url>   Extract main content to markdown under /tmp (per fixed prompt).\n"
+            "                                      Prints the last agent response (expected to include the /tmp path).\n"
+            "  codex-browser <prompt>                 General prompt mode (you can ask it to browse/search/summarize/etc).\n"
+            "                                      Prints the last agent response.\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # General browsing / research\n"
+            "  codex-browser \"Find 5 high-quality sources about X. Return only a bullet list of URLs.\"\n\n"
+            "  # Summarize with citations\n"
+            "  codex-browser \"Research topic Y and summarize in 10 bullets. Include source URLs.\"\n\n"
+            "  # Extract main content (saves markdown under /tmp; response includes the path)\n"
+            "  codex-browser --extract-content https://example.com/article\n\n"
+            "  # Ask the agent to save large artifacts instead of printing them\n"
+            "  codex-browser \"Download the PDF at <url> and save it under /tmp. Reply with the path only.\"\n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--extract-content",
+        metavar="URL",
+        help="Extract main content from URL and save markdown under /tmp (prints last agent response).",
+    )
+    parser.add_argument(
+        "prompt",
+        nargs=argparse.REMAINDER,
+        help="Prompt mode (everything after options becomes the prompt).",
+    )
+
+    args = parser.parse_args()
+
+    _require_codex_on_path()
+
+    if args.extract_content:
+        prompt = EXTRACT_TEMPLATE.format(url=args.extract_content)
+    else:
+        user_prompt = " ".join(args.prompt).strip()
+        if not user_prompt:
+            parser.print_usage(sys.stderr)
+            print("error: missing prompt (or use --extract-content)", file=sys.stderr)
+            raise SystemExit(2)
+        prompt = PROMPT_PREAMBLE + user_prompt
+
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        MODEL,
+        "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        prompt,
+    ]
+
+    msg = _last_agent_message_from_codex_jsonl(cmd)
+    # Print exactly the agent response (nothing else).
+    sys.stdout.write(msg)
+    if not msg.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()
