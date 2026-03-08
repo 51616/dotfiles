@@ -1,11 +1,12 @@
 {
-  "lastChangelogVersion": "0.55.4",
+  "lastChangelogVersion": "0.57.0",
   "defaultThinkingLevel": "high",
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.2",
+  "defaultModel": "gpt-5.4",
   "enabledModels": [
     "openai-codex/gpt-5.2",
-    "openai-codex/gpt-5.3-codex"
+    "openai-codex/gpt-5.3-codex",
+    "openai-codex/gpt-5.4"
   ]
 }
