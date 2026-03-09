@@ -1,9 +1,6 @@
-HISTFILE=~/.zsh_history
-HISTSIZE=999999999
-SAVEHIST=$HISTSIZE
-
-# Appends every command to the history file once it is executed
-setopt inc_append_history
+# ~/.bash_profile
+#
+# Keep this file bash/POSIX-compatible. zsh-specific settings belong in ~/.zshrc.
 
 if [ -f ~/.profile.local ]; then
     source ~/.profile.local
