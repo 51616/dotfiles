@@ -1,3 +1,6 @@
+import { readdirSync, statSync } from "node:fs";
+import path from "node:path";
+
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   AUTOCHECKPOINT_DONE_MARKER,
@@ -50,6 +53,43 @@ export type FooterHandlerDeps = {
   ) => void;
 };
 
+function inferLatestCheckpointPath(maxAgeMs: number): string | null {
+  const dir = path.join("work", "log", "checkpoints");
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return null;
+  }
+
+  const nowMs = Date.now();
+
+  let bestPath: string | null = null;
+  let bestMtimeMs = -1;
+
+  for (const name of entries) {
+    if (!name.endsWith(".md")) continue;
+
+    const p = path.join(dir, name);
+
+    try {
+      const st = statSync(p);
+      const ageMs = nowMs - st.mtimeMs;
+      if (maxAgeMs > 0 && ageMs > maxAgeMs) continue;
+
+      if (st.mtimeMs > bestMtimeMs) {
+        bestMtimeMs = st.mtimeMs;
+        bestPath = p;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return bestPath;
+}
+
 export function handleAssistantMessageEnd(
   deps: FooterHandlerDeps,
   event: any,
@@ -66,6 +106,9 @@ export function handleAssistantMessageEnd(
   const customType = typeof msg === "object" ? String((msg as any)?.customType || "").trim() : "";
   if (customType) return;
 
+  const text = assistantTextFromContent((event?.message as any)?.content);
+  const sawDoneMarker = text.includes(AUTOCHECKPOINT_DONE_MARKER);
+
   const usage = deps.getUsage(ctx);
   const pct = usage?.percent;
   const threshold = deps.getThresholdPercent();
@@ -73,18 +116,28 @@ export function handleAssistantMessageEnd(
 
   // Parse footers when either:
   // - we are in an auto-kick cycle (we explicitly requested a checkpoint), OR
-  // - the context usage is currently above the threshold.
-  if (!deps.autoKick.isInFlight() && !aboveThreshold) return;
-
-  const text = assistantTextFromContent((event?.message as any)?.content);
+  // - the context usage is currently above the threshold, OR
+  // - the assistant explicitly emitted the done marker (manual [autockpt] runs)
+  if (!deps.autoKick.isInFlight() && !aboveThreshold && !sawDoneMarker) return;
 
   const parsed = parseCheckpointFooter(text, 8000);
-  if (!parsed) {
+
+  // If the assistant emitted the done marker but omitted `path=...`, try to infer the
+  // newest checkpoint file. This keeps the system resilient to minor LLM formatting slips.
+  let checkpointPath = parsed?.checkpointPath ?? "";
+  const compactionInstructions = parsed?.compactionInstructions ?? "";
+
+  if (!checkpointPath && sawDoneMarker) {
+    const inferred = inferLatestCheckpointPath(deps.maxCheckpointAgeMs);
+    if (inferred) {
+      checkpointPath = inferred;
+      deps.pushDebug(ctx, `message_end: footer missing path; inferred checkpointPath=${checkpointPath}`);
+    }
+  }
+
+  if (!checkpointPath) {
     // Only log if it *looks* like the assistant tried to emit the footer.
-    if (
-      deps.isDebugEnabled() &&
-      (text.includes(COMPACTION_INSTR_BEGIN) || text.includes(AUTOCHECKPOINT_DONE_MARKER))
-    ) {
+    if (deps.isDebugEnabled() && (text.includes(COMPACTION_INSTR_BEGIN) || sawDoneMarker)) {
       const lastLine = text.trimEnd().split("\n").slice(-1)[0] ?? "";
       deps.pushDebug(ctx, `message_end: footer not matched (lastLine='${lastLine.slice(0, 80)}')`);
     }
@@ -103,8 +156,6 @@ export function handleAssistantMessageEnd(
 
     return;
   }
-
-  const { checkpointPath, compactionInstructions } = parsed;
 
   if (!isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs)) {
     if (deps.isDebugEnabled()) {
