@@ -15,7 +15,7 @@ Workflow:
 - Apply: set `apply=true` only after the preview looks correct.
 
 # Python toolbox
-In the default system-wide python, you have access to the following pakages: requests, httpx, beautifulsoup4, lxml, trafilatura, markdownify, python-dotenv, tenacity, pydantic, orjson, numpy, pandas, polars, rich, typer, click, pytest, matplotlib, seaborn.
+In the default system-wide python, you have access to the following pakages: requests, httpx, beautifulsoup4, lxml, trafilatura, markdownify, pypdf, python-dotenv, tenacity, pydantic, orjson, numpy, pandas, polars, rich, typer, click, pytest, matplotlib, seaborn.
 
 # Efficient tool calling (terminal + script-first)
 
