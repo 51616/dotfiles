@@ -9,15 +9,40 @@ const NL = "\\r?\\n";
 const INDENT = "[\\t ]*";
 
 // Footer parser should be robust to indentation because the directive message shows the markers
-// inside an indented list. We still require the markers to appear as standalone lines (optionally
-// preceded/followed by spaces/tabs).
-const FOOTER_WITH_INSTR_RE = new RegExp(
+// inside an indented list.
+//
+// In practice, the LLM sometimes adds markdown bullets/backticks or slightly different whitespace.
+// This parser is intentionally tolerant so compaction remains reliable.
+const INSTRUCTION_BLOCK_RE = new RegExp(
   `(?:^|${NL})${INDENT}${COMPACTION_INSTR_BEGIN}${INDENT}${NL}` +
     `([\\s\\S]*?)` +
-    `${NL}${INDENT}${COMPACTION_INSTR_END}${INDENT}` +
-    `(?:${NL}${INDENT})+` +
-    `${INDENT}${AUTOCHECKPOINT_DONE_MARKER}\\s+path=([^\\r\\n]+?)\\s*$`,
+    `${NL}${INDENT}${COMPACTION_INSTR_END}${INDENT}(?:${NL}|$)`,
 );
+
+// Matches lines like:
+//   __pi_autocheckpoint_done__ path=work/log/checkpoints/....md
+// and tolerates bullets / surrounding backticks:
+//   - `__pi_autocheckpoint_done__ path=...md.`
+const DONE_LINE_RE = new RegExp(
+  `^${INDENT}(?:[-*]\\s*)?(?:\`+)?${AUTOCHECKPOINT_DONE_MARKER}(?:\`+)?(?:\\s+path=([^\\r\\n]+?))?\\s*$`,
+  "gm",
+);
+
+function sanitizeCheckpointPath(value: string): string {
+  let p = String(value || "").trim();
+
+  // Strip common markdown wrappers.
+  p = p.replace(/^[`"']+/, "").replace(/[`"']+$/, "");
+
+  // Strip common trailing punctuation that the model sometimes appends.
+  // (Keep this conservative so we don't mangle valid paths.)
+  p = p.replace(/[\]\)\.,;:]+$/, "");
+
+  // Occasionally the path gets wrapped in parentheses.
+  p = p.replace(/^\(+/, "").replace(/\)+$/, "");
+
+  return p.trim();
+}
 
 export function shouldParseFooterGate(args: {
   handledThisTurn: boolean;
@@ -52,18 +77,26 @@ export function parseCheckpointFooter(
   maxInstructionChars = 8000,
 ): { checkpointPath: string; compactionInstructions: string } | null {
   const raw = String(text || "");
-  const matched = raw.match(FOOTER_WITH_INSTR_RE);
-  if (!matched) return null;
+  if (!raw.includes(AUTOCHECKPOINT_DONE_MARKER)) return null;
 
-  const checkpointPath = String(matched[2] || "").trim();
-  if (!checkpointPath) return null;
+  // Extract the last done-marker line. (The directive message may contain examples earlier.)
+  const matches = Array.from(raw.matchAll(DONE_LINE_RE));
+  if (!matches.length) return null;
 
-  let compactionInstructions = String(matched[1] || "").trim();
-  if (compactionInstructions && compactionInstructions.length > maxInstructionChars) {
-    compactionInstructions = compactionInstructions.slice(0, maxInstructionChars);
+  const last = matches[matches.length - 1];
+  const checkpointPathRaw = sanitizeCheckpointPath(String(last?.[1] || ""));
+  if (!checkpointPathRaw) return null;
+
+  let compactionInstructions = "";
+  const instrMatch = raw.match(INSTRUCTION_BLOCK_RE);
+  if (instrMatch) {
+    compactionInstructions = String(instrMatch[1] || "").trim();
+    if (compactionInstructions.length > maxInstructionChars) {
+      compactionInstructions = compactionInstructions.slice(0, maxInstructionChars);
+    }
   }
 
-  return { checkpointPath, compactionInstructions };
+  return { checkpointPath: checkpointPathRaw, compactionInstructions };
 }
 
 export function isLikelyCheckpointPath(checkpointPath: string): boolean {
