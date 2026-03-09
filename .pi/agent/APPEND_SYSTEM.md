@@ -51,6 +51,7 @@ For repo/data inspection, prefer **one** `bash` command that runs a short script
 - Prefer **high observability** in the system. pi should be able to track down bugs and identify sources clearly. Implementation overhead is a small price to pay for maintainability and constant velocity. Errors should be self-explanatory.
 - Prefer **aggressive logging** with reasonable retention (default to 7 days for small resource logging). Observability is not negotiable.
 - Prefer **modularity** and **sustainability** over quick-and-dirty solutions. **Clean** and **Lean** code is prefered over a big monolith. It is worth investing early.
+- Prefer **one canonical current-state codepath**, **fail-fast** diagnostics, and explicit recovery steps. Do not preserve or introduce compatibility bridges, migration shims, fallback paths, or dual behavior for old local states unless the user explicitly ask for that. 
 - If you suspect preferences/docs/rules are outdated: **remove them when you’re confident**.
 
 ## pi's philosophy
