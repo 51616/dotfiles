@@ -1,0 +1,13 @@
+{
+  "name": "pi-diff-review-tui",
+  "private": true,
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
