@@ -138,6 +138,7 @@ Keep progress and track status **continuously** updated (not just at the end):
 - `conductor/tracks/<track_id>/metadata.json` (optional but recommended): update `status` + `updated_at` when state changes
 
 Conductor stays composable with nearby pi skills. Use companion skills where they help:
+- `codex-review` for a critical second-opinion review during the review gate
 - `verification-gate` for stronger handoff verification
 - `checkpointing` for long interruptions / compaction
 - `regular-commits` for git hygiene
@@ -145,6 +146,11 @@ Conductor stays composable with nearby pi skills. Use companion skills where the
 ### 6) Review before completion sync
 
 After implementation is done, run a lightweight review gate before marking the track complete.
+
+Use `codex-review` explicitly as the default second-opinion reviewer for this stage. Give it the minimum high-signal context needed to review precisely: the relevant `spec.md`, `plan.md`, `resume.md`, the touched paths, and the `plan.md` Change evidence snippets.
+
+Example:
+- `codex-review.sh "Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, missing tests, and weak verification."`
 
 The review should be driven by the approved `spec.md` and `plan.md`, not by random style nitpicking. Check:
 - behavior/spec compliance

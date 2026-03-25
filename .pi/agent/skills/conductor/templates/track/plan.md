@@ -45,6 +45,7 @@ Append entries as you go. Suggested format:
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios
 - [ ] Task: Review implementation against the approved `plan.md` and note any scope drift
 - [ ] Task: Ensure **Change evidence** is sufficient for precise review (paths + snippets map to scenarios)
+- [ ] Task: Run `codex-review.sh` with the relevant `spec.md`, `plan.md`, `resume.md`, and Change evidence context
 - [ ] Task: Fix straightforward review findings and rerun targeted verification if needed
 - [ ] Task: Record review outcome in `resume.md` (`pass`, `pass with minor notes`, or `fail`)
 

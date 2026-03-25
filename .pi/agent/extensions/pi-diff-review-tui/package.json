@@ -9,5 +9,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "cli-highlight": "2.1.11"
   }
 }
