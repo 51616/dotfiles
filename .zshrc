@@ -502,7 +502,14 @@ export PI_VAULT_ROOT="/home/tan/vault"
 # >>> PI agent bin PATH (pi bootstrap) >>>
 export PATH="$HOME/.pi/agent/bin:$PATH"
 # <<< PI agent bin PATH (pi bootstrap) <<<
-
+# >>> PI python toolbox PATH (pi bootstrap) >>>
+if [ -d "$HOME/.venv/bin" ]; then
+  case ":$PATH:" in
+    *":$HOME/.venv/bin:"*) :;;
+    *) export PATH="$HOME/.venv/bin:$PATH";;
+  esac
+fi
+# <<< PI python toolbox PATH (pi bootstrap) <<<
 # >>> vault-local pi wrapper >>>
 pi() {
   local vault_root="${PI_VAULT_ROOT:-$HOME/vault}"
