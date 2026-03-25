@@ -43,7 +43,7 @@ Do **not** pretend the repo is blank if the code already tells us what it is.
 ### 2) Setup project context (once per repo)
 
 1. Run scaffolding script (from anywhere):
-   - `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/setup.sh" --root /path/to/repo`
+   - `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/setup.sh" --root /path/to/repo`
 2. Use the audit to draft/fill:
    - `conductor/project.md`
    - `conductor/project-guidelines.md` (optional, but useful for user-facing projects)
@@ -87,9 +87,10 @@ This is a structured intake, not a vague “interview briefly”.
    - the next 1–3 concrete steps
    - exact verification commands
 9. Create the track artifacts:
-   - `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "..." --type feature`
+   - `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "..." --type feature`
 
 The script scaffolds files. The agent still owns the thinking and should replace the template content with the approved spec/plan/resume state.
+These files should be *detailed enough so that a new team member can pick the task up easily*. Adding references is helpful for future validation and double checking.
 
 ### 4) Explicit user return points
 
@@ -122,12 +123,19 @@ Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - if tests-first is not feasible, record why and define another verification method before coding
 - implement the smallest code change that satisfies the approved behavior
 - run the smallest meaningful verification command(s)
+- update the `plan.md` **Change evidence** section with touched paths + minimal snippets that map back to the approved scenarios
 - mark `[x]` when done
-- when stopping, update `resume.md` with the new current state + next steps
+- after each meaningful work chunk (and always before stopping / at each user return point), update `resume.md` with the new current state + decisions + next steps + exact verification commands
 
-Update `conductor/tracks.md` track status:
-- `[ ]` → `[~]` when starting implementation
-- `[~]` → `[x]` when complete
+Keep progress and track status **continuously** updated (not just at the end):
+
+- `conductor/tracks.md` is the repo-level dashboard. Update it whenever the track changes state:
+  - `[ ]` → `[~]` as soon as you start work on the track (**spec drafting counts**)
+  - keep `[~]` during planning + implementation + review fixups
+  - `[~]` → `[x]` only after verification **and** completion sync are done
+- `conductor/tracks/<track_id>/plan.md`: keep one active item marked `[~]`, tick `[x]` as tasks complete
+- `conductor/tracks/<track_id>/resume.md`: keep it current enough that a fresh session can resume without rereading chat history
+- `conductor/tracks/<track_id>/metadata.json` (optional but recommended): update `status` + `updated_at` when state changes
 
 Conductor stays composable with nearby pi skills. Use companion skills where they help:
 - `verification-gate` for stronger handoff verification
@@ -142,6 +150,7 @@ The review should be driven by the approved `spec.md` and `plan.md`, not by rand
 - behavior/spec compliance
 - plan compliance / scope drift
 - whether tests and verification actually prove the approved behavior
+- whether `plan.md` contains sufficient **Change evidence** (paths + snippets) for precise review
 - obvious correctness, maintainability, safety, and observability issues
 - which docs now need sync
 
@@ -187,10 +196,10 @@ Scripts:
 ## Verification
 
 In any scratch repo:
-1. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/setup.sh" --root /path/to/repo`
-2. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "Test track" --type chore`
+1. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/setup.sh" --root /path/to/repo`
+2. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "Test track" --type chore`
 3. Inspect `conductor/project.md`, `conductor/tracks.md`, and `conductor/tracks/<track_id>/{spec.md,plan.md,resume.md}` to confirm the new sections are present.
-4. `bash "$PI_VAULT_ROOT/agents/skills/conductor/scripts/status.sh" --root /path/to/repo`
+4. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/status.sh" --root /path/to/repo`
 
 You should see:
 - `conductor/index.md`, `conductor/tracks.md`, `conductor/project.md`, `conductor/tech-stack.md`, `conductor/workflow.md`

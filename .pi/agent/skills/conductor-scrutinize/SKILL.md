@@ -30,13 +30,14 @@ Use this when work must happen in repeated **review → trim → implement** rou
 4) After each round:
 - run verification commands and capture exact outcomes
 - update `rounds/progress.md`, `plan.md`, `resume.md`
+- update `conductor/tracks.md` so the track status reflects reality (keep it `[~]` while active)
 - commit/push grouped by intent (code then docs)
 
 5) Final closeout:
 - ensure all required artifacts exist
 - finalize debt ledger (`removed / refactored`)
 - preferably do not defer big changes to the next round, the scope can be bigger than typical sofrware engineering workflow
-- mark track metadata/status complete
+- mark track metadata/status complete and set `conductor/tracks.md` to `[x]`
 
 ## Supporting files
 
@@ -54,7 +55,7 @@ Use this when work must happen in repeated **review → trim → implement** rou
 ## Verification
 
 1. Initialize round skeletons:
-- `bash "$PI_VAULT_ROOT/agents/skills/conductor-scrutinize/scripts/init-rounds.sh" --track-dir /path/to/repo/conductor/tracks/<track_id> --rounds 10`
+- `bash "$PI_VAULT_ROOT/.pi/skills/conductor-scrutinize/scripts/init-rounds.sh" --track-dir /path/to/repo/conductor/tracks/<track_id> --rounds 10`
 
 2. Validate artifact completeness:
-- `bash "$PI_VAULT_ROOT/agents/skills/conductor-scrutinize/scripts/verify-artifacts.sh" --track-dir /path/to/repo/conductor/tracks/<track_id> --rounds 10`
+- `bash "$PI_VAULT_ROOT/.pi/skills/conductor-scrutinize/scripts/verify-artifacts.sh" --track-dir /path/to/repo/conductor/tracks/<track_id> --rounds 10`

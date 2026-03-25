@@ -1,12 +1,17 @@
 {
-  "lastChangelogVersion": "0.57.1",
-  "defaultThinkingLevel": "xhigh",
+  "lastChangelogVersion": "0.62.0",
+  "defaultThinkingLevel": "low",
   "hideThinkingBlock": true,
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.2",
+  "defaultModel": "gpt-5.4",
   "enabledModels": [
     "openai-codex/gpt-5.2",
     "openai-codex/gpt-5.3-codex",
     "openai-codex/gpt-5.4"
+  ],
+  "theme": "catppuccin-mocha",
+  "treeFilterMode": "no-tools",
+  "packages": [
+    "git:https://github.com/badlogic/pi-diff-review"
   ]
 }

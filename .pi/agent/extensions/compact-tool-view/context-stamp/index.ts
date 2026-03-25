@@ -1,10 +1,15 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
-  AUTOCHECKPOINT_DONE_MARKER,
   CHECKPOINT_NOW_MARKER,
-  COMPACTION_INSTR_BEGIN,
   CONTEXT_STAMP_MARKER,
 } from "../lib/autockpt/autockpt-markers.ts";
+import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
+import {
+  appendStampToText,
+  containsAutockptFooterMarkers,
+  extractTextContent,
+  isMachineControlAssistantText,
+} from "./context-stamp-message-utils.ts";
 
 /**
  * Context Stamp
@@ -19,15 +24,14 @@ import {
  *   so downstream parsers keep exact matching behavior.
  * - ctx.getContextUsage() can return tokens=null (right after compaction, before next LLM response);
  *   in that state we cannot arm and therefore emit nothing.
+ * - During an active checkpoint cycle, we suppress stamping so we do not retrigger or add noise
+ *   while auto-kick / compaction is already in flight.
  */
 export default function contextStamp(pi: ExtensionAPI) {
   let enabled = (process.env.PI_CONTEXT_STAMP_ENABLE ?? "1") !== "0";
 
   const MARKER = CONTEXT_STAMP_MARKER;
 
-  // When context usage reaches this threshold, the stamp will include an explicit
-  // directive marker for the assistant to checkpoint + compact.
-  // Runtime override (in-process): PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME
   const getSelfCheckpointThresholdPercent = (): number =>
     Number.parseFloat(
       process.env.PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME ??
@@ -44,8 +48,6 @@ export default function contextStamp(pi: ExtensionAPI) {
 
     const window = usage.contextWindow ?? 0;
     if (window <= 0) return undefined;
-
-    // Unknown right after compaction: cannot determine arming state.
     if (usage.tokens === null) return undefined;
 
     const used = Math.max(0, Math.round(usage.tokens));
@@ -53,26 +55,16 @@ export default function contextStamp(pi: ExtensionAPI) {
     if (percent === null) return undefined;
 
     const thresholdPercent = getSelfCheckpointThresholdPercent();
-    const markerSuppressed = (process.env.PI_SELF_CHECKPOINT_MARKER_SUPPRESS ?? "0") === "1";
-    const checkpointNow = !markerSuppressed && percent >= thresholdPercent;
-
-    // Noise-control mode: only emit when checkpointing is armed.
+    const checkpointNow = percent >= thresholdPercent;
     if (!checkpointNow) return undefined;
+    if (isCheckpointCycleActive(ctx as any)) return undefined;
 
     const percentStr = percent.toFixed(1) + "%";
     const left = Math.max(0, window - used);
-
-    // Requirements: show both raw token number and percentage + explicit marker.
     return `${MARKER} used=${used} (${percentStr}) left=${left} window=${window} ${CHECKPOINT_NOW_MARKER}`;
   };
 
   const hasStampAlready = (text: string) => text.includes(MARKER);
-
-  const appendStampToText = (text: string, stampLine: string) => {
-    // Keep it visually separated, but don’t add multiple blank lines.
-    const trimmed = text.replace(/\s+$/g, "");
-    return `${trimmed}\n\n${stampLine}`;
-  };
 
   pi.registerCommand("ctxstamp", {
     description: "Context-stamp controls (toggle|status|threshold <pct>)",
@@ -125,18 +117,13 @@ export default function contextStamp(pi: ExtensionAPI) {
     ctx.ui.setStatus("ctxstamp", undefined);
   });
 
-  // 1) Tool result stamping
   pi.on("tool_result", (event, ctx) => {
     if (!enabled) return;
 
     const stampLine = buildStampLine(ctx);
     if (!stampLine) return;
 
-    // Prevent double-stamping if something retries/rewrites.
-    const existingText = event.content
-      .filter((c) => c.type === "text")
-      .map((c) => (c as { type: "text"; text: string }).text)
-      .join("\n");
+    const existingText = extractTextContent(event.content);
     if (hasStampAlready(existingText)) return;
 
     return {
@@ -144,7 +131,6 @@ export default function contextStamp(pi: ExtensionAPI) {
     };
   });
 
-  // 2) Message stamping (assistant only, post-send)
   pi.on("message_end", (event, ctx) => {
     if (!enabled) return;
 
@@ -155,31 +141,10 @@ export default function contextStamp(pi: ExtensionAPI) {
     if (role !== "assistant") return;
 
     const content = msg.content;
-    const existingText =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content
-              .filter((c: any) => c?.type === "text" && typeof c.text === "string")
-              .map((c: any) => c.text as string)
-              .join("\n")
-          : "";
-
+    const existingText = extractTextContent(content);
     if (!existingText.trim()) return;
-
-    if (role === "assistant") {
-      // Don’t break live-control responses; those must be machine-parseable.
-      if (existingText.trimStart().startsWith("__pictl_result__")) return;
-
-      // Don’t break auto-checkpoint footer matching (footer must be last non-whitespace content).
-      if (
-        existingText.includes(AUTOCHECKPOINT_DONE_MARKER) ||
-        existingText.includes(COMPACTION_INSTR_BEGIN)
-      ) {
-        return;
-      }
-    }
-
+    if (isMachineControlAssistantText(existingText)) return;
+    if (containsAutockptFooterMarkers(existingText)) return;
     if (hasStampAlready(existingText)) return;
 
     const stampLine = buildStampLine(ctx);

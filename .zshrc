@@ -520,3 +520,6 @@ pi() {
   fi
 }
 # <<< vault-local pi wrapper <<<
+
+# opencode
+export PATH=/home/tan/.opencode/bin:$PATH

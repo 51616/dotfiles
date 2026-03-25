@@ -1,8 +1,0 @@
-{
-  "name": "pi-ast-grep",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@ast-grep/cli": "0.41.0"
-  }
-}

@@ -1,6 +1,7 @@
 # ~/.bash_profile
 #
 # Keep this file bash/POSIX-compatible. zsh-specific settings belong in ~/.zshrc.
+export COLORTERM=truecolor
 
 if [ -f ~/.profile.local ]; then
     source ~/.profile.local

@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { shouldEnableWithinVaultScope } from "../lib/shared/pi-vault-scope.ts";
 import { parseBool } from "../lib/shared/pi-bool.ts";
 import { asString } from "../lib/shared/pi-string.ts";
+import { readCursor, writeCursorAtomic } from "./cursor.ts";
 
 function expandHome(p: string): string {
   if (!p) return "";
@@ -27,9 +28,7 @@ function getHubEventsPath(): string {
 
 function isVaultRoot(dir: string): boolean {
   const hasAgents = fs.existsSync(path.join(dir, "AGENTS.md"));
-  const hasHub =
-    fs.existsSync(path.join(dir, "agents", "scripts", "pi-router")) ||
-    fs.existsSync(path.join(dir, "scripts", "pi-router"));
+  const hasHub = fs.existsSync(path.join(dir, ".pi", "scripts", "pi-router"));
   return hasAgents && hasHub;
 }
 
@@ -41,31 +40,6 @@ function shouldEnableForCwd(cwd: string): boolean {
     envRoot: asString(process.env.PI_VAULT_ROOT),
     isVaultRoot,
   });
-}
-
-type Cursor = { offset: number; updated_at: string };
-
-function readCursor(filePath: string): Cursor {
-  try {
-    if (!fs.existsSync(filePath)) return { offset: 0, updated_at: "" };
-    const raw = String(fs.readFileSync(filePath, "utf8") || "");
-    const parsed = JSON.parse(raw);
-    const off = Number.isFinite(Number(parsed?.offset)) ? Number(parsed.offset) : 0;
-    return { offset: off, updated_at: asString(parsed?.updated_at) };
-  } catch {
-    return { offset: 0, updated_at: "" };
-  }
-}
-
-function writeCursorAtomic(filePath: string, cursor: Cursor) {
-  try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(cursor, null, 2), "utf8");
-    fs.renameSync(tmp, filePath);
-  } catch {
-    // ignore
-  }
 }
 
 function isAsyncController(rec: any): boolean {

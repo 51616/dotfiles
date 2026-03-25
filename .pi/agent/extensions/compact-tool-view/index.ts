@@ -12,6 +12,10 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 
+function emptyToolComponent(): Text {
+	return new Text("", 0, 0);
+}
+
 function shortenPath(p: unknown): string {
 	if (typeof p !== "string") return "";
 	const home = os.homedir();
@@ -91,10 +95,10 @@ export default function (pi: ExtensionAPI) {
 				return new Text(`${theme.fg("accent", theme.bold("read"))} ${pathText}${range}`, 0, 0);
 			},
 			renderResult(result: any, options: ToolRenderResultOptions, theme: any) {
-				if (!options.expanded) return undefined;
+				if (!options.expanded) return emptyToolComponent();
 
 				const output = joinTextBlocks(result);
-				if (!output.trim()) return undefined;
+				if (!output.trim()) return emptyToolComponent();
 
 				const rawPath = coerceString(lastArgs?.file_path ?? lastArgs?.path);
 				const { text, highlighted } = highlightIfPossible(output, rawPath ?? undefined);
@@ -127,7 +131,7 @@ export default function (pi: ExtensionAPI) {
 				return new Text(`${theme.fg("success", theme.bold("write"))} ${pathText}`, 0, 0);
 			},
 			renderResult(result: any, options: ToolRenderResultOptions, theme: any) {
-				if (!options.expanded) return undefined;
+				if (!options.expanded) return emptyToolComponent();
 
 				const rawPath = coerceString(lastArgs?.file_path ?? lastArgs?.path);
 				const fileContent = coerceString(lastArgs?.content);
@@ -146,7 +150,7 @@ export default function (pi: ExtensionAPI) {
 					out = out ? `${out}\n\n${styledToolText}` : styledToolText;
 				}
 
-				return out ? new Text(`\n${out}`, 0, 0) : undefined;
+				return out ? new Text(`\n${out}`, 0, 0) : emptyToolComponent();
 			},
 		});
 	}
@@ -174,7 +178,7 @@ export default function (pi: ExtensionAPI) {
 				return new Text(`${theme.fg("warning", theme.bold("edit"))} ${pathText}`, 0, 0);
 			},
 			renderResult(result: any, options: ToolRenderResultOptions, theme: any) {
-				if (!options.expanded) return undefined;
+				if (!options.expanded) return emptyToolComponent();
 
 				const diff = typeof result?.details?.diff === "string" ? result.details.diff : "";
 				if (diff) {
@@ -183,7 +187,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const output = joinTextBlocks(result);
-				if (!output.trim()) return undefined;
+				if (!output.trim()) return emptyToolComponent();
 				return new Text(`\n${styleToolOutput(theme, output)}`, 0, 0);
 			},
 		});
@@ -214,9 +218,9 @@ export default function (pi: ExtensionAPI) {
 				return new Text(`${dollar} ${cmdText}${timeoutText}`, 0, 0);
 			},
 			renderResult(result: any, options: ToolRenderResultOptions, theme: any) {
-				if (!options.expanded) return undefined;
+				if (!options.expanded) return emptyToolComponent();
 				const output = joinTextBlocks(result);
-				if (!output.trim()) return undefined;
+				if (!output.trim()) return emptyToolComponent();
 				return new Text(`\n${styleToolOutput(theme, output)}`, 0, 0);
 			},
 		});

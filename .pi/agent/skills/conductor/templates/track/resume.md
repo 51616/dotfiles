@@ -20,6 +20,10 @@ Track id: `<track_id>`
 ## Last completed step
 - 
 
+## Progress log
+(Short, dated entries. Update this whenever you make meaningful progress so a new session can resume without rereading chat history.)
+- 
+
 ## Accepted behaviors currently in scope
 (List the behaviors / scenarios from `spec.md` that the current session should stay aligned with.)
 - 

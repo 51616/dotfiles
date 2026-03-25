@@ -1,22 +1,21 @@
 ---
 name: codex-browse
 description: |
-  Use when: Tan wants you (pi) to use the public internet: web research, reading an article, extracting main content from a URL, summarizing online docs/posts, gathering citations/links, or doing any browsing-style task where a normal answer requires checking current web sources.
+  Use when: you want to use the public internet: web research, reading an article, extracting main content from a URL, summarizing online docs/posts, gathering citations/links, or doing any browsing-style task where a normal answer requires checking current web sources.
   Typical triggers:
   - Tan pastes a URL (https://…)
   - “read this link / article / blog post”
   - “summarize this page” / “extract the main content”
   - “search the web for …” / “find sources for …” / “give me a list of links about …”
   - “download/save the content somewhere and give me a path”
+
   Don’t use when:
-  - The target is a GitHub repo/tree/blob (prefer the `gitingest` skill).
-  - The task requires interactive UI testing or clicking through web apps (use `browser-tools`).
-  - Offline answers are sufficient and do not require verification against web sources.
+  - The user asks about a Git repo (cloning, inspecting, debugging, reviewing, or modifying code). Use `read-git-repo` instead.
 ---
 
 # codex-browse
 
-Use Codex CLI as an internet/browsing helper.
+Use Codex CLI as an internet/browsing helper. Codex is a coding agent that has web access.
 
 ## Commands
 

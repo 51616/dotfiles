@@ -5,6 +5,22 @@
 > Use the approved `spec.md` as the behavior contract. Each implementation step should trace back to accepted behaviors and scenario examples.
 >
 > Implementation should be non-interactive. Resolve ambiguity during audit/spec/plan drafting, not after coding starts.
+>
+> Precise review requirement: maintain a running **Change evidence** section in this `plan.md` as you implement.
+> - include touched file paths
+> - include minimal code snippets/excerpts (with a bit of surrounding context)
+> - note which behavior/scenario each snippet satisfies
+> - keep it lean: snippets, not whole files
+
+## Change evidence (paths + snippets)
+
+Append entries as you go. Suggested format:
+
+- `path/to/file.ext` — short note (why / which scenario)
+
+```text
+<minimal excerpt here>
+```
 
 ## Phase 1: Scope / impact alignment
 - [ ] Task: Confirm the approved spec captures the required acceptance criteria, expected behaviors, and scenario examples
@@ -16,6 +32,7 @@
 - [ ] Task: Identify the next behavior slice from the approved scenarios
 - [ ] Task: Write failing tests first when feasible for the current behavior slice
 - [ ] Task: Implement the minimum change needed to satisfy the approved behavior
+- [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
 - [ ] Task: Refactor while preserving the approved behavior and keeping tests green
 - [ ] Task: Repeat for remaining behavior slices
 
@@ -27,6 +44,7 @@
 ## Phase 4: Review
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios
 - [ ] Task: Review implementation against the approved `plan.md` and note any scope drift
+- [ ] Task: Ensure **Change evidence** is sufficient for precise review (paths + snippets map to scenarios)
 - [ ] Task: Fix straightforward review findings and rerun targeted verification if needed
 - [ ] Task: Record review outcome in `resume.md` (`pass`, `pass with minor notes`, or `fail`)
 

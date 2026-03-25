@@ -10,6 +10,11 @@ By default, a track should not move into implementation until both `spec.md` and
 
 A track is not complete until it passes implementation, verification, review, and completion sync.
 
+Keep the checkbox status updated continuously:
+- `[ ]` new / not started
+- `[~]` active (planning, implementation, review fixups)
+- `[x]` done (only after verification + completion sync)
+
 ## Track entry format
 
 Append one section per track, separated by `---`.
