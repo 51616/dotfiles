@@ -44,11 +44,11 @@ test("savedReviewMessage reflects output-location priority clearly", () => {
     type: "info",
   });
   assert.deepEqual(savedReviewMessage({ outputPath: "/home/tan/.pi/diff-review/review.md", content: "", compactPrompt: "", outputLocation: "home" }), {
-    message: "Saved review to home fallback path /home/tan/.pi/diff-review/review.md (/tmp was not writable).",
+    message: "Saved review to home session fallback path /home/tan/.pi/diff-review/review.md (/tmp was not writable).",
     type: "warning",
   });
   assert.deepEqual(savedReviewMessage({ outputPath: "/repo/.pi/diff-review/review.md", content: "", compactPrompt: "", outputLocation: "repo" }), {
-    message: "Saved review to repo fallback path /repo/.pi/diff-review/review.md (/tmp and ~/.pi/diff-review were not writable).",
+    message: "Saved review to repo fallback path /repo/.pi/diff-review/review.md (/tmp and ~/.pi/agent/sessions were not writable).",
     type: "warning",
   });
 });

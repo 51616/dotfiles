@@ -6,6 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { DiffReviewTurnTracker } from "../lib/tracker.ts";
+import { safeSessionDirName } from "../lib/diff-review-paths.ts";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -33,8 +34,9 @@ test("tracker writes latest turn patch for edit/write touches", () => {
   fs.writeFileSync(path.join(repo, "src", "new.ts"), "export const newer = 1;\n", "utf8");
   tracker.finalize(repo);
 
-  const latestPatch = fs.readFileSync(path.join(repo, ".pi", "diff-review", "turns", "latest.patch"), "utf8");
-  const latestJson = JSON.parse(fs.readFileSync(path.join(repo, ".pi", "diff-review", "turns", "latest.json"), "utf8"));
+  const turnsRoot = path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repo), "diff-review", "turns");
+  const latestPatch = fs.readFileSync(path.join(turnsRoot, "latest.patch"), "utf8");
+  const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRoot, "latest.json"), "utf8"));
   assert.match(latestPatch, /diff --git a\/src\/tracked.ts b\/src\/tracked.ts/);
   assert.match(latestPatch, /diff --git a\/src\/new.ts b\/src\/new.ts/);
   assert.equal(latestJson.session_id, "session-1");
@@ -48,8 +50,9 @@ test("tracker writes empty latest artifact when the turn touched no repo paths",
   tracker.startTurn({ sessionId: "session-2", turnId: "turn-2", cwd: repo });
   tracker.finalize(repo);
 
-  const latestPatch = fs.readFileSync(path.join(repo, ".pi", "diff-review", "turns", "latest.patch"), "utf8");
-  const latestJson = JSON.parse(fs.readFileSync(path.join(repo, ".pi", "diff-review", "turns", "latest.json"), "utf8"));
+  const turnsRoot = path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repo), "diff-review", "turns");
+  const latestPatch = fs.readFileSync(path.join(turnsRoot, "latest.patch"), "utf8");
+  const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRoot, "latest.json"), "utf8"));
   assert.equal(latestPatch, "");
   assert.deepEqual(latestJson.touched_paths, []);
   assert.match(latestJson.note, /No agent-touched repo paths/);

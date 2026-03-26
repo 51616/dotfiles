@@ -15,6 +15,7 @@ export function commentsForSubmission(comments: ReviewComment[], scope: DiffScop
 
 export function saveScopedReview({
   repoRoot,
+  sessionId,
   state,
   scope,
   overallComment,
@@ -22,6 +23,7 @@ export function saveScopedReview({
   changes,
 }: {
   repoRoot: string;
+  sessionId?: string;
   state: ScopeState;
   scope: DiffScope;
   overallComment: string;
@@ -31,6 +33,7 @@ export function saveScopedReview({
   const prepared = commentsForSubmission(comments, scope);
   const saved = saveReviewToFile({
     repoRoot,
+    sessionId,
     headAtStart: state.startHead,
     scope,
     sourceKind: state.bundle.sourceKind,
@@ -47,13 +50,13 @@ export function saveScopedReview({
 export function savedReviewMessage(saved: SavedReviewResult): { message: string; type: "info" | "warning" } {
   if (saved.outputLocation === "home") {
     return {
-      message: `Saved review to home fallback path ${saved.outputPath} (/tmp was not writable).`,
+      message: `Saved review to home session fallback path ${saved.outputPath} (/tmp was not writable).`,
       type: "warning",
     };
   }
   if (saved.outputLocation === "repo") {
     return {
-      message: `Saved review to repo fallback path ${saved.outputPath} (/tmp and ~/.pi/diff-review were not writable).`,
+      message: `Saved review to repo fallback path ${saved.outputPath} (/tmp and ~/.pi/agent/sessions were not writable).`,
       type: "warning",
     };
   }

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { buildFileKey, parsePatchPaths, parseSingleFilePatch, sha256, splitPatchIntoFileSections } from "./diff-parser.ts";
 import type { DiffBundle, DiffScope, FileStatus, ParsedFilePatch, TurnSourceMetadata } from "./types.ts";
+import { resolveTurnLatestCandidates } from "./diff-review-paths.ts";
 
 interface NameStatusEntry {
   status: FileStatus;
@@ -294,27 +295,26 @@ function buildBundleFromPatchText({
   };
 }
 
-function latestTurnPaths(repoRoot: string): { patchPath: string; jsonPath: string } {
-  const turnsRoot = path.join(repoRoot, ".pi", "diff-review", "turns");
-  return {
-    patchPath: path.join(turnsRoot, "latest.patch"),
-    jsonPath: path.join(turnsRoot, "latest.json"),
-  };
+function latestTurnCandidates(repoRoot: string): Array<{ patchPath: string; jsonPath: string }> {
+  return resolveTurnLatestCandidates({ repoRoot });
 }
 
 export function readLatestTurnArtifact(repoRoot: string, sessionId: string): { patchText: string; metadata: TurnSourceMetadata } | null {
   if (!sessionId.trim()) return null;
-  const { patchPath, jsonPath } = latestTurnPaths(repoRoot);
-  if (!fs.existsSync(jsonPath)) return null;
+  for (const { patchPath, jsonPath } of latestTurnCandidates(repoRoot)) {
+    if (!fs.existsSync(jsonPath)) continue;
 
-  try {
-    const metadata = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as TurnSourceMetadata;
-    if (metadata.session_id !== sessionId) return null;
-    const patchText = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
-    return { patchText, metadata };
-  } catch {
-    return null;
+    try {
+      const metadata = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as TurnSourceMetadata;
+      if (metadata.session_id != sessionId) continue;
+      const patchText = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
+      return { patchText, metadata };
+    } catch {
+      // ignore and continue
+    }
   }
+
+  return null;
 }
 
 export function getLatestTurnBundle(repoRoot: string, sessionId: string): DiffBundle | null {

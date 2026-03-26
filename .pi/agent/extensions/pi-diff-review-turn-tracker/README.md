@@ -2,11 +2,18 @@
 
 Always-loaded helper for `/diff-review` phase 14.
 
-It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes a reviewable patch at turn end under:
+It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes a reviewable patch at turn end under the first writable location in this order:
 
+- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/latest.patch`
+- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/latest.json`
+- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/latest.patch`
+- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/latest.json`
 - `<repoRoot>/.pi/diff-review/turns/latest.patch`
 - `<repoRoot>/.pi/diff-review/turns/latest.json`
-- `<repoRoot>/.pi/diff-review/turns/sessions/<sessionId>/...`
+
+Per-session details are also written under:
+
+- `.../turns/sessions/<sessionId>/...`
 
 What counts as agent-touched in v1:
 

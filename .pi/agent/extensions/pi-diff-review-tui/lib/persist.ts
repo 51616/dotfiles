@@ -4,9 +4,10 @@ import path from "node:path";
 import type { ChangeSummary, DiffScope, FileStatus, ReviewComment, ReviewOutputLocation, SavedReviewResult, TurnSourceMetadata } from "./types.ts";
 import { anchorLocationEqual, compareCommentsByLocation } from "./comments.ts";
 import { scopeDisplay, scopeName } from "./scope.ts";
+import { resolveAgentDir, resolveDiffReviewRootForWrite } from "./diff-review-paths.ts";
 
 function safeTimestamp(date = new Date()): string {
-  return date.toISOString().replace(/[:]/g, "-");
+  return date.toISOString().replace(/[:.]/g, "-");
 }
 
 function summarizeChangesBlock(label: string, summary: ChangeSummary): string[] {
@@ -31,35 +32,29 @@ function tryEnsureWritableDir(dir: string): string | null {
   }
 }
 
-function tryEnsureWritableTempDir(tmpRoot: string): string | null {
-  const preferred = tryEnsureWritableDir(path.join(tmpRoot, "pi-diff-review"));
-  if (preferred) return preferred;
-  try {
-    return fs.mkdtempSync(path.join(tmpRoot, "pi-diff-review-"));
-  } catch {
-    return null;
-  }
+function normalizeSessionId(sessionId: string | undefined): string {
+  const trimmed = String(sessionId ?? "").trim();
+  return trimmed || "no-session";
 }
 
 export function resolveReviewOutputDir({
   repoRoot,
+  sessionId,
   tmpRoot = os.tmpdir(),
-  homeDir = os.homedir(),
+  agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  sessionId?: string;
   tmpRoot?: string;
-  homeDir?: string;
+  agentDir?: string;
 }): { dir: string; outputLocation: ReviewOutputLocation } {
-  const tmpDir = tryEnsureWritableTempDir(tmpRoot);
-  if (tmpDir) return { dir: tmpDir, outputLocation: "tmp" };
-
-  const homeReviewDir = tryEnsureWritableDir(path.join(homeDir, ".pi", "diff-review"));
-  if (homeReviewDir) return { dir: homeReviewDir, outputLocation: "home" };
-
-  const repoReviewDir = tryEnsureWritableDir(path.join(repoRoot, ".pi", "diff-review"));
-  if (repoReviewDir) return { dir: repoReviewDir, outputLocation: "repo" };
-
-  throw new Error(`Unable to create a writable diff-review output directory in ${tmpRoot}, ${path.join(homeDir, ".pi", "diff-review")}, or ${path.join(repoRoot, ".pi", "diff-review")}.`);
+  const { rootDir, outputLocation } = resolveDiffReviewRootForWrite({ repoRoot, tmpRoot, agentDir });
+  const sessionKey = normalizeSessionId(sessionId);
+  const dir = tryEnsureWritableDir(path.join(rootDir, "reviews", "sessions", sessionKey));
+  if (!dir) {
+    throw new Error(`Unable to create a writable diff-review reviews directory under ${rootDir}.`);
+  }
+  return { dir, outputLocation };
 }
 
 function fileStatusName(status: FileStatus): "modified" | "added" | "deleted" | "renamed" | "modified" {
@@ -174,6 +169,7 @@ export function buildSavedReviewMarkdown({
   changesSinceLastReload,
 }: {
   repoRoot: string;
+  sessionId?: string;
   headAtStart: string | null;
   scope: DiffScope;
   outputPath: string;
@@ -345,6 +341,7 @@ export function buildCompactPrompt({
 
 export function saveReviewToFile({
   repoRoot,
+  sessionId,
   headAtStart,
   scope,
   sourceKind,
@@ -356,6 +353,7 @@ export function saveReviewToFile({
   changesSinceLastReload,
 }: {
   repoRoot: string;
+  sessionId?: string;
   headAtStart: string | null;
   scope: DiffScope;
   sourceKind?: "git" | "turn";
@@ -366,7 +364,7 @@ export function saveReviewToFile({
   changesSinceStart: ChangeSummary;
   changesSinceLastReload: ChangeSummary;
 }): SavedReviewResult {
-  const { dir, outputLocation } = resolveReviewOutputDir({ repoRoot });
+  const { dir, outputLocation } = resolveReviewOutputDir({ repoRoot, sessionId });
   const filename = `${safeTimestamp()}_${scope}.md`;
   const outputPath = path.join(dir, filename);
   const savedAt = new Date().toISOString();

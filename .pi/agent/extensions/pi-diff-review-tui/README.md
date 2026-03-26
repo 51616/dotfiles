@@ -42,13 +42,15 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 
 ## Submit behavior
 
-Submit writes a full-fidelity Markdown review file to the first writable location in this order:
+Submit writes a full-fidelity Markdown review file to the first writable location in this order.
 
-- `/tmp/pi-diff-review*/<timestamp>_<scope>.md`
-- `~/.pi/diff-review/<timestamp>_<scope>.md`
-- `<repoRoot>/.pi/diff-review/<timestamp>_<scope>.md`
+The directory naming follows pi's session convention (`~/.pi/agent/sessions/--<cwd>--/`). For a given git repo root, the safe-path is computed from that root.
 
-If `/tmp` is not writable, the UI warns when it falls back to `~/.pi` or the repo-local `.pi` directory.
+- `/tmp/pi/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
+- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
+- `<repoRoot>/.pi/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
+
+If `/tmp` is not writable, the UI warns when it falls back to `~/.pi/agent/sessions/...` or the repo-local `.pi` directory.
 
 After saving the full file, the extension replaces pi's editor content with a compact prompt that points the agent at the saved review file for the full snippets/context.
 

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { chooseOmittedInfo } from "./files.ts";
+import { resolveDiffReviewRootForWrite } from "./diff-review-paths.ts";
 import type {
   FileImage,
   RepoTurnArtifact,
@@ -177,7 +178,8 @@ export function writeRepoArtifacts({
   repoArtifact: RepoTurnArtifact;
   workspace?: { patchText: string; metadata: WorkspaceTurnArtifactMetadata } | null;
 }): void {
-  const turnsRoot = path.join(repoArtifact.repoRoot, ".pi", "diff-review", "turns");
+  const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot: repoArtifact.repoRoot });
+  const turnsRoot = path.join(rootDir, "turns");
   const sessionRoot = path.join(turnsRoot, "sessions", repoArtifact.metadata.session_id);
   const repoRoot = path.join(sessionRoot, repoArtifact.repoKey);
 
@@ -226,7 +228,8 @@ export function writeEmptyLatestArtifact({
     note,
     workspace: false,
   };
-  const turnsRoot = path.join(repoRoot, ".pi", "diff-review", "turns");
+  const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot });
+  const turnsRoot = path.join(rootDir, "turns");
   writeText(path.join(turnsRoot, "latest.patch"), "");
   writeJson(path.join(turnsRoot, "latest.json"), metadata);
 }

@@ -6,6 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { getDiffBundle } from "../lib/git.ts";
+import { safeSessionDirName } from "../lib/diff-review-paths.ts";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -64,7 +65,7 @@ test("getDiffBundle separates unstaged, staged, and all scopes", async () => {
 
 test("getDiffBundle loads the latest last-turn artifact for the active session", async () => {
   const repo = makeRepo();
-  const turnsDir = path.join(repo, ".pi", "diff-review", "turns");
+  const turnsDir = path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repo), "diff-review", "turns");
   fs.mkdirSync(turnsDir, { recursive: true });
   fs.writeFileSync(path.join(turnsDir, "latest.patch"), [
     "diff --git a/src/tracked.ts b/src/tracked.ts",

@@ -795,6 +795,7 @@ export class DiffReviewApp implements Component, Focusable {
     const state = this.currentState();
     const saved = saveScopedReview({
       repoRoot: this.repoRoot,
+      sessionId: this.sessionId,
       state,
       scope: this.scope,
       overallComment: this.overallComments[this.scope] || "",

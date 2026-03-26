@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { resolveReviewOutputDir, saveReviewToFile } from "../lib/persist.ts";
+import { safeSessionDirName } from "../lib/diff-review-paths.ts";
 
 function tmpRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-persist-"));
@@ -15,6 +16,7 @@ function tmpRepo() {
 function sampleInput(repoRoot) {
   return {
     repoRoot,
+    sessionId: "session-1",
     headAtStart: "abc1234",
     scope: "u",
     overallComment: "Please tighten this patch.",
@@ -96,7 +98,7 @@ test("saveReviewToFile writes markdown and compact prompt", () => {
   assert.match(saved, /- file_status: modified/);
   assert.match(saved, /- apply_to: b:L12/);
   assert.equal(result.outputLocation, "tmp");
-  assert.equal(result.outputPath.startsWith(os.tmpdir()), true);
+  assert.equal(result.outputPath.startsWith(path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repoRoot), "diff-review")), true);
 });
 
 test("phase 13: saveReviewToFile includes original_anchor when comment is moved", () => {
@@ -155,12 +157,12 @@ test("resolveReviewOutputDir prefers /tmp before home or repo", () => {
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(tmpRoot, { recursive: true });
 
-  const result = resolveReviewOutputDir({ repoRoot, homeDir, tmpRoot });
+  const result = resolveReviewOutputDir({ repoRoot, sessionId: "session-1", agentDir: homeDir, tmpRoot });
   assert.equal(result.outputLocation, "tmp");
-  assert.equal(result.dir.startsWith(tmpRoot), true);
+  assert.equal(result.dir, path.join(tmpRoot, "pi", "sessions", safeSessionDirName(repoRoot), "diff-review", "reviews", "sessions", "session-1"));
 });
 
-test("resolveReviewOutputDir falls back to ~/.pi when /tmp is not writable", () => {
+test("resolveReviewOutputDir falls back to ~/.pi/agent/sessions when /tmp is not writable", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-output-home-"));
   const repoRoot = path.join(root, "repo");
   const homeDir = path.join(root, "home");
@@ -169,12 +171,12 @@ test("resolveReviewOutputDir falls back to ~/.pi when /tmp is not writable", () 
   fs.mkdirSync(homeDir, { recursive: true });
   fs.writeFileSync(tmpBlocker, "not a directory", "utf8");
 
-  const result = resolveReviewOutputDir({ repoRoot, homeDir, tmpRoot: tmpBlocker });
+  const result = resolveReviewOutputDir({ repoRoot, sessionId: "session-1", agentDir: homeDir, tmpRoot: tmpBlocker });
   assert.equal(result.outputLocation, "home");
-  assert.equal(result.dir, path.join(homeDir, ".pi", "diff-review"));
+  assert.equal(result.dir, path.join(homeDir, "sessions", safeSessionDirName(repoRoot), "diff-review", "reviews", "sessions", "session-1"));
 });
 
-test("resolveReviewOutputDir falls back to repo-local .pi when /tmp and ~/.pi are not writable", () => {
+test("resolveReviewOutputDir falls back to repo-local .pi when /tmp and ~/.pi/agent/sessions are not writable", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-output-repo-"));
   const repoRoot = path.join(root, "repo");
   const tmpBlocker = path.join(root, "tmp-blocker");
@@ -183,7 +185,7 @@ test("resolveReviewOutputDir falls back to repo-local .pi when /tmp and ~/.pi ar
   fs.writeFileSync(tmpBlocker, "not a directory", "utf8");
   fs.writeFileSync(homeBlocker, "not a directory", "utf8");
 
-  const result = resolveReviewOutputDir({ repoRoot, homeDir: homeBlocker, tmpRoot: tmpBlocker });
+  const result = resolveReviewOutputDir({ repoRoot, sessionId: "session-1", agentDir: homeBlocker, tmpRoot: tmpBlocker });
   assert.equal(result.outputLocation, "repo");
-  assert.equal(result.dir, path.join(repoRoot, ".pi", "diff-review"));
+  assert.equal(result.dir, path.join(repoRoot, ".pi", "diff-review", "reviews", "sessions", "session-1"));
 });
