@@ -15,7 +15,7 @@ description: |
 
 # codex-review
 
-Use Codex CLI as a local review helper. This is for critical second-opinion review of code, plans, specs, diffs, and implementation slices.
+Use Codex CLI as a local review helper. This is for critical second-opinion review of code, plans, specs, diffs, and implementation slices. The reviewer agent can run for a long time (more than ten minutes if the code is large.) Default to 20 minutes timeout.
 
 ## Command
 

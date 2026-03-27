@@ -137,11 +137,6 @@ Keep progress and track status **continuously** updated (not just at the end):
 - `conductor/tracks/<track_id>/resume.md`: keep it current enough that a fresh session can resume without rereading chat history
 - `conductor/tracks/<track_id>/metadata.json` (optional but recommended): update `status` + `updated_at` when state changes
 
-Conductor stays composable with nearby pi skills. Use companion skills where they help:
-- `codex-review` for a critical second-opinion review during the review gate
-- `verification-gate` for stronger handoff verification
-- `checkpointing` for long interruptions / compaction
-- `regular-commits` for git hygiene
 
 ### 6) Review before completion sync
 
@@ -162,7 +157,7 @@ The review should be driven by the approved `spec.md` and `plan.md`, not by rand
 
 Review outcomes:
 - **pass** → proceed to completion sync
-- **pass with minor notes** → fix the cheap issues, rerun the review if needed, then proceed
+- **pass with minor notes** → fix the cheap issues, rerun the review if needed, then proceed.
 - **fail** → return to implementation with explicit findings captured in `resume.md` (and `plan.md` if the plan itself needs correction)
 
 Keep this stage mostly agent-driven and non-interactive. The user should see the review result in the final handoff summary unless the review reveals a real contradiction that requires replanning.
