@@ -1,0 +1,3 @@
+# Ignore Node.js dependency trees in the dotfiles work tree.
+node_modules/
+**/node_modules/
