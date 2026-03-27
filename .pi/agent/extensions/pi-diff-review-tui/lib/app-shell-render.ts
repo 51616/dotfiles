@@ -26,7 +26,7 @@ export function renderPane(theme: Theme, title: string, focused: boolean, width:
 
 export function footerHints(width: number): [string, string] {
   return [
-    formatHintColumns(width, ["j/k/↑↓ move", "[/] hunk", "n/b scope cmts", " ,/. file cmts"], 4),
+    formatHintColumns(width, ["j/k/↑↓ move", "[/] chunk", "n/b scope cmts", " ,/. file cmts"], 4),
     formatHintColumns(width, ["w comments file", "z stale file", "v peek · x range", "t/u/i/a · r · s"], 4),
   ];
 }

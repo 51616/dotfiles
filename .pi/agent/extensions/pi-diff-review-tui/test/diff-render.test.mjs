@@ -34,6 +34,7 @@ function createTheme() {
   return {
     fg: (color, text) => `${FG[color] ?? "\x1b[39m"}${text}\x1b[39m`,
     bg: (color, text) => `${BG[color]}${text}\x1b[49m`,
+    bold: (text) => `\x1b[1m${text}\x1b[22m`,
     getBgAnsi: (color) => BG[color],
     getColorMode: () => "truecolor",
   };
@@ -70,6 +71,22 @@ const MULTI_HUNK_PATCH = [
   "-const secondOld = 10;",
   "+const secondNew = 10;",
   " const after = 11;",
+].join("\n");
+
+const MULTI_BLOCK_PATCH = [
+  "diff --git a/src/example.ts b/src/example.ts",
+  "index 1111111..3333333 100644",
+  "--- a/src/example.ts",
+  "+++ b/src/example.ts",
+  "@@ -1,6 +1,6 @@",
+  " const keep0 = 0;",
+  "-const firstOld = 1;",
+  "+const firstNew = 1;",
+  " const middle1 = 2;",
+  " const middle2 = 3;",
+  "-const secondOld = 4;",
+  "+const secondNew = 4;",
+  " const after = 5;",
 ].join("\n");
 
 const PARTIAL_PAIR_PATCH = [
@@ -349,8 +366,8 @@ test("renderDiffRows places comment markers in the gutter instead of the content
   });
 
   const plainContextLine = stripAnsi(rendered.lines.find((line) => line.includes("before =")) ?? "");
-  assert.match(plainContextLine, /^\s*1 ⋮ \s*1 ▌◆1\s*│const before = 1;/);
-  assert.doesNotMatch(plainContextLine, /│◆1/);
+  assert.match(plainContextLine, /^\s*1 ⋮ \s*1 ▌\s*◆1\s*│const before = 1;/);
+  assert.doesNotMatch(plainContextLine, /│(?:✓|◆1)/);
 });
 
 test("renderDiffRows keeps the selected row visible when wrapped rows above consume the viewport", () => {
@@ -486,4 +503,47 @@ test("renderDiffRows falls back cleanly for ambiguous rewrites and unmatched row
 
   const unmatchedAddedLine = partialRendered.lines.find((line) => line.includes("return fromElsewhere")) ?? "";
   assert.doesNotMatch(unmatchedAddedLine, /\x1b\[48;2;(?:15;128;15|72;128;72)m/);
+});
+
+test("renderDiffRows shows bold color-coded accepted and rejected markers only on changed rows", () => {
+  const theme = createTheme();
+  const file = parseSingleFilePatch({ rawPatch: MULTI_BLOCK_PATCH, status: "M", oldPath: "src/example.ts", newPath: "src/example.ts" });
+
+  const rendered = renderDiffRows({
+    theme,
+    scope: "u",
+    fingerprint: "fingerprint",
+    file,
+    width: 80,
+    height: 20,
+    commentsEpoch: 0,
+    hunkSelectionEpoch: 1,
+    highlightKey: "plain",
+    diffCursorRow: file.rows.find((row) => row.kind === "context")?.rowIndex ?? 0,
+    diffScroll: 0,
+    rowMarkers: new Map(),
+    rejectedHunkIds: new Set([file.changeBlocks[1]?.id]),
+    highlightedRows: null,
+    rowCache: null,
+    viewportCache: null,
+  });
+
+  const plainLines = rendered.lines.map(stripAnsi);
+  const firstChangedIndex = plainLines.findIndex((line) => line.includes("firstNew = 1"));
+  const secondChangedIndex = plainLines.findIndex((line) => line.includes("secondNew = 4"));
+  const contextIndex = plainLines.findIndex((line) => line.includes("middle1 = 2"));
+  const firstChangedLine = firstChangedIndex >= 0 ? rendered.lines[firstChangedIndex] : "";
+  const secondChangedLine = secondChangedIndex >= 0 ? rendered.lines[secondChangedIndex] : "";
+  const contextLine = contextIndex >= 0 ? rendered.lines[contextIndex] : "";
+  const plainContextLine = contextIndex >= 0 ? plainLines[contextIndex] : "";
+
+  assert.match(firstChangedLine, /\x1b\[38;5;40m\x1b\[1m✓\x1b\[22m\x1b\[39m/);
+  assert.match(secondChangedLine, /\x1b\[38;5;160m\x1b\[1m×\x1b\[22m\x1b\[39m/);
+  assert.match(firstChangedLine, /\x1b\[48;2;0;120;0m/);
+  assert.match(secondChangedLine, /\x1b\[48;2;0;78;0m/);
+  assert.match(secondChangedLine, /\x1b\[38;5;252mconst/);
+  assert.ok(plainLines.some((line) => line.includes("✓") && line.includes("firstNew = 1")));
+  assert.ok(plainLines.some((line) => line.includes("×") && line.includes("secondNew = 4")));
+  assert.ok(!plainContextLine.includes("✓") && !plainContextLine.includes("×"));
+  assert.doesNotMatch(contextLine, /\x1b\[1m[✓×]\x1b\[22m/);
 });

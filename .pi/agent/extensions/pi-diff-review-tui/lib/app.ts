@@ -29,8 +29,14 @@ import {
 } from "./comment-resolution.ts";
 import { openExternalEditor } from "./external-editor.ts";
 import { getDiffBundle, summarizeFileHashChanges } from "./git.ts";
-import { nextNavigableHunkRowIndex, nextNavigableRowIndex } from "./navigation.ts";
-import { renderCommentsOverlay, renderHelpOverlay, renderPeekCommentsOverlay, renderStaleResolverOverlay } from "./overlay-views.ts";
+import { nextNavigableChangeBlockRowIndex, nextNavigableRowIndex } from "./navigation.ts";
+import {
+  renderCommentsOverlay,
+  renderHelpOverlay,
+  renderPeekCommentsOverlay,
+  renderRejectedHunksErrorOverlay,
+  renderStaleResolverOverlay,
+} from "./overlay-views.ts";
 import {
   captureScopeViewState,
   defaultScopeViewState,
@@ -41,7 +47,7 @@ import {
   restoredDiffScroll,
   restoredFileIndex,
 } from "./review-state.ts";
-import { commentsForSubmission, editorLineForRow, savedReviewMessage, saveScopedReview } from "./review-session.ts";
+import { commentsForSubmission, editorLineForRow, savedReviewMessage, saveScopedReview, shouldGenerateCompactPrompt } from "./review-session.ts";
 import { scopeDisplay, scopeName } from "./scope.ts";
 import { CommentEditorOverlay } from "./comment-editor-overlay.ts";
 import { renderDiffRows, renderFileList } from "./diff-render.ts";
@@ -50,6 +56,7 @@ import { SimpleOverlay } from "./simple-overlay.ts";
 import type { AppCallbacks, ChangeSummary, DiffRowRenderCache, DiffScope, DiffViewportCache, FocusMode, ParsedDiffRow, RangeSelection, ReviewComment, ScopeState } from "./types.ts";
 import { padLine } from "./ui-helpers.ts";
 import { getLanguageFromPath, highlightFileRows } from "./syntax-highlight.ts";
+import { buildRejectedHunksPatch, countRejectedHunks, reverseApplyPatch } from "./rejected-hunks.ts";
 
 const MIN_WIDTH = 60;
 const COMMENT_MARKER_WIDTH = 4;
@@ -85,6 +92,8 @@ export class DiffReviewApp implements Component, Focusable {
   private activeOverlayHandle: OverlayHandle | null = null;
   private closing = false;
   private commentsEpoch = 0;
+  private hunkSelectionEpoch = 0;
+  private rejectedHunks = new Map<DiffScope, Map<string, Set<string>>>();
   private pendingRangeSelection: RangeSelection | null = null;
   private scopeCommentStatsCache: { scope: DiffScope; epoch: number; counts: Map<string, number>; stale: Set<string> } | null = null;
   private rowMarkerCache: { scope: DiffScope; fileKey: string; epoch: number; markers: Map<number, string> } | null = null;
@@ -144,6 +153,12 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffViewportCache = null;
   }
 
+  private markHunkSelectionChanged(): void {
+    this.hunkSelectionEpoch += 1;
+    this.diffRowRenderCache = null;
+    this.diffViewportCache = null;
+  }
+
   private resetPerfStats(): void {
     this.perfStats = {
       render: { count: 0, totalMs: 0, maxMs: 0 },
@@ -169,6 +184,117 @@ export class DiffReviewApp implements Component, Focusable {
   private setComments(comments: ReviewComment[]): void {
     this.comments = comments;
     this.markCommentsChanged();
+  }
+
+  private rejectedHunksForScope(scope: DiffScope, create = false): Map<string, Set<string>> {
+    const existing = this.rejectedHunks.get(scope);
+    if (existing || !create) return existing ?? new Map();
+    const created = new Map<string, Set<string>>();
+    this.rejectedHunks.set(scope, created);
+    return created;
+  }
+
+  private rejectedHunkSnapshot(scope: DiffScope): Map<string, ReadonlySet<string>> {
+    const scopeState = this.rejectedHunks.get(scope);
+    if (!scopeState?.size) return new Map();
+    const snapshot = new Map<string, ReadonlySet<string>>();
+    for (const [fileKey, hunkIds] of scopeState.entries()) {
+      if (!hunkIds.size) continue;
+      snapshot.set(fileKey, new Set(hunkIds));
+    }
+    return snapshot;
+  }
+
+  private clearRejectedHunks(scope: DiffScope, render = false): void {
+    if (!this.rejectedHunks.delete(scope)) return;
+    this.markHunkSelectionChanged();
+    if (render) this.tui.requestRender();
+  }
+
+  private reconcileRejectedHunks(scope: DiffScope, bundleChanged: boolean): void {
+    const scopeState = this.rejectedHunks.get(scope);
+    if (!scopeState?.size) return;
+    if (bundleChanged) {
+      this.clearRejectedHunks(scope);
+      return;
+    }
+
+    const files = this.scopeStates.get(scope)?.bundle.files ?? [];
+    const validSelections = new Map(files.map((file) => [file.fileKey, new Set(file.changeBlocks.map((block) => block.id))]));
+    let changed = false;
+
+    for (const [fileKey, hunkIds] of scopeState.entries()) {
+      const validIds = validSelections.get(fileKey);
+      if (!validIds) {
+        scopeState.delete(fileKey);
+        changed = true;
+        continue;
+      }
+      for (const hunkId of [...hunkIds]) {
+        if (validIds.has(hunkId)) continue;
+        hunkIds.delete(hunkId);
+        changed = true;
+      }
+      if (!hunkIds.size) {
+        scopeState.delete(fileKey);
+        changed = true;
+      }
+    }
+
+    if (!scopeState.size) this.rejectedHunks.delete(scope);
+    if (changed) this.markHunkSelectionChanged();
+  }
+
+  private formatRejectedBlockLocation(fileKey: string, blockId: string): string | null {
+    const state = this.scopeStates.get(this.scope);
+    const file = state?.bundle.files.find((entry) => entry.fileKey === fileKey);
+    const block = file?.changeBlocks.find((entry) => entry.id === blockId);
+    if (!file || !block) return null;
+
+    const rows = file.rows.slice(block.rowStart, block.rowEnd + 1);
+    const oldLines = rows.flatMap((row) => row.oldLine != null ? [row.oldLine] : []);
+    const newLines = rows.flatMap((row) => row.newLine != null ? [row.newLine] : []);
+    const spans: string[] = [];
+    if (oldLines.length) {
+      const first = oldLines[0]!;
+      const last = oldLines[oldLines.length - 1]!;
+      spans.push(`-${first}${last !== first ? `-${last}` : ""}`);
+    }
+    if (newLines.length) {
+      const first = newLines[0]!;
+      const last = newLines[newLines.length - 1]!;
+      spans.push(`+${first}${last !== first ? `-${last}` : ""}`);
+    }
+
+    return spans.length ? `${file.displayPath} ${spans.join(" / ")}` : file.displayPath;
+  }
+
+  private rejectedBlocksToastMessage(scope: DiffScope): string | null {
+    const snapshot = this.rejectedHunkSnapshot(scope);
+    const count = countRejectedHunks(snapshot);
+    if (!count) return null;
+
+    const entries: string[] = [];
+    for (const [fileKey, blockIds] of snapshot.entries()) {
+      for (const blockId of blockIds) {
+        entries.push(this.formatRejectedBlockLocation(fileKey, blockId) ?? fileKey);
+      }
+    }
+
+    entries.sort((left, right) => left.localeCompare(right));
+    const visible = entries.slice(0, 6);
+    const hidden = entries.length - visible.length;
+    return [
+      `Rejected chunks (${count}):`,
+      ...visible.map((entry) => `• ${entry}`),
+      ...(hidden > 0 ? [`• … ${hidden} more`] : []),
+    ].join("\n");
+  }
+
+  private currentFileRejectedHunks(): ReadonlySet<string> {
+    const file = this.currentFile();
+    if (!file) return new Set();
+    return this.rejectedHunks.get(this.scope)?.get(file.fileKey) ?? new Set();
   }
 
   private currentState(): ScopeState {
@@ -343,6 +469,106 @@ export class DiffReviewApp implements Component, Focusable {
     return describeRangeSelection(this.pendingRangeSelection);
   }
 
+  private toggleCurrentHunkRejected(): void {
+    const file = this.currentFile();
+    const row = this.currentRow();
+    const changeBlockId = row?.changeBlockId ?? null;
+    if (!file || !row || !changeBlockId || (row.kind !== "added" && row.kind !== "removed")) return;
+
+    const scopeState = this.rejectedHunksForScope(this.scope, true);
+    const fileState = scopeState.get(file.fileKey) ?? new Set<string>();
+    const rejected = !fileState.has(changeBlockId);
+    if (rejected) {
+      fileState.add(changeBlockId);
+      scopeState.set(file.fileKey, fileState);
+    } else {
+      fileState.delete(changeBlockId);
+      if (fileState.size) scopeState.set(file.fileKey, fileState);
+      else scopeState.delete(file.fileKey);
+      if (!scopeState.size) this.rejectedHunks.delete(this.scope);
+    }
+
+    this.markHunkSelectionChanged();
+    this.tui.requestRender();
+  }
+
+  private openRejectedHunksErrorOverlay(error: string): void {
+    if (this.activeOverlayHandle) return;
+    const close = () => {
+      this.activeOverlayHandle?.hide();
+      this.activeOverlayHandle = null;
+      this.tui.requestRender();
+    };
+    const overlay = new SimpleOverlay({
+      onClose: close,
+      handleInput: (data) => {
+        if (matchesKey(data, "q") || matchesKey(data, Key.enter)) close();
+      },
+      render: (width) => renderRejectedHunksErrorOverlay({ theme: this.theme, width, error }),
+    });
+    this.activeOverlayHandle = this.tui.showOverlay(overlay, { width: "80%", maxHeight: "80%", anchor: "center" });
+  }
+
+  private moveDraftToScope(from: DiffScope, to: DiffScope): void {
+    if (from === to) return;
+    const targetState = this.scopeStates.get(to);
+    if (!targetState) return;
+    this.overallComments[to] = this.overallComments[from] || "";
+    this.setComments(this.comments.map((comment) => {
+      if (comment.scope !== from) return comment;
+      return revalidateComment({ ...comment, scope: to }, targetState.bundle.files);
+    }));
+  }
+
+  private async applyRejectedHunksBeforeSubmit(
+    submitScope: DiffScope,
+    submitState: ScopeState,
+  ): Promise<{ ok: true; saveScope: DiffScope; saveState: ScopeState; postSubmitSections: string[] } | { ok: false }> {
+    const rejectedHunksByFile = this.rejectedHunkSnapshot(submitScope);
+    const rejectedCount = countRejectedHunks(rejectedHunksByFile);
+    if (!rejectedCount) return { ok: true, saveScope: submitScope, saveState: submitState, postSubmitSections: [] };
+
+    const rejectedSummary = this.rejectedBlocksToastMessage(submitScope);
+    const patchText = buildRejectedHunksPatch({ bundle: submitState.bundle, rejectedHunksByFile });
+    if (!patchText.trim()) {
+      this.clearRejectedHunks(submitScope);
+      this.callbacks.notify("Rejected changed-line selections no longer match the current diff. Reload, reselect, then submit again.", "warning");
+      return { ok: false };
+    }
+
+    const applyResult = await reverseApplyPatch({
+      pi: this.pi,
+      repoRoot: this.repoRoot,
+      patchText,
+    });
+    if (!applyResult.ok) {
+      this.openRejectedHunksErrorOverlay(applyResult.error);
+      return { ok: false };
+    }
+
+    this.clearRejectedHunks(submitScope);
+    const reloadScope: DiffScope = submitScope === "a" ? "a" : "u";
+    await this.loadScope(reloadScope);
+    if (reloadScope !== submitScope) this.moveDraftToScope(submitScope, reloadScope);
+
+    const saveScope = reloadScope !== submitScope ? reloadScope : submitScope;
+    const stale = unresolvedCommentsForScope(this.comments, saveScope).filter((comment) => comment.status === "stale_unresolved");
+    if (stale.length) {
+      this.callbacks.notify("Some comments moved off the accepted diff after reverting rejected changed blocks. Resolve or delete them before submitting.", "warning");
+      this.openStaleResolver(() => {
+        void this.submit();
+      });
+      return { ok: false };
+    }
+
+    const postSubmitSections = [
+      `Reverted ${rejectedCount} rejected changed block${rejectedCount === 1 ? "" : "s"} in the working tree via git apply -R${applyResult.strategy === "3way" ? " -3" : ""}${reloadScope !== submitScope ? ` and switched final submit to ${scopeName(reloadScope)}` : ""}.`,
+      rejectedSummary ?? "",
+    ].filter((section) => section.trim().length > 0);
+
+    return { ok: true, saveScope, saveState: this.currentState(), postSubmitSections };
+  }
+
   private moveDiffCursor(direction: 1 | -1, steps = 1): void {
     const file = this.currentFile();
     if (!file) return;
@@ -355,10 +581,10 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffCursorRow = nextIndex;
   }
 
-  private moveDiffHunk(direction: 1 | -1): void {
+  private moveDiffChangeBlock(direction: 1 | -1): void {
     const file = this.currentFile();
     if (!file) return;
-    this.diffCursorRow = nextNavigableHunkRowIndex(file, this.diffCursorRow, direction);
+    this.diffCursorRow = nextNavigableChangeBlockRowIndex(file, this.diffCursorRow, direction);
   }
 
   private ensureFileVisible(bodyHeight: number): void {
@@ -408,6 +634,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.tui.requestRender();
 
     const previous = this.scopeStates.get(scope);
+    const previousFingerprint = previous?.bundle.fingerprint ?? null;
     const bundle = await getDiffBundle(this.pi, this.repoRoot, scope, { sessionId: this.sessionId });
     if (scope === "t" && !bundle.files.length && !initialize && this.scope !== "t") {
       this.loadingMessage = "";
@@ -417,6 +644,7 @@ export class DiffReviewApp implements Component, Focusable {
     }
     const loadedAt = new Date().toISOString();
     this.scopeStates.set(scope, nextScopeState({ scope, bundle, previous, loadedAt }));
+    this.reconcileRejectedHunks(scope, previousFingerprint != null && previousFingerprint !== bundle.fingerprint);
 
     this.scope = scope;
     this.lastReloadTimestamp = loadedAt;
@@ -784,6 +1012,7 @@ export class DiffReviewApp implements Component, Focusable {
   }
 
   private async submit(): Promise<void> {
+    const submitScope = this.scope;
     const stale = this.unresolvedComments();
     if (stale.length) {
       this.openStaleResolver(() => {
@@ -792,20 +1021,29 @@ export class DiffReviewApp implements Component, Focusable {
       return;
     }
 
-    const state = this.currentState();
+    const submitState = this.currentState();
+    const applyResult = await this.applyRejectedHunksBeforeSubmit(submitScope, submitState);
+    if (!applyResult.ok) return;
+
+    const state = applyResult.saveState;
+    const saveScope = applyResult.saveScope;
     const saved = saveScopedReview({
       repoRoot: this.repoRoot,
       sessionId: this.sessionId,
       state,
-      scope: this.scope,
-      overallComment: this.overallComments[this.scope] || "",
+      scope: saveScope,
+      overallComment: this.overallComments[saveScope] || "",
       comments: this.comments,
       changes: this.changeSummary(state),
     });
 
     this.setComments(saved.allComments);
-    this.callbacks.setEditorText(saved.saved.compactPrompt);
-    const notice = savedReviewMessage(saved.saved);
+    const generatedPrompt = shouldGenerateCompactPrompt({
+      overallComment: this.overallComments[saveScope] || "",
+      scopedComments: saved.scopedComments,
+    });
+    if (generatedPrompt) this.callbacks.setEditorText(saved.saved.compactPrompt);
+    const notice = savedReviewMessage(saved.saved, applyResult.postSubmitSections, { generatedPrompt });
     this.callbacks.notify(notice.message, notice.type);
     this.finish({ submitted: true, outputPath: saved.saved.outputPath });
   }
@@ -982,6 +1220,9 @@ export class DiffReviewApp implements Component, Focusable {
       case "submit":
         void this.submit();
         return;
+      case "toggleHunkRejected":
+        this.toggleCurrentHunkRejected();
+        return;
       case "jumpComment":
         this.jumpAdjacentComment(action.direction, action.fileOnly);
         return;
@@ -1002,8 +1243,8 @@ export class DiffReviewApp implements Component, Focusable {
         this.ensureDiffVisible(bodyHeight);
         this.tui.requestRender();
         return;
-      case "moveHunk":
-        this.moveDiffHunk(action.direction);
+      case "moveChangeBlock":
+        this.moveDiffChangeBlock(action.direction);
         this.ensureDiffVisible(bodyHeight);
         this.tui.requestRender();
         return;
@@ -1086,10 +1327,12 @@ export class DiffReviewApp implements Component, Focusable {
       width,
       height,
       commentsEpoch: this.commentsEpoch,
+      hunkSelectionEpoch: this.hunkSelectionEpoch,
       highlightKey,
       diffCursorRow: this.diffCursorRow,
       diffScroll: this.diffScroll,
       rowMarkers: this.rowMarkersForCurrentFile(),
+      rejectedHunkIds: this.currentFileRejectedHunks(),
       highlightedRows,
       rowCache: this.diffRowRenderCache,
       viewportCache: this.diffViewportCache,

@@ -13,6 +13,16 @@ export function commentsForSubmission(comments: ReviewComment[], scope: DiffScop
   return { allComments, scopedComments };
 }
 
+export function shouldGenerateCompactPrompt({
+  overallComment,
+  scopedComments,
+}: {
+  overallComment: string;
+  scopedComments: ReviewComment[];
+}): boolean {
+  return overallComment.trim().length > 0 || scopedComments.length > 0;
+}
+
 export function saveScopedReview({
   repoRoot,
   sessionId,
@@ -47,18 +57,30 @@ export function saveScopedReview({
   return { ...prepared, saved };
 }
 
-export function savedReviewMessage(saved: SavedReviewResult): { message: string; type: "info" | "warning" } {
-  if (saved.outputLocation === "home") {
-    return {
-      message: `Saved review to home session fallback path ${saved.outputPath} (/tmp was not writable).`,
-      type: "warning",
-    };
-  }
-  if (saved.outputLocation === "repo") {
-    return {
-      message: `Saved review to repo fallback path ${saved.outputPath} (/tmp and ~/.pi/agent/sessions were not writable).`,
-      type: "warning",
-    };
-  }
-  return { message: `Saved review to ${saved.outputPath}`, type: "info" };
+export function savedReviewMessage(
+  saved: SavedReviewResult,
+  appendedSections: string[] = [],
+  options?: { generatedPrompt?: boolean },
+): { message: string; type: "info" | "warning" } {
+  const base = saved.outputLocation === "home"
+    ? {
+        message: `Saved review to home session fallback path ${saved.outputPath} (/tmp was not writable).`,
+        type: "warning" as const,
+      }
+    : saved.outputLocation === "repo"
+      ? {
+          message: `Saved review to repo fallback path ${saved.outputPath} (/tmp and ~/.pi/agent/sessions were not writable).`,
+          type: "warning" as const,
+        }
+      : { message: `Saved review to ${saved.outputPath}`, type: "info" as const };
+
+  const sections = [
+    ...(options?.generatedPrompt === false ? ["No user message was generated because this review has no comments."] : []),
+    ...appendedSections,
+  ].filter((section) => section.trim().length > 0);
+  if (!sections.length) return base;
+  return {
+    message: `${base.message}\n\n${sections.join("\n\n")}`,
+    type: base.type,
+  };
 }

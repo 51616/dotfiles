@@ -10,7 +10,7 @@ This extension is loaded automatically by the vault `./pi` wrapper because it li
 
 This repo also ships `.pi/settings.json` so a globally installed legacy `badlogic/pi-diff-review` package does not steal or suffix `/diff-review` during local verification.
 
-When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` now opens in `t` scope by default and shows the last turn's agent-touched patch before falling back to the git-backed scopes.
+When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` now opens in `t` scope by default and shows the most recent reviewable agent-touched patch for this session before falling back to the git-backed scopes.
 
 ## Keybindings
 
@@ -21,9 +21,10 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 - `tab`: switch files/diff focus
 - `→`: files → diff focus
 - `←`: diff → files focus
-- `t` / `u` / `i` / `a`: switch diff source or scope (last turn / unstaged / staged / all, with `a` including untracked files too)
+- `t` / `u` / `i` / `a`: switch diff source or scope (most recent reviewable agent-made turn / unstaged / staged / all, with `a` including untracked files too)
 - `c`: line comment at cursor
 - `h`: auto-range comment (uses the nearest contiguous changed block, not the whole git hunk)
+- `space`: toggle the current contiguous changed block accepted/rejected (`✓` accepted by default, `×` rejected)
 - `x`: start/finish an explicit range selection for a range comment
 - `f`: file comment
 - `o`: overall comment
@@ -32,7 +33,7 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 - `n` / `b`: next / previous comment in the current scope
 - `.` / `,`: next / previous comment in the current file
 - `w` / `z`: next file with comments / next file with stale comments
-- `[` / `]`: previous / next hunk
+- `[` / `]`: previous / next contiguous changed chunk
 - `e`: edit at cursor in `$VISUAL` / `$EDITOR` / `nvim`
 - `g`: edit file
 - `r`: reload current scope
@@ -55,5 +56,9 @@ If `/tmp` is not writable, the UI warns when it falls back to `~/.pi/agent/sessi
 After saving the full file, the extension replaces pi's editor content with a compact prompt that points the agent at the saved review file for the full snippets/context.
 
 Saved reviews use PR-style `a:` / `b:` anchors, actionable `edit_path` / `apply_to` fields on the `b/` side, deterministic file/range ordering, and search handles (`hunk_header`, `search`) so the next agent can act on local feedback without guessing.
+
+Changed blocks are accepted by default. If you press `space` on changed diff lines, `/diff-review` marks that contiguous changed block as rejected and `s` will try to revert only those rejected blocks from the working tree via `git apply -R --check`, with `git apply -R -3 --check` as the fallback. If both checks fail, nothing is mutated and the UI shows the git diagnostics plus recovery steps.
+
+Manual edits within or near a rejected block can make reverse-apply fail because `git apply -R` is context-sensitive. The intended recovery path is: `r` reload the current scope, reselect the rejected blocks, then submit again.
 
 When the review source is `t`, the saved markdown and compact prompt also record that the review came from the last turn's agent-touched patch, along with the touched paths (and repo keys when the artifact is a combined multi-repo workspace patch).

@@ -1,4 +1,4 @@
-import type { ParsedDiffRow, ParsedFilePatch, ParsedHunk } from "./types.ts";
+import type { ParsedChangeBlock, ParsedDiffRow, ParsedFilePatch } from "./types.ts";
 
 export function isNavigableDiffRow(row: ParsedDiffRow): boolean {
   return row.kind === "context" || row.kind === "added" || row.kind === "removed";
@@ -18,42 +18,46 @@ export function nextNavigableRowIndex(rows: ParsedDiffRow[], currentIndex: numbe
   return start;
 }
 
-function preferredHunkEntryRowIndex(rows: ParsedDiffRow[], hunk: ParsedHunk): number {
-  for (let index = hunk.rowStart; index <= hunk.rowEnd; index += 1) {
+function preferredChangeBlockEntryRowIndex(rows: ParsedDiffRow[], block: ParsedChangeBlock): number {
+  for (let index = block.rowStart; index <= block.rowEnd; index += 1) {
     if (rows[index]?.kind === "added") return index;
   }
-  for (let index = hunk.rowStart; index <= hunk.rowEnd; index += 1) {
-    if (isNavigableDiffRow(rows[index])) return index;
-  }
-  return hunk.rowStart;
+  return block.rowStart;
 }
 
-function currentHunkIndex(file: ParsedFilePatch, currentIndex: number): number {
+function changeBlockPositionForRow(
+  file: ParsedFilePatch,
+  currentIndex: number,
+  direction: 1 | -1,
+): { index: number | null; exact: boolean } {
   const start = Math.max(0, Math.min(file.rows.length - 1, currentIndex));
   const row = file.rows[start];
-  const hunkId = row?.hunkId;
-  if (hunkId) {
-    const exact = file.hunks.findIndex((hunk) => hunk.id === hunkId);
-    if (exact >= 0) return exact;
+  const blockId = row?.changeBlockId;
+  if (blockId) {
+    const exact = file.changeBlocks.findIndex((block) => block.id === blockId);
+    if (exact >= 0) return { index: exact, exact: true };
   }
 
-  const containing = file.hunks.findIndex((hunk) => start >= hunk.rowStart && start <= hunk.rowEnd);
-  if (containing >= 0) return containing;
+  if (direction === 1) {
+    const next = file.changeBlocks.findIndex((block) => block.rowStart > start);
+    return { index: next >= 0 ? next : null, exact: false };
+  }
 
-  return -1;
+  for (let index = file.changeBlocks.length - 1; index >= 0; index -= 1) {
+    if ((file.changeBlocks[index]?.rowEnd ?? -1) < start) return { index, exact: false };
+  }
+  return { index: null, exact: false };
 }
 
-export function nextNavigableHunkRowIndex(file: ParsedFilePatch, currentIndex: number, direction: 1 | -1): number {
-  if (!file.hunks.length) return Math.max(0, Math.min(file.rows.length - 1, currentIndex));
+export function nextNavigableChangeBlockRowIndex(file: ParsedFilePatch, currentIndex: number, direction: 1 | -1): number {
+  if (!file.changeBlocks.length) return Math.max(0, Math.min(file.rows.length - 1, currentIndex));
 
-  const current = currentHunkIndex(file, currentIndex);
-  const nextIndex = current < 0
-    ? (direction === 1 ? 0 : file.hunks.length - 1)
-    : current + direction;
+  const position = changeBlockPositionForRow(file, currentIndex, direction);
+  const nextIndex = position.index == null ? null : (position.exact ? position.index + direction : position.index);
 
-  if (nextIndex < 0 || nextIndex >= file.hunks.length) {
+  if (nextIndex == null || nextIndex < 0 || nextIndex >= file.changeBlocks.length) {
     return Math.max(0, Math.min(file.rows.length - 1, currentIndex));
   }
 
-  return preferredHunkEntryRowIndex(file.rows, file.hunks[nextIndex]);
+  return preferredChangeBlockEntryRowIndex(file.rows, file.changeBlocks[nextIndex]);
 }

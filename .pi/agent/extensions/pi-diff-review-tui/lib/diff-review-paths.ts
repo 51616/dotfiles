@@ -86,19 +86,41 @@ export function resolveDiffReviewRootForWrite({
 
 export function resolveTurnLatestCandidates({
   repoRoot,
+  sessionId,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  sessionId?: string;
   tmpRoot?: string;
   agentDir?: string;
 }): Array<{ patchPath: string; jsonPath: string }> {
   const roots = diffReviewCandidateRoots({ repoRoot, tmpRoot, agentDir });
-  return [roots.tmp, roots.home, roots.repo].map((root) => {
+  const candidates: Array<{ patchPath: string; jsonPath: string }> = [];
+  const stems = ["latest-reviewable", "latest"];
+
+  if (sessionId?.trim()) {
+    for (const root of [roots.tmp, roots.home, roots.repo]) {
+      const turnsRoot = path.join(root, "turns");
+      const sessionRoot = path.join(turnsRoot, "sessions", sessionId);
+      for (const stem of stems) {
+        candidates.push({
+          patchPath: path.join(sessionRoot, `${stem}.patch`),
+          jsonPath: path.join(sessionRoot, `${stem}.json`),
+        });
+      }
+    }
+  }
+
+  for (const root of [roots.tmp, roots.home, roots.repo]) {
     const turnsRoot = path.join(root, "turns");
-    return {
-      patchPath: path.join(turnsRoot, "latest.patch"),
-      jsonPath: path.join(turnsRoot, "latest.json"),
-    };
-  });
+    for (const stem of stems) {
+      candidates.push({
+        patchPath: path.join(turnsRoot, `${stem}.patch`),
+        jsonPath: path.join(turnsRoot, `${stem}.json`),
+      });
+    }
+  }
+
+  return candidates;
 }

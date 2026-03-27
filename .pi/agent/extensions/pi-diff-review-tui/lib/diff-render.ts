@@ -2,12 +2,13 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import type { DiffScope, DiffViewportCache, InlineEmphasisRange, ParsedDiffRow, ParsedFilePatch, DiffRowRenderCache } from "./types.ts";
 import { isNavigableDiffRow } from "./navigation.ts";
-import { applyBackgroundAnsi, blendedDiffSelectionBg, brightenedBackgroundAnsi, diffRowBaseBg } from "./diff-background.ts";
+import { applyBackgroundAnsi, blendedDiffSelectionBg, brightenedBackgroundAnsi, darkenedBackgroundAnsi, diffRowBaseBg } from "./diff-background.ts";
 import { buildInlineEmphasisMap, renderableDiffText } from "./inline-emphasis.ts";
 import { padLine, wrapAndPadLines } from "./ui-helpers.ts";
 
 const CURRENT_LINE_MARKER = "▌";
 const CURRENT_LINE_MARKER_WIDTH = 1;
+const HUNK_MARKER_WIDTH = 1;
 const COMMENT_MARKER_WIDTH = 3;
 const MIN_LINE_NUMBER_WIDTH = 3;
 const RESET = "\x1b[0m";
@@ -72,6 +73,7 @@ export function createDiffRowRenderCache({
   width,
   lineNumberWidth,
   commentsEpoch,
+  hunkSelectionEpoch,
   highlightKey,
 }: {
   scope: DiffScope;
@@ -80,6 +82,7 @@ export function createDiffRowRenderCache({
   width: number;
   lineNumberWidth: number;
   commentsEpoch: number;
+  hunkSelectionEpoch: number;
   highlightKey: string;
 }): DiffRowRenderCache {
   return {
@@ -89,6 +92,7 @@ export function createDiffRowRenderCache({
     width,
     lineNumberWidth,
     commentsEpoch,
+    hunkSelectionEpoch,
     highlightKey,
     contentRows: new Map(),
     baseRows: new Map(),
@@ -117,6 +121,26 @@ function rowTextColor(row: ParsedDiffRow): "toolDiffAdded" | "toolDiffRemoved" |
   return "dim";
 }
 
+function rowIsRejected(row: ParsedDiffRow, rejectedHunkIds: ReadonlySet<string>): boolean {
+  return !!row.changeBlockId && rejectedHunkIds.has(row.changeBlockId);
+}
+
+function leadingAnsi(text: string): string | null {
+  ANSI_ESCAPE.lastIndex = 0;
+  const match = ANSI_ESCAPE.exec(text);
+  return match?.index === 0 ? match[0] : null;
+}
+
+function grayishStyledText(theme: Pick<Theme, "fg">, text: string): string {
+  const grayAnsi = leadingAnsi(theme.fg("toolDiffContext", "x"));
+  if (!grayAnsi) return text;
+
+  const cells = parseStyledCells(text);
+  if (!cells.length) return text;
+  for (const cell of cells) cell.fg = grayAnsi;
+  return serializeStyledCells(cells, null);
+}
+
 function rowNumber({
   theme,
   value,
@@ -136,17 +160,27 @@ function rowNumber({
   return theme.fg("muted", styled);
 }
 
+function hunkMarker(theme: Theme, row: ParsedDiffRow, rejectedHunkIds: ReadonlySet<string>): string {
+  if ((row.kind !== "added" && row.kind !== "removed") || !row.changeBlockId) return " ".repeat(HUNK_MARKER_WIDTH);
+  const marker = rejectedHunkIds.has(row.changeBlockId) ? "×" : "✓";
+  const color = rejectedHunkIds.has(row.changeBlockId) ? "toolDiffRemoved" : "toolDiffAdded";
+  const styled = theme.bold ? theme.bold(marker) : marker;
+  return theme.fg(color, styled);
+}
+
 function buildGutters({
   theme,
   row,
   lineNumberWidth,
   commentMarker,
+  rejectedHunkIds,
   selected,
 }: {
   theme: Theme;
   row: ParsedDiffRow;
   lineNumberWidth: number;
   commentMarker: string;
+  rejectedHunkIds: ReadonlySet<string>;
   selected: boolean;
 }): { first: string; continuation: string } {
   const oldNumber = rowNumber({
@@ -168,13 +202,15 @@ function buildGutters({
 
   const blankNumber = " ".repeat(lineNumberWidth);
   const blankCommentMarker = " ".repeat(COMMENT_MARKER_WIDTH);
+  const blankHunkMarker = " ".repeat(HUNK_MARKER_WIDTH);
   const currentLineMarker = selected ? theme.fg("accent", CURRENT_LINE_MARKER) : " ".repeat(CURRENT_LINE_MARKER_WIDTH);
+  const selectionMarker = hunkMarker(theme, row, rejectedHunkIds);
 
   return {
-    // Keep the join marker compact, reserve a dedicated current-line slot,
+    // Keep the join marker compact, reserve dedicated current-line and hunk-selection slots,
     // and leave the comment badge in the gutter so diff text stays left-flushed.
-    first: `${oldNumber} ${join} ${newNumber} ${currentLineMarker}${commentMarker}${separator}`,
-    continuation: `${blankNumber} ${join} ${blankNumber} ${currentLineMarker}${blankCommentMarker}${separator}`,
+    first: `${oldNumber} ${join} ${newNumber} ${currentLineMarker}${selectionMarker}${commentMarker}${separator}`,
+    continuation: `${blankNumber} ${join} ${blankNumber} ${currentLineMarker}${blankHunkMarker}${blankCommentMarker}${separator}`,
   };
 }
 
@@ -327,12 +363,14 @@ function codeText({
   highlightedRows,
   emphasisRanges,
   rowBgAnsi,
+  rejected,
 }: {
   theme: Theme;
   row: ParsedDiffRow;
   highlightedRows: Map<number, string> | null;
   emphasisRanges: InlineEmphasisRange[] | null;
   rowBgAnsi: string | null;
+  rejected: boolean;
 }): string {
   if (row.kind === "meta" || row.kind === "hunk_header" || row.kind === "no_newline") {
     return theme.fg(rowTextColor(row), row.rawText);
@@ -346,12 +384,13 @@ function codeText({
   const highlightedCode = highlightedRows?.get(row.rowIndex);
   const baseCode = highlightedCode ?? theme.fg(rowTextColor(row), renderedText);
   const prefixedCode = prefixChar ? `${theme.fg(rowTextColor(row), prefixChar)}${baseCode}` : baseCode;
+  const shadedCode = rejected ? grayishStyledText(theme, prefixedCode) : prefixedCode;
 
-  if (!emphasisRanges?.length || !rowBgAnsi) return prefixedCode;
-  const chipBgAnsi = brightenedBackgroundAnsi(theme, rowBgAnsi);
-  if (!chipBgAnsi) return prefixedCode;
+  if (!emphasisRanges?.length || !rowBgAnsi) return shadedCode;
+  const chipBgAnsi = brightenedBackgroundAnsi(theme, rowBgAnsi, rejected ? 0.03 : 0.06);
+  if (!chipBgAnsi) return shadedCode;
   return applyInlineEmphasis({
-    baseText: prefixedCode,
+    baseText: shadedCode,
     emphasisRanges,
     chipBgAnsi,
     rowBgAnsi,
@@ -364,6 +403,7 @@ function wrapRowLines({
   cache,
   row,
   rowMarkers,
+  rejectedHunkIds,
   highlightedRows,
   selected,
 }: {
@@ -371,6 +411,7 @@ function wrapRowLines({
   cache: DiffRowRenderCache;
   row: ParsedDiffRow;
   rowMarkers: Map<number, string>;
+  rejectedHunkIds: ReadonlySet<string>;
   highlightedRows: Map<number, string> | null;
   selected: boolean;
 }): string[] {
@@ -379,8 +420,9 @@ function wrapRowLines({
   if (cached) return cached;
 
   const commentMarker = rowMarkers.get(row.rowIndex) ?? " ".repeat(COMMENT_MARKER_WIDTH);
-  const gutters = buildGutters({ theme, row, lineNumberWidth: cache.lineNumberWidth, commentMarker, selected });
+  const gutters = buildGutters({ theme, row, lineNumberWidth: cache.lineNumberWidth, commentMarker, rejectedHunkIds, selected });
   const contentWidth = Math.max(1, cache.width - visibleWidth(gutters.first));
+  const rejected = rowIsRejected(row, rejectedHunkIds);
 
   const baseBgAnsi = selected
     ? row.kind === "added" || row.kind === "removed"
@@ -392,9 +434,10 @@ function wrapRowLines({
     ? (theme as any).getBgAnsi("selectedBg")
     : null;
 
-  const contentBgAnsi = selectedBgAnsi ?? baseBgAnsi;
+  const dimmedBgAnsi = rejected ? darkenedBackgroundAnsi(theme, baseBgAnsi, 0.35) ?? baseBgAnsi : baseBgAnsi;
+  const contentBgAnsi = selectedBgAnsi ?? dimmedBgAnsi;
   const emphasisRanges = cache.inlineEmphasisRows.get(row.rowIndex) ?? null;
-  const code = codeText({ theme, row, highlightedRows, emphasisRanges, rowBgAnsi: contentBgAnsi });
+  const code = codeText({ theme, row, highlightedRows, emphasisRanges, rowBgAnsi: contentBgAnsi, rejected });
   const wrappedCode = wrapAndPadLines(code, contentWidth);
 
   const lines = wrappedCode.map((codeLine, index) => {
@@ -419,6 +462,7 @@ function rowLines({
   cache,
   row,
   rowMarkers,
+  rejectedHunkIds,
   highlightedRows,
   selected,
 }: {
@@ -426,10 +470,11 @@ function rowLines({
   cache: DiffRowRenderCache;
   row: ParsedDiffRow;
   rowMarkers: Map<number, string>;
+  rejectedHunkIds: ReadonlySet<string>;
   highlightedRows: Map<number, string> | null;
   selected: boolean;
 }): string[] {
-  return wrapRowLines({ theme, cache, row, rowMarkers, highlightedRows, selected });
+  return wrapRowLines({ theme, cache, row, rowMarkers, rejectedHunkIds, highlightedRows, selected });
 }
 
 function isVisibleDiffRow(row: ParsedDiffRow | undefined): boolean {
@@ -444,10 +489,12 @@ export function renderDiffRows({
   width,
   height,
   commentsEpoch,
+  hunkSelectionEpoch = 0,
   highlightKey,
   diffCursorRow,
   diffScroll,
   rowMarkers,
+  rejectedHunkIds = new Set<string>(),
   highlightedRows,
   rowCache,
   viewportCache,
@@ -459,10 +506,12 @@ export function renderDiffRows({
   width: number;
   height: number;
   commentsEpoch: number;
+  hunkSelectionEpoch?: number;
   highlightKey: string;
   diffCursorRow: number;
   diffScroll: number;
   rowMarkers: Map<number, string>;
+  rejectedHunkIds?: ReadonlySet<string>;
   highlightedRows: Map<number, string> | null;
   rowCache: DiffRowRenderCache | null;
   viewportCache: DiffViewportCache | null;
@@ -475,9 +524,10 @@ export function renderDiffRows({
     && rowCache.width === width
     && rowCache.lineNumberWidth === lineNumberWidth
     && rowCache.commentsEpoch === commentsEpoch
+    && rowCache.hunkSelectionEpoch === hunkSelectionEpoch
     && rowCache.highlightKey === highlightKey
     ? rowCache
-    : createDiffRowRenderCache({ scope, fingerprint, fileKey: file.fileKey, width, lineNumberWidth, commentsEpoch, highlightKey });
+    : createDiffRowRenderCache({ scope, fingerprint, fileKey: file.fileKey, width, lineNumberWidth, commentsEpoch, hunkSelectionEpoch, highlightKey });
 
   if (!cache.inlineEmphasisReady) {
     cache.inlineEmphasisRows = buildInlineEmphasisMap(file);
@@ -497,6 +547,7 @@ export function renderDiffRows({
     && viewportCache.height === height
     && viewportCache.scroll === boundedScroll
     && viewportCache.commentsEpoch === commentsEpoch
+    && viewportCache.hunkSelectionEpoch === hunkSelectionEpoch
     && viewportCache.highlightKey === highlightKey
     && viewportCache.selectedRow === boundedCursorRow) {
     return { lines: viewportCache.lines, rowCache: cache, viewportCache, diffScroll: boundedScroll };
@@ -509,7 +560,7 @@ export function renderDiffRows({
     const cachedContent = cache.contentRows.get(row.rowIndex);
     if (cachedContent) return cachedContent.length;
 
-    return rowLines({ theme, cache, row, rowMarkers, highlightedRows, selected: false }).length;
+    return rowLines({ theme, cache, row, rowMarkers, rejectedHunkIds, highlightedRows, selected: false }).length;
   };
 
   const visibleRows = file.rows.filter(isVisibleDiffRow);
@@ -558,6 +609,7 @@ export function renderDiffRows({
     && viewportCache.height === height
     && viewportCache.scroll === effectiveScroll
     && viewportCache.commentsEpoch === commentsEpoch
+    && viewportCache.hunkSelectionEpoch === hunkSelectionEpoch
     && viewportCache.highlightKey === highlightKey
     && viewportCache.selectedRow === boundedCursorRow) {
     return { lines: viewportCache.lines, rowCache: cache, viewportCache, diffScroll: effectiveScroll };
@@ -574,7 +626,7 @@ export function renderDiffRows({
       if (lines.length >= height) break;
     }
     const selected = row.rowIndex === boundedCursorRow;
-    const rendered = rowLines({ theme, cache, row, rowMarkers, highlightedRows, selected });
+    const rendered = rowLines({ theme, cache, row, rowMarkers, rejectedHunkIds, highlightedRows, selected });
     for (const line of rendered) {
       if (lines.length >= height) break;
       lines.push(line);
@@ -592,6 +644,7 @@ export function renderDiffRows({
     height,
     scroll: effectiveScroll,
     commentsEpoch,
+    hunkSelectionEpoch,
     highlightKey,
     selectedRow: boundedCursorRow,
     lines,

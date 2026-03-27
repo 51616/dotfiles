@@ -66,7 +66,7 @@ function renderCommentBodyPreview(theme: Theme, comment: ReviewComment, inner: n
 export function renderHelpOverlay(theme: Theme, width: number): string[] {
   const lines = [
     theme.fg("muted", "navigation"),
-    "j/k or ↑/↓ move line, [/] move hunk",
+    "j/k or ↑/↓ move line, [/] move changed chunk",
     "tab switch files/diff focus",
     "→ files→diff focus, ← diff→files focus",
     "enter files→focus diff, diff→line comment",
@@ -77,6 +77,7 @@ export function renderHelpOverlay(theme: Theme, width: number): string[] {
     theme.fg("muted", "review"),
     "t/u/i/a switch source or scope (last turn / unstaged / staged / all)",
     "c line comment, h auto-range comment, x start/finish user range",
+    "space toggle current changed block accepted/rejected (accepted by default)",
     "f file comment, o overall comment, v peek comments at cursor",
     "m comments list, t toggle all scopes (inside comments)",
     "e edit at cursor, g edit file, r reload current scope",
@@ -85,12 +86,38 @@ export function renderHelpOverlay(theme: Theme, width: number): string[] {
     "s submit review, q close, esc clears range selection before quitting",
     "p toggle perf stats",
     "",
-    theme.fg("dim", "Submit saves the full review to /tmp first, then ~/.pi/diff-review or .pi/diff-review if needed, and inserts a compact prompt into pi's editor."),
+    theme.fg("dim", "Submit saves the full review to /tmp first, then ~/.pi/diff-review or .pi/diff-review if needed, inserts a compact prompt into pi's editor, and reverse-applies any rejected changed blocks with git apply -R. If manual edits shifted a rejected block, reload + reselect + retry."),
   ];
   const inner = Math.max(30, width - 2);
   const out: string[] = [topBorder(theme, "help", inner, "accent")];
   for (const line of lines) out.push(boxLine(theme, "│", line, inner, "│"));
   out.push(bottomBorder(theme, inner, "accent"));
+  return out;
+}
+
+export function renderRejectedHunksErrorOverlay({
+  theme,
+  width,
+  error,
+}: {
+  theme: Theme;
+  width: number;
+  error: string;
+}): string[] {
+  const inner = Math.max(40, width - 2);
+  const out: string[] = [topBorder(theme, "revert rejected changed blocks failed", inner, "error")];
+  out.push(boxLine(theme, "│", theme.fg("warning", "Reverse-apply did not complete safely. Inspect git status if you are unsure before retrying."), inner, "│", "error"));
+  out.push(boxLine(theme, "│", "", inner, "│", "error"));
+  for (const line of wrapPlainText({ text: error, width: inner, maxLines: 16 }).lines) {
+    out.push(boxLine(theme, "│", theme.fg("dim", line), inner, "│", "error"));
+  }
+  out.push(boxLine(theme, "│", "", inner, "│", "error"));
+  out.push(boxLine(theme, "│", theme.fg("muted", "Recovery:"), inner, "│", "error"));
+  out.push(boxLine(theme, "│", "1) r reload current scope", inner, "│", "error"));
+  out.push(boxLine(theme, "│", "2) reselect rejected changed blocks with space", inner, "│", "error"));
+  out.push(boxLine(theme, "│", "3) s submit again once the patch lines up", inner, "│", "error"));
+  out.push(boxLine(theme, "│", theme.fg("dim", "enter/q/esc close"), inner, "│", "error"));
+  out.push(bottomBorder(theme, inner, "error"));
   return out;
 }
 

@@ -171,6 +171,19 @@ function writeText(filePath: string, value: string): void {
   fs.writeFileSync(filePath, value, "utf8");
 }
 
+function writeNamedArtifact(root: string, stem: string, patchText: string, metadata: TurnArtifactMetadata): void {
+  writeText(path.join(root, `${stem}.patch`), patchText);
+  writeJson(path.join(root, `${stem}.json`), metadata);
+}
+
+function writeLatestArtifact(root: string, patchText: string, metadata: TurnArtifactMetadata): void {
+  writeNamedArtifact(root, "latest", patchText, metadata);
+}
+
+function writeLatestReviewableArtifact(root: string, patchText: string, metadata: TurnArtifactMetadata): void {
+  writeNamedArtifact(root, "latest-reviewable", patchText, metadata);
+}
+
 export function writeRepoArtifacts({
   repoArtifact,
   workspace,
@@ -183,20 +196,28 @@ export function writeRepoArtifacts({
   const sessionRoot = path.join(turnsRoot, "sessions", repoArtifact.metadata.session_id);
   const repoRoot = path.join(sessionRoot, repoArtifact.repoKey);
 
-  writeText(path.join(repoRoot, "latest.patch"), repoArtifact.patchText);
-  writeJson(path.join(repoRoot, "latest.json"), repoArtifact.metadata);
+  writeLatestArtifact(repoRoot, repoArtifact.patchText, repoArtifact.metadata);
+  if (repoArtifact.patchText.trim()) writeLatestReviewableArtifact(repoRoot, repoArtifact.patchText, repoArtifact.metadata);
 
   if (workspace) {
     const workspaceRoot = path.join(sessionRoot, "workspace");
-    writeText(path.join(workspaceRoot, "latest.patch"), workspace.patchText);
-    writeJson(path.join(workspaceRoot, "latest.json"), workspace.metadata);
-    writeText(path.join(turnsRoot, "latest.patch"), workspace.patchText);
-    writeJson(path.join(turnsRoot, "latest.json"), workspace.metadata);
+    writeLatestArtifact(workspaceRoot, workspace.patchText, workspace.metadata);
+    writeLatestArtifact(sessionRoot, workspace.patchText, workspace.metadata);
+    writeLatestArtifact(turnsRoot, workspace.patchText, workspace.metadata);
+    if (workspace.patchText.trim()) {
+      writeLatestReviewableArtifact(workspaceRoot, workspace.patchText, workspace.metadata);
+      writeLatestReviewableArtifact(sessionRoot, workspace.patchText, workspace.metadata);
+      writeLatestReviewableArtifact(turnsRoot, workspace.patchText, workspace.metadata);
+    }
     return;
   }
 
-  writeText(path.join(turnsRoot, "latest.patch"), repoArtifact.patchText);
-  writeJson(path.join(turnsRoot, "latest.json"), repoArtifact.metadata);
+  writeLatestArtifact(sessionRoot, repoArtifact.patchText, repoArtifact.metadata);
+  writeLatestArtifact(turnsRoot, repoArtifact.patchText, repoArtifact.metadata);
+  if (repoArtifact.patchText.trim()) {
+    writeLatestReviewableArtifact(sessionRoot, repoArtifact.patchText, repoArtifact.metadata);
+    writeLatestReviewableArtifact(turnsRoot, repoArtifact.patchText, repoArtifact.metadata);
+  }
 }
 
 export function writeEmptyLatestArtifact({
@@ -230,6 +251,9 @@ export function writeEmptyLatestArtifact({
   };
   const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot });
   const turnsRoot = path.join(rootDir, "turns");
-  writeText(path.join(turnsRoot, "latest.patch"), "");
-  writeJson(path.join(turnsRoot, "latest.json"), metadata);
+  const sessionRoot = path.join(turnsRoot, "sessions", sessionId);
+  const repoSessionRoot = path.join(sessionRoot, repoKey);
+  writeLatestArtifact(repoSessionRoot, "", metadata);
+  writeLatestArtifact(sessionRoot, "", metadata);
+  writeLatestArtifact(turnsRoot, "", metadata);
 }

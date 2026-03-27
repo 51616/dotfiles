@@ -36,20 +36,20 @@ test("left/right arrows switch panes directionally", () => {
   }), { type: "none" });
 });
 
-test("brackets move between hunks in diff focus", () => {
+test("brackets move between contiguous changed chunks in diff focus", () => {
   assert.deepEqual(resolveInputAction({
     data: "]",
     focusMode: "diff",
     hasFile: true,
     bodyHeight: 10,
-  }), { type: "moveHunk", direction: 1 });
+  }), { type: "moveChangeBlock", direction: 1 });
 
   assert.deepEqual(resolveInputAction({
     data: "[",
     focusMode: "diff",
     hasFile: true,
     bodyHeight: 10,
-  }), { type: "moveHunk", direction: -1 });
+  }), { type: "moveChangeBlock", direction: -1 });
 
   assert.deepEqual(resolveInputAction({
     data: "]",
@@ -68,4 +68,9 @@ test("phase 11 shortcuts map to range, peek, and comment navigation actions", ()
   assert.deepEqual(resolveInputAction({ data: ".", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "jumpComment", direction: 1, fileOnly: true });
   assert.deepEqual(resolveInputAction({ data: "w", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "jumpCommentFile", staleOnly: false });
   assert.deepEqual(resolveInputAction({ data: "z", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "jumpCommentFile", staleOnly: true });
+});
+
+test("space toggles the current hunk only in diff focus", () => {
+  assert.deepEqual(resolveInputAction({ data: " ", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "toggleHunkRejected" });
+  assert.deepEqual(resolveInputAction({ data: " ", focusMode: "files", hasFile: true, bodyHeight: 10 }), { type: "none" });
 });

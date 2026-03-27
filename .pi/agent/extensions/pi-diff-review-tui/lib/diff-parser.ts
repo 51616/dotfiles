@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { FileStatus, ParsedDiffRow, ParsedFilePatch, ParsedHunk } from "./types.ts";
+import type { FileStatus, ParsedChangeBlock, ParsedDiffRow, ParsedFilePatch, ParsedHunk } from "./types.ts";
 
 export function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -90,6 +90,41 @@ function parseHunkHeader(line: string): {
 function lineTextForBody(line: string): string {
   if (!line) return "";
   return line.length > 0 ? line.slice(1) : "";
+}
+
+function assignChangeBlocks(fileKey: string, rows: ParsedDiffRow[]): ParsedChangeBlock[] {
+  const blocks: ParsedChangeBlock[] = [];
+  let block: ParsedChangeBlock | null = null;
+
+  const flush = () => {
+    if (!block) return;
+    blocks.push(block);
+    block = null;
+  };
+
+  for (const row of rows) {
+    if (row.kind !== "removed" && row.kind !== "added") {
+      flush();
+      continue;
+    }
+
+    if (!block || block.hunkId !== (row.hunkId ?? null) || row.rowIndex !== block.rowEnd + 1) {
+      flush();
+      block = {
+        id: `${fileKey}:change:${blocks.length + 1}`,
+        hunkId: row.hunkId ?? null,
+        rowStart: row.rowIndex,
+        rowEnd: row.rowIndex,
+      };
+    } else {
+      block.rowEnd = row.rowIndex;
+    }
+
+    row.changeBlockId = block.id;
+  }
+
+  flush();
+  return blocks;
 }
 
 export function parseSingleFilePatch({
@@ -238,6 +273,8 @@ export function parseSingleFilePatch({
     });
   }
 
+  const changeBlocks = assignChangeBlocks(fileKey, rows);
+
   return {
     fileKey,
     status: inferred,
@@ -248,6 +285,7 @@ export function parseSingleFilePatch({
     rawPatch: patchText,
     rows,
     hunks,
+    changeBlocks,
     isBinary,
   };
 }

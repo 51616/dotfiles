@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createComment } from "../lib/comments.ts";
 import { parseSingleFilePatch } from "../lib/diff-parser.ts";
-import { commentsForSubmission, editorLineForRow, savedReviewMessage } from "../lib/review-session.ts";
+import { commentsForSubmission, editorLineForRow, savedReviewMessage, shouldGenerateCompactPrompt } from "../lib/review-session.ts";
 
 const PATCH = [
   "diff --git a/src/foo.ts b/src/foo.ts",
@@ -51,4 +51,47 @@ test("savedReviewMessage reflects output-location priority clearly", () => {
     message: "Saved review to repo fallback path /repo/.pi/diff-review/review.md (/tmp and ~/.pi/agent/sessions were not writable).",
     type: "warning",
   });
+});
+
+test("shouldGenerateCompactPrompt requires at least one comment or overall note", () => {
+  assert.equal(shouldGenerateCompactPrompt({ overallComment: "", scopedComments: [] }), false);
+  assert.equal(shouldGenerateCompactPrompt({ overallComment: "overall", scopedComments: [] }), true);
+  assert.equal(shouldGenerateCompactPrompt({ overallComment: "", scopedComments: [{}] }), true);
+});
+
+test("savedReviewMessage appends post-submit rejected-chunk details once", () => {
+  assert.deepEqual(
+    savedReviewMessage(
+      { outputPath: "/tmp/review.md", content: "", compactPrompt: "", outputLocation: "tmp" },
+      [
+        "Reverted 1 rejected changed block in the working tree via git apply -R.",
+        "Rejected chunks (1):\n• src/foo.ts +2",
+      ],
+    ),
+    {
+      message: [
+        "Saved review to /tmp/review.md",
+        "Reverted 1 rejected changed block in the working tree via git apply -R.",
+        "Rejected chunks (1):\n• src/foo.ts +2",
+      ].join("\n\n"),
+      type: "info",
+    },
+  );
+});
+
+test("savedReviewMessage explains when no user message was generated", () => {
+  assert.deepEqual(
+    savedReviewMessage(
+      { outputPath: "/tmp/review.md", content: "", compactPrompt: "", outputLocation: "tmp" },
+      [],
+      { generatedPrompt: false },
+    ),
+    {
+      message: [
+        "Saved review to /tmp/review.md",
+        "No user message was generated because this review has no comments.",
+      ].join("\n\n"),
+      type: "info",
+    },
+  );
 });

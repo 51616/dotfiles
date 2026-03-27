@@ -139,6 +139,10 @@ function brightenRgb(rgb: Rgb, ratio: number): Rgb {
   return blendRgb(rgb, { r: 255, g: 255, b: 255 }, ratio);
 }
 
+function darkenRgb(rgb: Rgb, ratio: number): Rgb {
+  return blendRgb(rgb, { r: 0, g: 0, b: 0 }, ratio);
+}
+
 export function applyBackgroundAnsi(text: string, ansi: string | null | undefined): string {
   if (!ansi) return text;
   return `${ansi}${text}\x1b[49m`;
@@ -159,6 +163,13 @@ export function brightenedBackgroundAnsi(theme: Pick<Theme, "getColorMode">, ans
   const rgb = parseBgAnsi(ansi);
   if (!rgb) return null;
   return rgbToBgAnsi(brightenRgb(rgb, ratio), theme.getColorMode());
+}
+
+export function darkenedBackgroundAnsi(theme: Pick<Theme, "getColorMode">, ansi: string | null | undefined, ratio = 0.35): string | null {
+  if (!ansi) return null;
+  const rgb = parseBgAnsi(ansi);
+  if (!rgb) return null;
+  return rgbToBgAnsi(darkenRgb(rgb, ratio), theme.getColorMode());
 }
 
 export function diffRowBaseBg(theme: Pick<Theme, "getBgAnsi">, kind: ParsedRowKind): string | null {

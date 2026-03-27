@@ -14,7 +14,12 @@ let pendingSessionOp: PendingSessionOp | null = null;
 const THINKING_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
-const CONFIRM_COMMAND_PREFIXES = ["/compact", "/new", "/resume"] as const;
+const CONFIRM_COMMANDS = new Set(["compact", "new", "resume"]);
+const SLASH_COMMAND_ALIASES = new Map<string, string>([
+  ["q", "quit"],
+  ["exit", "quit"],
+  ["clear", "new"],
+]);
 
 type ModelRegistryLike = {
   find?: (provider: string, id: string) => unknown;
@@ -31,9 +36,15 @@ function isSlashCommand(text: string): boolean {
   return cmd.startsWith("/") && cmd.length > 1;
 }
 
+function normalizeSlashName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  return SLASH_COMMAND_ALIASES.get(normalized) ?? normalized;
+}
+
 function needsConfirmation(command: string): boolean {
-  const cmd = command.trim();
-  return CONFIRM_COMMAND_PREFIXES.some((prefix) => cmd.startsWith(prefix));
+  const parsed = parseSlash(command);
+  if (!parsed) return false;
+  return CONFIRM_COMMANDS.has(normalizeSlashName(parsed.name));
 }
 
 async function confirmIfNeeded(ctx: ExtensionContext, force: boolean, command: string): Promise<boolean> {
@@ -60,10 +71,12 @@ async function runSlash(command: string, ctx: ExtensionContext): Promise<{ ok: b
   const parsed = parseSlash(command);
   if (!parsed) return { ok: false, text: "Invalid slash command." };
 
+  const name = normalizeSlashName(parsed.name);
+
   // Note: built-in slash commands are handled by the TUI input layer and are not
   // executed when extensions/tools "send" a message. So we execute the underlying
   // session control actions directly via ctx.*.
-  switch (parsed.name) {
+  switch (name) {
     case "reload": {
       const reload = (ctx as unknown as { reload?: () => Promise<void> }).reload;
       if (!reload) return { ok: false, text: "Reload not available in this context." };
@@ -210,6 +223,14 @@ async function runSlash(command: string, ctx: ExtensionContext): Promise<{ ok: b
         : { ok: true, text: `OK: resumed session: ${sessionPath}` };
     }
 
+    case "quit": {
+      ctx.shutdown();
+      return {
+        ok: true,
+        text: ctx.isIdle() ? "OK: quitting pi." : "Scheduled: quit after the current response finishes.",
+      };
+    }
+
     case "model": {
       return { ok: false, text: "Use op=model.set (the built-in /model is interactive)." };
     }
@@ -282,6 +303,22 @@ export default function piSlash(pi: ExtensionAPI) {
       ctx.ui.notify(text, "info");
     },
   });
+
+  for (const [name, target] of [
+    ["q", "/quit"],
+    ["exit", "/quit"],
+    ["clear", "/new"],
+  ] as const) {
+    pi.registerCommand(name, {
+      description: `Alias for ${target}`,
+      handler: async (_args, ctx) => {
+        const result = await runSlash(`/${name}`, ctx);
+        if (!result.ok) {
+          ctx.ui.notify(result.text, "warning");
+        }
+      },
+    });
+  }
 
   pi.registerTool({
     name: "pi_slash",

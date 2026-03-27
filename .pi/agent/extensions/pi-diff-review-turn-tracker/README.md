@@ -2,14 +2,16 @@
 
 Always-loaded helper for `/diff-review` phase 14.
 
-It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes a reviewable patch at turn end under the first writable location in this order:
+It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes turn artifacts under the first writable location in this order:
 
-- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/latest.patch`
-- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/latest.json`
-- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/latest.patch`
-- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/latest.json`
-- `<repoRoot>/.pi/diff-review/turns/latest.patch`
-- `<repoRoot>/.pi/diff-review/turns/latest.json`
+- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/`
+- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/`
+- `<repoRoot>/.pi/diff-review/turns/`
+
+Files written there:
+
+- `latest.patch` / `latest.json`: the literal most recent turn for that repo/session, even when it had no agent-touched paths
+- `latest-reviewable.patch` / `latest-reviewable.json`: the most recent non-empty agent-touched diff, so review flows are not clobbered by later bash-only or no-touch turns
 
 Per-session details are also written under:
 

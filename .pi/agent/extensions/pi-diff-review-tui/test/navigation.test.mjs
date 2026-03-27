@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { firstNavigableRowIndex, isNavigableDiffRow, nextNavigableHunkRowIndex, nextNavigableRowIndex } from "../lib/navigation.ts";
+import { firstNavigableRowIndex, isNavigableDiffRow, nextNavigableChangeBlockRowIndex, nextNavigableRowIndex } from "../lib/navigation.ts";
 import { parseSingleFilePatch } from "../lib/diff-parser.ts";
 
 const PATCH = [
@@ -15,6 +15,21 @@ const PATCH = [
   "+line2 changed",
   "+line3.5",
   " line4",
+].join("\n");
+
+const MULTI_CHUNK_PATCH = [
+  "diff --git a/src/foo.ts b/src/foo.ts",
+  "index 1111111..3333333 100644",
+  "--- a/src/foo.ts",
+  "+++ b/src/foo.ts",
+  "@@ -1,6 +1,6 @@",
+  " keep1",
+  "-old1",
+  "+new1",
+  " keep2",
+  "-old2",
+  "+new2",
+  " keep3",
 ].join("\n");
 
 const MULTI_HUNK_PATCH = [
@@ -48,10 +63,20 @@ test("nextNavigableRowIndex walks only real diff rows", () => {
   assert.equal(nextNavigableRowIndex(file.rows, 9, -1), 8);
 });
 
-test("nextNavigableHunkRowIndex jumps to the first added row of the next or previous hunk", () => {
+test("nextNavigableChangeBlockRowIndex jumps between contiguous changed chunks inside one hunk", () => {
+  const file = parseSingleFilePatch({ rawPatch: MULTI_CHUNK_PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
+  assert.equal(file.changeBlocks.length, 2);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 5, 1), 7);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 7, 1), 10);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 8, -1), 7);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 8, 1), 10);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 11, 1), 11);
+});
+
+test("nextNavigableChangeBlockRowIndex still crosses hunk boundaries when needed", () => {
   const file = parseSingleFilePatch({ rawPatch: MULTI_HUNK_PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  assert.equal(nextNavigableHunkRowIndex(file, 5, 1), 12);
-  assert.equal(nextNavigableHunkRowIndex(file, 10, -1), 7);
-  assert.equal(nextNavigableHunkRowIndex(file, 5, -1), 5);
-  assert.equal(nextNavigableHunkRowIndex(file, 10, 1), 10);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 7, 1), 12);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 10, -1), 7);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 5, -1), 5);
+  assert.equal(nextNavigableChangeBlockRowIndex(file, 10, 1), 12);
 });

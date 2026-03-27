@@ -295,13 +295,13 @@ function buildBundleFromPatchText({
   };
 }
 
-function latestTurnCandidates(repoRoot: string): Array<{ patchPath: string; jsonPath: string }> {
-  return resolveTurnLatestCandidates({ repoRoot });
+function latestTurnCandidates(repoRoot: string, sessionId: string): Array<{ patchPath: string; jsonPath: string }> {
+  return resolveTurnLatestCandidates({ repoRoot, sessionId });
 }
 
 export function readLatestTurnArtifact(repoRoot: string, sessionId: string): { patchText: string; metadata: TurnSourceMetadata } | null {
   if (!sessionId.trim()) return null;
-  for (const { patchPath, jsonPath } of latestTurnCandidates(repoRoot)) {
+  for (const { patchPath, jsonPath } of latestTurnCandidates(repoRoot, sessionId)) {
     if (!fs.existsSync(jsonPath)) continue;
 
     try {

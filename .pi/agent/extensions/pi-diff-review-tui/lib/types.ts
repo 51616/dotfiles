@@ -17,6 +17,7 @@ export interface ParsedDiffRow {
   oldLine?: number;
   newLine?: number;
   hunkId?: string;
+  changeBlockId?: string;
   fileKey: string;
   rowIndex: number;
 }
@@ -32,6 +33,13 @@ export interface ParsedHunk {
   rowEnd: number;
 }
 
+export interface ParsedChangeBlock {
+  id: string;
+  hunkId: string | null;
+  rowStart: number;
+  rowEnd: number;
+}
+
 export interface ParsedFilePatch {
   fileKey: string;
   status: FileStatus;
@@ -42,6 +50,7 @@ export interface ParsedFilePatch {
   rawPatch: string;
   rows: ParsedDiffRow[];
   hunks: ParsedHunk[];
+  changeBlocks: ParsedChangeBlock[];
   isBinary: boolean;
 }
 
@@ -200,6 +209,7 @@ export interface DiffRowRenderCache {
   width: number;
   lineNumberWidth: number;
   commentsEpoch: number;
+  hunkSelectionEpoch: number;
   highlightKey: string;
   /**
    * Cached wrapped content lines (content area only, padded to content width).
@@ -222,6 +232,7 @@ export interface DiffViewportCache {
   height: number;
   scroll: number;
   commentsEpoch: number;
+  hunkSelectionEpoch: number;
   highlightKey: string;
   selectedRow: number;
   lines: string[];
