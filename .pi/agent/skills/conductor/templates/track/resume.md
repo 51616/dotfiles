@@ -9,6 +9,7 @@ Track id: `<track_id>`
 - Spec: [./spec.md](./spec.md)
 - Plan: [./plan.md](./plan.md)
 - Metadata: [./metadata.json](./metadata.json)
+- Evidence (optional): [./evidence/](./evidence/)
 
 ## Current state
 (What exists now? What’s in progress? What’s blocked?)
@@ -51,3 +52,4 @@ Track id: `<track_id>`
 
 ## Verification commands
 - 
+- (optional) `uvx showboat verify ./evidence/showboat.md` (when the demo doc exists)

@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+
+"""codex-calendar
+
+A tiny wrapper around the Codex CLI to read/modify Google Calendar using the
+Codex Apps connector (codex_apps.google calendar_* tools).
+
+Design goals:
+- Print only the last agent message (like codex-browser / codex-review.sh)
+- Default timezone: Asia/Tokyo
+- Read operations use a read-only sandbox.
+- Write operations (create/delete) use --dangerously-bypass-approvals-and-sandbox,
+  because the Calendar connector may otherwise require interactive user input in
+  exec mode.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import shutil
+import subprocess
+import sys
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+DEFAULT_MODEL = "gpt-5.4"
+DEFAULT_TZ = "Asia/Tokyo"
+
+AGENDA_PREAMBLE = (
+    "You are acting as a Google Calendar helper for pi. "
+    "Use the available codex_apps.google calendar_* tools. "
+    "Be timezone-correct and explicit about the timezone used. "
+    "Return a concise agenda sorted by start time. "
+    "For each event include: title/summary, start, end, transparency (busy vs transparent), "
+    "and an event link if present. "
+    "If there are no events, say 'No events found.'\n\n"
+)
+
+CREATE_PREAMBLE = (
+    "You are acting as a Google Calendar write helper for pi. "
+    "Use codex_apps.google calendar_create_event to create exactly the event requested. "
+    "After creation, read the event (calendar_read_event) and return ONLY: event id, start/end, "
+    "transparency, and the HTML link (url/display_url)."
+    "\n\n"
+)
+
+DELETE_PREAMBLE = (
+    "You are acting as a Google Calendar write helper for pi. "
+    "Given an event_id, first read the event (calendar_read_event) to capture its summary and start/end. "
+    "Then delete it (calendar_delete_event). "
+    "Then verify deletion by searching the calendar for a small window around the captured start/end, "
+    "and also by searching by the captured summary on that day. "
+    "Report whether the event is gone from search results. "
+    "If delete returns 410 'Resource has been deleted', treat that as success."
+    "\n\n"
+)
+
+RAW_PREAMBLE = (
+    "You are acting as a Google Calendar helper for pi. "
+    "Use codex_apps.google calendar_* tools when relevant. "
+    "Be explicit about timezone assumptions (default Asia/Tokyo).\n\n"
+    "User request:\n"
+)
+
+
+def _require_codex_on_path() -> None:
+    if shutil.which("codex") is None:
+        print(
+            "Error: `codex` CLI not found on PATH. Install/login Codex first (e.g. `codex login`).",
+            file=sys.stderr,
+        )
+        raise SystemExit(127)
+
+
+def _last_agent_message_from_codex_jsonl(cmd: list[str]) -> str:
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr,
+        text=True,
+        bufsize=1,
+        env=os.environ.copy(),
+    )
+
+    last_msg: Optional[str] = None
+
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if ev.get("type") != "item.completed":
+            continue
+        item = ev.get("item")
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "agent_message":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            last_msg = text
+
+    rc = proc.wait()
+    if rc != 0:
+        raise SystemExit(rc)
+    if not last_msg:
+        print("Error: codex produced no agent_message in JSON output.", file=sys.stderr)
+        raise SystemExit(2)
+
+    return last_msg
+
+
+def _parse_date(date_str: str) -> dt.date:
+    if date_str == "today":
+        # Assume system local time is acceptable; callers can pass explicit dates when needed.
+        return dt.date.today()
+    return dt.date.fromisoformat(date_str)
+
+
+def _day_window(date: dt.date, tz: str) -> tuple[str, str]:
+    """Return (time_min, time_max) for a full local day.
+
+    We include an explicit UTC offset using the provided IANA timezone.
+    This avoids ambiguity and handles DST correctly for non-JST timezones.
+    """
+
+    z = ZoneInfo(tz)
+    start_dt = dt.datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=z)
+    end_dt = dt.datetime(date.year, date.month, date.day, 23, 59, 59, tzinfo=z)
+
+    return start_dt.isoformat(), end_dt.isoformat()
+
+
+def _codex_cmd_base(model: str) -> list[str]:
+    return [
+        "codex",
+        "exec",
+        "-m",
+        model,
+        "--json",
+        "--ephemeral",
+        "--skip-git-repo-check",
+    ]
+
+
+def run_read(prompt: str, *, model: str) -> str:
+    cmd = _codex_cmd_base(model) + [
+        "--sandbox",
+        "read-only",
+        prompt,
+    ]
+    return _last_agent_message_from_codex_jsonl(cmd)
+
+
+def run_write(prompt: str, *, model: str) -> str:
+    cmd = _codex_cmd_base(model) + [
+        "--dangerously-bypass-approvals-and-sandbox",
+        prompt,
+    ]
+    return _last_agent_message_from_codex_jsonl(cmd)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="codex-calendar",
+        add_help=True,
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Codex-backed Google Calendar helper for pi.\n\n"
+            "Commands:\n"
+            "  agenda  Read-only agenda for a day\n"
+            "  create  Create an event (writes calendar)\n"
+            "  delete  Delete an event by id (writes calendar)\n"
+            "  raw     Free-form prompt (read-only)\n\n"
+            "This prints only the last agent response from Codex JSON output."
+        ),
+    )
+
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Codex model id (default: {DEFAULT_MODEL})",
+    )
+
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_agenda = sub.add_parser("agenda", help="Show agenda for a date (read-only)")
+    p_agenda.add_argument("--date", default="today", help="YYYY-MM-DD or 'today'")
+    p_agenda.add_argument("--tz", default=DEFAULT_TZ, help=f"IANA timezone (default: {DEFAULT_TZ})")
+    p_agenda.add_argument("--calendar-id", default="primary", help="Calendar id (default: primary)")
+
+    p_create = sub.add_parser("create", help="Create an event (writes calendar)")
+    p_create.add_argument("--title", required=True, help="Event title/summary")
+    p_create.add_argument("--start", required=True, help="Start time (RFC3339, e.g. 2026-03-28T09:00:00+09:00)")
+    p_create.add_argument("--end", required=True, help="End time (RFC3339, e.g. 2026-03-28T09:15:00+09:00)")
+    p_create.add_argument("--tz", default=DEFAULT_TZ, help=f"IANA timezone (default: {DEFAULT_TZ})")
+    p_create.add_argument("--calendar-id", default="primary", help="Calendar id hint (default: primary)")
+    p_create.add_argument("--description", default="", help="Event description")
+
+    tgroup = p_create.add_mutually_exclusive_group()
+    tgroup.add_argument("--transparent", action="store_true", help="Does not block free/busy")
+    tgroup.add_argument("--busy", action="store_true", help="Blocks free/busy (opaque)")
+
+    p_delete = sub.add_parser("delete", help="Delete an event by id (writes calendar)")
+    p_delete.add_argument("--event-id", required=True, help="Google Calendar event id")
+    p_delete.add_argument("--calendar-id", default="primary", help="Calendar id (default: primary)")
+    p_delete.add_argument("--tz", default=DEFAULT_TZ, help=f"Timezone used for verification searches (default: {DEFAULT_TZ})")
+
+    p_raw = sub.add_parser("raw", help="Free-form prompt (read-only)")
+    p_raw.add_argument("prompt", nargs=argparse.REMAINDER, help="Prompt text")
+
+    args = parser.parse_args()
+
+    _require_codex_on_path()
+
+    model = str(args.model)
+
+    if args.cmd == "agenda":
+        date = _parse_date(str(args.date))
+        tz = str(args.tz)
+        time_min, time_max = _day_window(date, tz)
+        calendar_id = str(args.calendar_id)
+
+        prompt = (
+            AGENDA_PREAMBLE
+            + f"Fetch events from calendar_id='{calendar_id}' between time_min='{time_min}' and time_max='{time_max}' "
+            + f"with timezone_str='{tz}'.\n"
+            + "Return the agenda."
+        )
+        msg = run_read(prompt, model=model)
+
+    elif args.cmd == "create":
+        tz = str(args.tz)
+        transparency = "transparent" if args.transparent else "opaque" if args.busy else "transparent"
+        # calendar_id is only a hint; the tool may default to primary.
+        calendar_id = str(args.calendar_id)
+
+        prompt = (
+            CREATE_PREAMBLE
+            + f"Create an event on calendar_id='{calendar_id}' with: "
+            + f"summary/title={args.title!r}; start={args.start!r}; end={args.end!r}; "
+            + f"timezone_str={tz!r}; transparency={transparency!r}; description={args.description!r}.\n"
+            + "After creating, print the event id and the HTML link/URL."
+        )
+        msg = run_write(prompt, model=model)
+
+    elif args.cmd == "delete":
+        tz = str(args.tz)
+        prompt = (
+            DELETE_PREAMBLE
+            + f"Delete the Google Calendar event with calendar_id='{args.calendar_id}' and event_id='{args.event_id}'. "
+            + f"Use timezone_str='{tz}' for any searches.\n"
+            + "Return a short confirmation and verification result."
+        )
+        msg = run_write(prompt, model=model)
+
+    elif args.cmd == "raw":
+        user_prompt = " ".join(args.prompt).strip()
+        if not user_prompt:
+            print("error: missing prompt", file=sys.stderr)
+            raise SystemExit(2)
+        msg = run_read(RAW_PREAMBLE + user_prompt, model=model)
+
+    else:
+        raise AssertionError(f"Unknown command: {args.cmd}")
+
+    sys.stdout.write(msg)
+    if not msg.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

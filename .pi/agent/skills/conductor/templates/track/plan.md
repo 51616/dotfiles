@@ -22,6 +22,18 @@ Append entries as you go. Suggested format:
 <minimal excerpt here>
 ```
 
+## Evidence (optional, Showboat — milestone-only)
+
+If you want reproducible proof-of-work, keep a Showboat demo doc at:
+
+- `./evidence/showboat.md`
+
+Default (Option A): capture only key checkpoints:
+- baseline/setup established
+- problem reproduced (failing test / failing command output)
+- fix applied
+- final verification
+
 ## Phase 1: Scope / impact alignment
 - [ ] Task: Confirm the approved spec captures the required acceptance criteria, expected behaviors, and scenario examples
 - [ ] Task: Identify affected modules / files / boundaries
@@ -40,6 +52,7 @@ Append entries as you go. Suggested format:
 - [ ] Task: Run targeted automated verification for touched behavior slices
 - [ ] Task: Run the smallest meaningful repo checks (tests / lint / typecheck / build) for touched areas
 - [ ] Task: Perform manual verification for user-visible or operational behavior (if relevant)
+- [ ] Task (optional): If `./evidence/showboat.md` exists, run `uvx showboat verify ./evidence/showboat.md` (or `showboat verify ...`)
 
 ## Phase 4: Review
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios

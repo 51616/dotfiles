@@ -56,6 +56,7 @@ if [[ -e "$track_dir" ]]; then
 fi
 
 mkdir -p "$track_dir"
+mkdir -p "$track_dir/evidence"
 
 TDIR="$(templates_dir)"
 
@@ -93,6 +94,7 @@ cat >"$track_dir/index.md" <<EOF
 - [Specification](./spec.md)
 - [Implementation Plan](./plan.md)
 - [Metadata](./metadata.json)
+- [Evidence (optional)](./evidence/)
 EOF
 
 tracks_file="$ROOT/conductor/tracks.md"

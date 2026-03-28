@@ -127,6 +127,22 @@ Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - mark `[x]` when done
 - after each meaningful work chunk (and always before stopping / at each user return point), update `resume.md` with the new current state + decisions + next steps + exact verification commands
 
+#### Evidence (optional, milestone-only): Showboat
+
+If the track benefits from **reproducible proof-of-work** (especially for tricky CLI workflows, ops changes, or anything you’ll want to re-check later), maintain a Showboat demo doc inside the track:
+
+- `conductor/tracks/<track_id>/evidence/showboat.md`
+
+Use the `showboat-demo` skill.
+
+Default (Option A): capture **key checkpoints only** (don’t try to record every command):
+- baseline/setup established
+- problem reproduced (failing test / failing command output)
+- fix applied (the smallest commands that prove the change)
+- final verification (tests/lint/build + any relevant manual checks)
+
+Treat `showboat verify` as part of Phase 3 (Verification) when the demo exists.
+
 Keep progress and track status **continuously** updated (not just at the end):
 
 - `conductor/tracks.md` is the repo-level dashboard. Update it whenever the track changes state:
