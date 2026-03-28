@@ -19,6 +19,11 @@ This skill ports the Conductor ideas into pi’s world, but keeps the durable st
 
 Before setup or track planning, audit the repo to infer the current reality.
 
+If the repo contains a `lat.md/` knowledge graph, use it as the default “what is this system and why?” reference. Prefer `lat locate`, `lat section`, and `lat refs` to navigate, and update `lat.md/` when you discover drift.
+
+When editing `lat.md/` files, defer to the `lat-md` skill for authoring rules and drift checks.
+Do not rely on semantic search (`lat search`) in the Conductor flow for now.
+
 Inspect enough to answer the important questions, preferring high-signal files first:
 - `README.md` and other top-level docs
 - dependency manifests / lockfiles
@@ -120,6 +125,8 @@ Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - map the current task back to the approved behaviors/scenarios in `spec.md`
 - mark the current task `[~]` before starting
 - write tests first **when feasible**, using the approved behaviors/scenarios as the source of truth
+- do not write tests “for the sake of testing”: every new/changed test must directly prove one of the approved behaviors/scenarios in `spec.md` (if it doesn’t map, delete or rewrite it)
+- if the repo uses `lat.md/`, keep it in sync during implementation; defer to the `lat-md` skill for the exact conventions and required checks
 - if tests-first is not feasible, record why and define another verification method before coding
 - implement the smallest code change that satisfies the approved behavior
 - run the smallest meaningful verification command(s)
@@ -161,12 +168,14 @@ After implementation is done, run a lightweight review gate before marking the t
 Use `codex-review` explicitly as the default second-opinion reviewer for this stage. Give it the minimum high-signal context needed to review precisely: the relevant `spec.md`, `plan.md`, `resume.md`, the touched paths, and the `plan.md` Change evidence snippets.
 
 Example:
-- `codex-review.sh "Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, missing tests, and weak verification."`
+- `codex-review.sh "Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, tests that don’t map to approved behaviors/scenarios, missing tests where behaviors lack proof, and weak verification."`
 
 The review should be driven by the approved `spec.md` and `plan.md`, not by random style nitpicking. Check:
 - behavior/spec compliance
 - plan compliance / scope drift
 - whether tests and verification actually prove the approved behavior
+- whether every new/changed test maps to an approved behavior/scenario (no “testing for its own sake”)
+- if the repo uses `lat.md/`, that `lat check` passes for the relevant project root(s)
 - whether `plan.md` contains sufficient **Change evidence** (paths + snippets) for precise review
 - obvious correctness, maintainability, safety, and observability issues
 - which docs now need sync
@@ -188,6 +197,7 @@ Review and update as needed:
 - `conductor/workflow.md` (only if process assumptions materially changed)
 - the track docs for final consistency
 - `resume.md` so the terminal state is clear
+- if the repo uses `lat.md/`, update the relevant sections and ensure `lat check` passes (defer to the `lat-md` skill)
 
 Keep this practical. The goal is to leave accurate docs behind, not to create ritual.
 

@@ -53,3 +53,10 @@ Track id: `<track_id>`
 ## Verification commands
 - 
 - (optional) `uvx showboat verify ./evidence/showboat.md` (when the demo doc exists)
+
+## lat.md drift checks (when used by the repo)
+- Last run:
+- Commands (examples):
+  - `lat check`
+  - `lat --dir <subproject-root> check`
+- Notes:

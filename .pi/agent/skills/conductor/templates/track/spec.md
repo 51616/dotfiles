@@ -1,6 +1,8 @@
 # Track Spec: <track_description>
 
-> This spec is the behavior contract for the track. Tests should prove the behaviors agreed here.
+> This spec is the behavior contract for the track.
+>
+> Test policy: do not write tests for the sake of testing. Every new/changed test must directly prove one of the expected behaviors or scenario examples defined here.
 
 ## Context
 (What’s the situation / background?)

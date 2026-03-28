@@ -42,8 +42,9 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 2: Behavior-driven implementation
 - [ ] Task: Identify the next behavior slice from the approved scenarios
-- [ ] Task: Write failing tests first when feasible for the current behavior slice
+- [ ] Task: Write failing tests first when feasible for the current behavior slice (only tests that prove an approved behavior; no testing for its own sake)
 - [ ] Task: Implement the minimum change needed to satisfy the approved behavior
+- [ ] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
 - [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
 - [ ] Task: Refactor while preserving the approved behavior and keeping tests green
 - [ ] Task: Repeat for remaining behavior slices
@@ -51,11 +52,13 @@ Default (Option A): capture only key checkpoints:
 ## Phase 3: Verification
 - [ ] Task: Run targeted automated verification for touched behavior slices
 - [ ] Task: Run the smallest meaningful repo checks (tests / lint / typecheck / build) for touched areas
+- [ ] Task (when `lat.md/` exists): Run `lat check` (use `lat --dir <subproject-root> check` when working in a subtree that has its own `lat.md/`; follow the `lat-md` skill)
 - [ ] Task: Perform manual verification for user-visible or operational behavior (if relevant)
 - [ ] Task (optional): If `./evidence/showboat.md` exists, run `uvx showboat verify ./evidence/showboat.md` (or `showboat verify ...`)
 
 ## Phase 4: Review
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios
+- [ ] Task: Confirm every new/changed test maps to an approved behavior/scenario (delete or rewrite anything that doesn’t)
 - [ ] Task: Review implementation against the approved `plan.md` and note any scope drift
 - [ ] Task: Ensure **Change evidence** is sufficient for precise review (paths + snippets map to scenarios)
 - [ ] Task: Run `codex-review.sh` with the relevant `spec.md`, `plan.md`, `resume.md`, and Change evidence context
