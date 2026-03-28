@@ -106,7 +106,7 @@ export function renderRejectedHunksErrorOverlay({
 }): string[] {
   const inner = Math.max(40, width - 2);
   const out: string[] = [topBorder(theme, "revert rejected changed blocks failed", inner, "error")];
-  out.push(boxLine(theme, "│", theme.fg("warning", "Reverse-apply did not complete safely. Inspect git status if you are unsure before retrying."), inner, "│", "error"));
+  out.push(boxLine(theme, "│", theme.fg("error", "Reverse-apply failed. Inspect git status before retrying."), inner, "│", "error"));
   out.push(boxLine(theme, "│", "", inner, "│", "error"));
   for (const line of wrapPlainText({ text: error, width: inner, maxLines: 16 }).lines) {
     out.push(boxLine(theme, "│", theme.fg("dim", line), inner, "│", "error"));

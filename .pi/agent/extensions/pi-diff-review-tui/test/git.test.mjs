@@ -64,6 +64,18 @@ test("getDiffBundle separates unstaged, staged, and all scopes", async () => {
   assert.equal(all.files.some((file) => file.displayPath.includes("new.ts")), true);
 });
 
+test("getDiffBundle hides duplicate empty added files from the file pane", async () => {
+  const repo = makeRepo();
+  fs.writeFileSync(path.join(repo, "test.txt"), "", "utf8");
+
+  const pi = makePiStub();
+  const unstaged = await getDiffBundle(pi, repo, "u");
+  const all = await getDiffBundle(pi, repo, "a");
+
+  assert.equal(unstaged.files.some((file) => file.displayPath === "test.txt"), false);
+  assert.equal(all.files.some((file) => file.displayPath === "test.txt"), false);
+});
+
 test("getDiffBundle loads the latest last-turn artifact for the active session", async () => {
   const repo = makeRepo();
   const turnsDir = path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repo), "diff-review", "turns");

@@ -61,16 +61,16 @@ export function savedReviewMessage(
   saved: SavedReviewResult,
   appendedSections: string[] = [],
   options?: { generatedPrompt?: boolean },
-): { message: string; type: "info" | "warning" } {
+): { message: string; type: "info" } {
   const base = saved.outputLocation === "home"
     ? {
         message: `Saved review to home session fallback path ${saved.outputPath} (/tmp was not writable).`,
-        type: "warning" as const,
+        type: "info" as const,
       }
     : saved.outputLocation === "repo"
       ? {
           message: `Saved review to repo fallback path ${saved.outputPath} (/tmp and ~/.pi/agent/sessions were not writable).`,
-          type: "warning" as const,
+          type: "info" as const,
         }
       : { message: `Saved review to ${saved.outputPath}`, type: "info" as const };
 

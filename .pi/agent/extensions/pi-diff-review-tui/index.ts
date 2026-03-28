@@ -12,7 +12,7 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
     description: "Open a pi-native TUI diff review overlay",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) {
-        ctx.ui.notify("/diff-review requires an interactive TUI session.", "warning");
+        ctx.ui.notify("/diff-review requires an interactive TUI session.", "error");
         return;
       }
 

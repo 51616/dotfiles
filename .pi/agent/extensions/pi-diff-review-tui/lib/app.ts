@@ -532,7 +532,7 @@ export class DiffReviewApp implements Component, Focusable {
     const patchText = buildRejectedHunksPatch({ bundle: submitState.bundle, rejectedHunksByFile });
     if (!patchText.trim()) {
       this.clearRejectedHunks(submitScope);
-      this.callbacks.notify("Rejected changed-line selections no longer match the current diff. Reload, reselect, then submit again.", "warning");
+      this.callbacks.notify("Rejected changed-line selections no longer match the current diff. Reload, reselect, then submit again.", "info");
       return { ok: false };
     }
 
@@ -554,7 +554,7 @@ export class DiffReviewApp implements Component, Focusable {
     const saveScope = reloadScope !== submitScope ? reloadScope : submitScope;
     const stale = unresolvedCommentsForScope(this.comments, saveScope).filter((comment) => comment.status === "stale_unresolved");
     if (stale.length) {
-      this.callbacks.notify("Some comments moved off the accepted diff after reverting rejected changed blocks. Resolve or delete them before submitting.", "warning");
+      this.callbacks.notify("Some comments moved off the accepted diff after reverting rejected changed blocks. Resolve or delete them before submitting.", "info");
       this.openStaleResolver(() => {
         void this.submit();
       });
@@ -743,7 +743,6 @@ export class DiffReviewApp implements Component, Focusable {
     const row = this.currentRow();
     if (!file || !row) return;
     if (kind !== "file" && row.kind === "meta" && !row.hunkId) {
-      this.callbacks.notify("Move the cursor onto a diff hunk for line or range comments.", "warning");
       return;
     }
 
@@ -934,11 +933,7 @@ export class DiffReviewApp implements Component, Focusable {
           const file = this.currentFile();
           const row = this.currentRow();
           const nextComments = file && row ? resolveCommentAtCursor({ comments: this.comments, comment: current, file, row, downgrade: "line" }) : null;
-          if (!nextComments) {
-            this.callbacks.notify("Cannot attach at cursor here.", "warning");
-          } else {
-            this.setComments(nextComments);
-          }
+          if (nextComments) this.setComments(nextComments);
           this.tui.requestRender();
           return;
         }
@@ -947,11 +942,7 @@ export class DiffReviewApp implements Component, Focusable {
           const row = this.currentRow();
           const selection = this.currentRangeSelection() ?? (file && row ? autoChunkSelection(file, row.rowIndex) : null);
           const nextComments = file && row ? resolveCommentAtCursor({ comments: this.comments, comment: current, file, row, downgrade: "range", selection }) : null;
-          if (!nextComments) {
-            this.callbacks.notify("Cursor is not inside a diff range.", "warning");
-          } else {
-            this.setComments(nextComments);
-          }
+          if (nextComments) this.setComments(nextComments);
           this.tui.requestRender();
           return;
         }
@@ -992,7 +983,7 @@ export class DiffReviewApp implements Component, Focusable {
     const file = this.currentFile();
     if (!file) return;
     if (!file.editablePath) {
-      this.callbacks.notify("Deleted files cannot be opened for editing.", "warning");
+      this.callbacks.notify("Deleted files cannot be opened for editing.", "info");
       return;
     }
 
@@ -1005,7 +996,7 @@ export class DiffReviewApp implements Component, Focusable {
     });
 
     if (result.status != null && result.status !== 0) {
-      this.callbacks.notify(`Editor exited with status ${result.status}.`, "warning");
+      this.callbacks.notify(`Editor exited with status ${result.status}.`, "info");
     }
 
     await this.reloadCurrentScope();
@@ -1059,7 +1050,6 @@ export class DiffReviewApp implements Component, Focusable {
     const row = this.currentRow();
     if (!file || !row) return;
     if (row.kind === "meta" && !row.hunkId) {
-      this.callbacks.notify("Move the cursor onto a diff hunk before starting a range selection.", "warning");
       return;
     }
 

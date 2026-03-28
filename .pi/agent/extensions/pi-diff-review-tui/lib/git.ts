@@ -183,6 +183,12 @@ function mergeDuplicateFiles(files: ParsedFilePatch[]): ParsedFilePatch[] {
   return Array.from(byKey.values()).sort((a, b) => a.displayPath.localeCompare(b.displayPath));
 }
 
+function shouldHideFromReview(file: ParsedFilePatch): boolean {
+  if (file.status !== "A" || file.isBinary) return false;
+  if (file.hunks.length > 0 || file.changeBlocks.length > 0) return false;
+  return file.rows.every((row) => row.kind === "meta");
+}
+
 function humanizeFileKey(key: string): string {
   const colon = key.indexOf(":");
   const body = colon >= 0 ? key.slice(colon + 1) : key;
@@ -277,14 +283,15 @@ function buildBundleFromPatchText({
   }
 
   const mergedFiles = mergeDuplicateFiles(files);
-  const fileHashes = new Map<string, string>(mergedFiles.map((file) => [file.fileKey, hashText(file.rawPatch)]));
+  const visibleFiles = mergedFiles.filter((file) => !shouldHideFromReview(file));
+  const fileHashes = new Map<string, string>(visibleFiles.map((file) => [file.fileKey, hashText(file.rawPatch)]));
   const fingerprint = sha256(JSON.stringify({ scope, sourceKind, files: [...fileHashes.entries()], turnId: turnMetadata?.turn_id ?? null }));
 
   return {
     scope,
     repoRoot,
     head,
-    files: mergedFiles,
+    files: visibleFiles,
     patchText,
     fingerprint,
     fileHashes,
