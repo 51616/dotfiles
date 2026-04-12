@@ -30,7 +30,8 @@ function astGrepPaths(pattern) {
       stdout
         .split("\n")
         .map((line) => line.match(/^(\/.*?):\d+:/)?.[1])
-        .filter(Boolean),
+        .filter(Boolean)
+        .filter((filePath) => !filePath.includes("/node_modules/")),
     ),
   ).sort();
 }

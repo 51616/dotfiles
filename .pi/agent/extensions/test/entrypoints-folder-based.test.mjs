@@ -1,29 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-
-const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
-const EXT_ROOT = path.resolve(TEST_DIR, "..");
-
-const RUNTIME_EXTENSION_DIRS = [
-  "activity-block",
-  "command-context-for-tools",
-  "command-palette",
-  "do-not-stop",
-  "pi-diff-review-tui",
-  "pi-diff-review-turn-tracker",
-  "pi-instance-manager",
-  "pi-slash",
-  "pi-ssh",
-  "self-checkpointing",
-  "session-naming",
-  "startup-demo",
-  "tui-broker",
-];
-
-const SUPPORT_DIRS = ["lat-md", "lib", "node_modules", "test", "work"];
+import {
+  EXT_ROOT,
+  EXPECTED_RUNTIME_EXTENSION_DIRS,
+  SUPPORT_DIRS,
+} from "./runtime-extension-inventory.mjs";
 
 test("extensions workspace keeps runtime code in per-extension folders instead of top-level .ts files", () => {
   const entries = fs.readdirSync(EXT_ROOT, { withFileTypes: true });
@@ -36,7 +19,7 @@ test("extensions workspace keeps runtime code in per-extension folders instead o
 });
 
 test("expected runtime extension folders expose index.ts entrypoints in the canonical workspace", () => {
-  for (const name of RUNTIME_EXTENSION_DIRS) {
+  for (const name of EXPECTED_RUNTIME_EXTENSION_DIRS) {
     const dir = path.join(EXT_ROOT, name);
     const entry = path.join(dir, "index.ts");
 
