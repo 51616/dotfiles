@@ -337,7 +337,7 @@ test("ActivityBlockMessageComponent keeps the footer line at the bottom in expan
   assert.match(rendered[footerIndex - 1] ?? "", blankRow);
 });
 
-test("ActivityBlockMessageComponent keeps expanded thinking bounded while preserving bottom tool history", () => {
+test("ActivityBlockMessageComponent keeps expanded thinking bounded while preserving the newest sticky tool row", () => {
   const fullThinking = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n");
   const rendered = createComponent({
     latestThinking: "line 1",
@@ -354,7 +354,7 @@ test("ActivityBlockMessageComponent keeps expanded thinking bounded while preser
   assert.equal(rendered.filter((line) => /line 1(\D|$)/.test(line)).length, 1);
   assert.ok(rendered.some((line) => line.includes("line 8")));
   assert.ok(!rendered.some((line) => line.includes("line 9")));
-  assert.ok(rendered.some((line) => line.includes("▶ $ printf hello")));
+  assert.ok(rendered.some((line) => line.includes("✓ edit activity-block-widget.ts")));
   assert.ok(!rendered.some((line) => line.includes("Thought: final thought one")));
   assert.ok(!rendered.some((line) => line.includes("Thinking expanded")));
   assert.ok(rendered.length <= 20);
@@ -434,7 +434,8 @@ test("ActivityBlockMessageComponent keeps the thinking header in the status row 
 
   assert.ok(rendered.some((line) => line.includes("Planning the next change")));
   assert.ok(!rendered.some((line) => line.includes("Cooking")));
-  assert.ok(rendered.some((line) => line.includes("▶ $ printf hello")));
+  assert.ok(rendered.some((line) => line.includes("✓ edit activity-block-widget.ts")));
+  assert.ok(!rendered.some((line) => line.includes("▶ $ printf hello")));
 });
 
 test("ActivityBlockMessageComponent renders collapsed thinking text as markdown", () => {
@@ -546,7 +547,7 @@ test("ActivityBlockMessageComponent keeps the last five tool actions sticky with
   assert.ok(!rendered.some((line) => line.includes("one.md:1-10")));
 });
 
-test("ActivityBlockMessageComponent shows only the latest tool row in latest mode", () => {
+test("ActivityBlockMessageComponent shows only the newest sticky tool row in latest mode", () => {
   const rendered = createComponent({
     tools: [
       {
@@ -592,10 +593,10 @@ test("ActivityBlockMessageComponent shows only the latest tool row in latest mod
 
   const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
   assert.equal(toolLines.length, 1);
-  assert.match(toolLines[0] ?? "", /▶ \$ printf two/);
+  assert.match(toolLines[0] ?? "", /✓ edit three\.ts/);
 });
 
-test("ActivityBlockMessageComponent shows all tool rows in all mode", () => {
+test("ActivityBlockMessageComponent shows all tool rows in current sticky order for all mode", () => {
   const rendered = createComponent({
     tools: [
       {
@@ -641,8 +642,8 @@ test("ActivityBlockMessageComponent shows all tool rows in all mode", () => {
 
   const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
   assert.equal(toolLines.length, 3);
-  assert.match(toolLines[0] ?? "", /▶ \$ printf two/);
-  assert.match(toolLines[1] ?? "", /✓ edit three\.ts/);
+  assert.match(toolLines[0] ?? "", /✓ edit three\.ts/);
+  assert.match(toolLines[1] ?? "", /▶ \$ printf two/);
   assert.match(toolLines[2] ?? "", /✓ read one\.md:1-10/);
 });
 
@@ -725,13 +726,14 @@ test("ActivityBlockMessageComponent shows timers for running, successful, and fa
   assert.ok(!toolLines.some((line) => /✓ edit fast\.ts.* · 9s/.test(line)));
 });
 
-test("ActivityBlockMessageComponent uses tool-state background highlighting for the tool row", () => {
+test("ActivityBlockMessageComponent uses tool-state background highlighting for the rendered sticky tool row", () => {
   const backgroundTheme = {
     ...theme,
     bg: (name, text) => `<${name}>${text}</${name}>`,
   };
   const rendered = createComponent({}, { theme: backgroundTheme }).render(64).join("\n");
-  assert.match(rendered, /<toolPendingBg>[^\n]*▶ \$ printf hello/);
+  assert.match(rendered, /<toolSuccessBg>[^\n]*✓ edit activity-block-widget\.ts/);
+  assert.doesNotMatch(rendered, /<toolPendingBg>[^\n]*▶ \$ printf hello/);
 });
 
 test("ActivityBlockMessageComponent keeps expanded tool history color coded", () => {
