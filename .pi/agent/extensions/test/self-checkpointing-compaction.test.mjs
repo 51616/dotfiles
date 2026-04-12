@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { compactThenResume } from "../self-checkpointing/lib/self-checkpointing-compaction.ts";
 
-test("compactThenResume clears the checkpoint compacting status and still starts compaction in headless mode", () => {
+test("compactThenResume still records loader lifecycle hooks and starts compaction in headless mode", () => {
   let pendingRequested = false;
   const statusCalls = [];
   const compactCalls = [];
+  const loaderCalls = [];
   const written = [];
 
   const ctx = {
@@ -37,6 +38,12 @@ test("compactThenResume clears the checkpoint compacting status and still starts
       setStatus: (_ctx, text) => {
         statusCalls.push(text);
       },
+      showCompactionLoader() {
+        loaderCalls.push("show");
+      },
+      clearCompactionLoader() {
+        loaderCalls.push("clear");
+      },
       cleanupAutotest() {},
       getDebugEnabled: () => false,
       notify() {},
@@ -49,6 +56,7 @@ test("compactThenResume clears the checkpoint compacting status and still starts
 
   assert.equal(pendingRequested, true);
   assert.deepEqual(statusCalls, [undefined]);
+  assert.deepEqual(loaderCalls, ["show"]);
   assert.equal(written.length, 1);
   assert.equal(compactCalls.length, 1);
   assert.equal(typeof compactCalls[0].onComplete, "function");

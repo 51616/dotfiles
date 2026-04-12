@@ -115,15 +115,23 @@ test("resolveManagerServiceScriptPath fails fast when PI_VAULT_ROOT is set but i
   }
 });
 
-test("resolveManagerServiceScriptPath falls back to the extension-relative service script", () => {
+test("resolveManagerServiceScriptPath falls back to the nearest cwd ancestor with the manager service script", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-im-autoheal-cwd-"));
+  const vault = path.join(root, "vault");
+  const nestedProject = path.join(vault, "projects", "demo");
+  const serviceScript = path.join(vault, ".pi", "scripts", "pi-instance-manager", "scripts", "service.sh");
+  fs.mkdirSync(path.dirname(serviceScript), { recursive: true });
+  fs.mkdirSync(nestedProject, { recursive: true });
+  fs.writeFileSync(serviceScript, "#!/usr/bin/env bash\n", "utf8");
+
   const prev = process.env.PI_VAULT_ROOT;
   try {
     delete process.env.PI_VAULT_ROOT;
-    const serviceScript = resolveManagerServiceScriptPath();
-    assert.match(serviceScript, /\.pi\/scripts\/pi-instance-manager\/scripts\/service\.sh$/);
-    assert.equal(fs.existsSync(serviceScript), true);
+    assert.equal(resolveManagerServiceScriptPath({ cwd: nestedProject }), serviceScript);
+    assert.equal(resolveManagerServiceScriptPath({ cwd: root }), "");
   } finally {
     if (prev === undefined) delete process.env.PI_VAULT_ROOT;
     else process.env.PI_VAULT_ROOT = prev;
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

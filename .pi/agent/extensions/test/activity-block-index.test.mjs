@@ -121,24 +121,19 @@ test("activity-block session_start enables historical transcript suppression", a
   assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }]);
 });
 
-test("activity-block escape handler aborts only while a turn is active", async () => {
+test("activity-block no longer installs a terminal escape handler and relies on turn lifecycle events instead", async () => {
   const { pi, handlers } = makePiStub();
   const { ctx, getTerminalInputHandler, counts } = makeCtx();
   activityBlockExtension(pi);
 
   await handlers.get("session_start")({}, ctx);
-  const handleInput = getTerminalInputHandler();
-  assert.equal(typeof handleInput, "function");
-
-  assert.equal(handleInput("x"), undefined);
-  assert.equal(handleInput("\u001b"), undefined);
+  assert.equal(getTerminalInputHandler(), undefined);
   assert.equal(counts().abortCalls, 0);
 
   const firstTurn = await triggerTurnResponse(handlers, ctx, "hi");
   assert.equal(firstTurn?.message?.details?.turnDisplayId, "1");
-
-  assert.deepEqual(handleInput("\u001b"), { consume: true });
-  assert.equal(counts().abortCalls, 1);
+  assert.equal(getTerminalInputHandler(), undefined);
+  assert.equal(counts().abortCalls, 0);
 });
 
 test("activity-block keeps historical transcript suppression after a turn finishes", async () => {
@@ -430,7 +425,7 @@ test("activity-block context token counts stay scoped to the active block", asyn
   }
 });
 
-test("activity-block session shutdown unsubscribes terminal input listener", async () => {
+test("activity-block session shutdown clears transcript modes without terminal-listener teardown", async () => {
   const { pi, handlers } = makePiStub();
   const { ctx, counts } = makeCtx();
   activityBlockExtension(pi);
@@ -438,5 +433,7 @@ test("activity-block session shutdown unsubscribes terminal input listener", asy
   await handlers.get("session_start")({}, ctx);
   await handlers.get("session_shutdown")({}, ctx);
 
-  assert.equal(counts().unsubscribeCalls, 1);
+  assert.equal(counts().unsubscribeCalls, 0);
+  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }, undefined]);
+  assert.deepEqual(counts().liveModes, [undefined, undefined]);
 });
