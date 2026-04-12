@@ -12,12 +12,12 @@ import {
 import { visibleWidth } from "@mariozechner/pi-tui";
 
 type StartupDemoContext = Pick<ExtensionContext, "hasUI" | "ui" | "cwd">;
-type CatalogScope = "project" | "user";
-type CatalogItem = {
+export type CatalogScope = "project" | "user";
+export type CatalogItem = {
   name: string;
   scopes: CatalogScope[];
 };
-type SkillPromptStats = {
+export type SkillPromptStats = {
   totalSkills: number;
   visibleSkills: number;
   frontmatterTokens: number;
@@ -51,11 +51,11 @@ function discoverSkills(cwd: string): { items: CatalogItem[]; stats: SkillPrompt
   };
 }
 
-function discoverExtensions(cwd: string): CatalogItem[] {
+export function discoverExtensions(cwd: string, agentDir = getAgentDir()): CatalogItem[] {
   return discoverCatalogItems(
     [
       { dir: join(cwd, ".pi", "extensions"), scope: "project" as const },
-      { dir: join(getAgentDir(), "extensions"), scope: "user" as const },
+      { dir: join(agentDir, "extensions"), scope: "user" as const },
     ],
     (entryPath, entryName, isDirectoryLike, isFileLike) => {
       if (entryName.startsWith(".")) return null;
@@ -77,7 +77,7 @@ function discoverExtensions(cwd: string): CatalogItem[] {
   );
 }
 
-function discoverCatalogItems(
+export function discoverCatalogItems(
   roots: Array<{ dir: string; scope: CatalogScope }>,
   classify: (entryPath: string, entryName: string, isDirectoryLike: boolean, isFileLike: boolean) => string | null,
 ): CatalogItem[] {
@@ -162,13 +162,22 @@ export default function startupDemo(pi: ExtensionAPI) {
 
 class StartupDemoHeader {
   readonly width = 74;
+  private readonly theme: Theme;
+  private readonly skills: CatalogItem[];
+  private readonly extensions: CatalogItem[];
+  private readonly skillStats: SkillPromptStats;
 
   constructor(
-    private readonly theme: Theme,
-    private readonly skills: CatalogItem[],
-    private readonly extensions: CatalogItem[],
-    private readonly skillStats: SkillPromptStats,
-  ) {}
+    theme: Theme,
+    skills: CatalogItem[],
+    extensions: CatalogItem[],
+    skillStats: SkillPromptStats,
+  ) {
+    this.theme = theme;
+    this.skills = skills;
+    this.extensions = extensions;
+    this.skillStats = skillStats;
+  }
 
   render(_width: number): string[] {
     const innerWidth = this.width - 2;

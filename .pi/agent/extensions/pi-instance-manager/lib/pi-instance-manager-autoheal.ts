@@ -1,13 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { asString, type ManagerStateProbe } from "./pi-instance-manager-common.ts";
-
-const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FALLBACK_SERVICE_SCRIPT = path.resolve(
-  MODULE_DIR,
-  "../../../../.pi/scripts/pi-instance-manager/scripts/service.sh",
-);
 
 function resolveServiceScriptFromVaultRoot(vaultRoot: string): string {
   const trimmed = asString(vaultRoot).trim();
@@ -18,13 +11,31 @@ function resolveServiceScriptFromVaultRoot(vaultRoot: string): string {
   return fs.existsSync(candidate) ? candidate : "";
 }
 
-export function resolveManagerServiceScriptPath(): string {
+function resolveServiceScriptFromCwd(cwd: string): string {
+  const trimmed = asString(cwd).trim();
+  if (!trimmed) return "";
+
+  let current = path.resolve(trimmed);
+  while (true) {
+    const candidate = path.join(current, ".pi", "scripts", "pi-instance-manager", "scripts", "service.sh");
+    if (fs.existsSync(candidate)) return candidate;
+
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return "";
+}
+
+export function resolveManagerServiceScriptPath(options?: { cwd?: string }): string {
   const envRoot = asString(process.env.PI_VAULT_ROOT).trim();
   if (envRoot) {
     return resolveServiceScriptFromVaultRoot(envRoot);
   }
 
-  return fs.existsSync(FALLBACK_SERVICE_SCRIPT) ? FALLBACK_SERVICE_SCRIPT : "";
+  const cwd = asString(options?.cwd ?? process.cwd()).trim();
+  return resolveServiceScriptFromCwd(cwd);
 }
 
 export function shouldAutoHealManager(
