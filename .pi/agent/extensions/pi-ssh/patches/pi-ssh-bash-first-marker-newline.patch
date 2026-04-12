@@ -1,0 +1,25 @@
+From b1b486d8978646782a23e2e5fe8a019009d4eb24 Mon Sep 17 00:00:00 2001
+From: 51616 <rujikorn.ch@gmail.com>
+Date: Sat, 4 Apr 2026 00:21:05 +0900
+Subject: [PATCH] fix(ssh): force first shell marker onto a new line
+
+---
+ index.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/index.ts b/index.ts
+index 5966ff4..04e3df7 100644
+--- a/index.ts
++++ b/index.ts
+@@ -516,7 +516,7 @@ class PersistentRemoteShell {
+       : `{ ${command}; }`;
+ 
+     const wrappedCommand = [
+-      `printf '${startMarker}\\n'`,
++      `printf '\\n${startMarker}\\n'`,
+       `if cd -- ${shellQuote(remoteCwd)}; then ${execPart} </dev/null; __pi_ec=$?; else __pi_ec=$?; fi`,
+       `printf '\\n${endMarker}:%s\\n' \"$__pi_ec\"`,
+     ].join("; ");
+-- 
+2.53.0
+

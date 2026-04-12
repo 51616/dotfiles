@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
 import {
   formatSkillsForPrompt,
   getAgentDir,
@@ -77,6 +78,58 @@ export function discoverExtensions(cwd: string, agentDir = getAgentDir()): Catal
   );
 }
 
+export function discoverPromptFiles(cwd: string, agentDir = getAgentDir()): CatalogItem[] {
+  const items: CatalogItem[] = [];
+  const seen = new Set<string>();
+  const home = homedir();
+
+  const addItem = (filePath: string | null, scope: CatalogScope): void => {
+    if (!filePath || seen.has(filePath)) return;
+    seen.add(filePath);
+    items.push({
+      name: formatDisplayPath(filePath, home),
+      scopes: [scope],
+    });
+  };
+
+  const projectSystemPrompt = discoverPreferredFile(join(cwd, ".pi"), ["SYSTEM.md"]);
+  addItem(projectSystemPrompt, "project");
+  if (!projectSystemPrompt) {
+    addItem(discoverPreferredFile(agentDir, ["SYSTEM.md"]), "user");
+  }
+
+  const projectAppendSystemPrompt = discoverPreferredFile(join(cwd, ".pi"), ["APPEND_SYSTEM.md"]);
+  addItem(projectAppendSystemPrompt, "project");
+  if (!projectAppendSystemPrompt) {
+    addItem(discoverPreferredFile(agentDir, ["APPEND_SYSTEM.md"]), "user");
+  }
+
+  addItem(discoverPreferredFile(agentDir, ["AGENTS.md", "CLAUDE.md"]), "user");
+
+  const projectContext: CatalogItem[] = [];
+  let currentDir = resolve(cwd);
+  const root = resolve("/");
+
+  while (true) {
+    const filePath = discoverPreferredFile(currentDir, ["AGENTS.md", "CLAUDE.md"]);
+    if (filePath && !seen.has(filePath)) {
+      seen.add(filePath);
+      projectContext.unshift({
+        name: formatDisplayPath(filePath, home),
+        scopes: ["project"],
+      });
+    }
+
+    if (currentDir === root) break;
+    const parentDir = resolve(currentDir, "..");
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+
+  items.push(...projectContext);
+  return items;
+}
+
 export function discoverCatalogItems(
   roots: Array<{ dir: string; scope: CatalogScope }>,
   classify: (entryPath: string, entryName: string, isDirectoryLike: boolean, isFileLike: boolean) => string | null,
@@ -111,6 +164,26 @@ export function discoverCatalogItems(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function discoverPreferredFile(dir: string, candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    const filePath = join(dir, candidate);
+    if (existsSync(filePath)) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+function formatDisplayPath(filePath: string, home: string): string {
+  if (filePath === home) {
+    return "~";
+  }
+  if (filePath.startsWith(`${home}/`)) {
+    return `~${filePath.slice(home.length)}`;
+  }
+  return filePath;
+}
+
 function scopeOrder(scope: CatalogScope): number {
   return scope === "project" ? 0 : 1;
 }
@@ -124,9 +197,10 @@ function installDashboardHeader(ctx: StartupDemoContext): void {
   if (!ctx.hasUI) return;
 
   const { items: skills, stats: skillStats } = discoverSkills(ctx.cwd);
+  const promptFiles = discoverPromptFiles(ctx.cwd);
   const extensions = discoverExtensions(ctx.cwd);
 
-  ctx.ui.setHeader((_tui, theme) => new StartupDemoHeader(theme, skills, extensions, skillStats));
+  ctx.ui.setHeader((_tui, theme) => new StartupDemoHeader(theme, skills, promptFiles, extensions, skillStats));
 }
 
 export default function startupDemo(pi: ExtensionAPI) {
@@ -164,17 +238,20 @@ class StartupDemoHeader {
   readonly width = 74;
   private readonly theme: Theme;
   private readonly skills: CatalogItem[];
+  private readonly promptFiles: CatalogItem[];
   private readonly extensions: CatalogItem[];
   private readonly skillStats: SkillPromptStats;
 
   constructor(
     theme: Theme,
     skills: CatalogItem[],
+    promptFiles: CatalogItem[],
     extensions: CatalogItem[],
     skillStats: SkillPromptStats,
   ) {
     this.theme = theme;
     this.skills = skills;
+    this.promptFiles = promptFiles;
     this.extensions = extensions;
     this.skillStats = skillStats;
   }
@@ -209,6 +286,7 @@ class StartupDemoHeader {
       return lines.map((line) => fitPlain(line, width));
     };
 
+    const promptFilesLines = renderColumn("Prompt Files", this.promptFiles, innerWidth - 1, "accent");
     const leftLines = renderColumn("Skills", this.skills, Math.max(0, leftWidth - 1), "accent");
     const rightLines = renderColumn("Extensions", this.extensions, rightWidth, "warning");
     const bodyHeight = Math.max(leftLines.length, rightLines.length);
@@ -220,8 +298,13 @@ class StartupDemoHeader {
 
     lines.push(this.theme.fg("border", `╭${"─".repeat(innerWidth)}╮`));
     lines.push(row(` ${this.theme.fg("accent", "Startup Dashboard")}`));
-    lines.push(row(` ${this.theme.fg("muted", "Loaded skills and extensions for this workspace")}`));
+    lines.push(row(` ${this.theme.fg("muted", "Loaded prompt files, skills, and extensions for this workspace")}`));
     lines.push(row(` ${this.theme.fg("dim", fitPlain(promptCostLine, innerWidth - 1))}`));
+    lines.push(row());
+
+    for (const line of promptFilesLines) {
+      lines.push(row(` ${line}`));
+    }
     lines.push(row());
 
     for (let index = 0; index < bodyHeight; index += 1) {

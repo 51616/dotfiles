@@ -40,6 +40,7 @@ export function registerInstanceManagerEventHooks({
   setLastLocalSubmitAt,
   enqueueTurnTicket,
   setFooter,
+  expandQueuedCommandText,
 }: {
   pi: ExtensionAPI;
   queue: SessionInputQueue;
@@ -76,6 +77,7 @@ export function registerInstanceManagerEventHooks({
   setLastLocalSubmitAt: (value: number) => void;
   enqueueTurnTicket: (sessionId: string, text: string) => Promise<string>;
   setFooter: (ctx: ExtensionContext) => void;
+  expandQueuedCommandText: (text: string) => string;
 }) {
   pi.on("session_start", async (_event, ctx) => {
     setLastCtx(ctx);
@@ -188,7 +190,8 @@ export function registerInstanceManagerEventHooks({
     try {
       setLastLocalSubmitAt(Date.now());
 
-      const ticketId = await enqueueTurnTicket(sid, event.text);
+      const queuedText = expandQueuedCommandText(event.text) || event.text;
+      const ticketId = await enqueueTurnTicket(sid, queuedText);
       if (!ticketId) {
         if (ctx.hasUI) setFooter(ctx);
         return { action: "handled" };
@@ -196,7 +199,7 @@ export function registerInstanceManagerEventHooks({
 
       queue.enqueue(sid, {
         ticketId,
-        text: event.text,
+        text: queuedText,
         queuedAt: Date.now(),
         owner: `pi-tui:prompt:pid=${process.pid}:session=${sid}`,
       });

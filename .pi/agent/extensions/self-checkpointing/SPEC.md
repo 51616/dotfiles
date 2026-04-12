@@ -56,7 +56,7 @@ __pi_autocheckpoint_done__ path=<checkpoint_path>
 
 The `self-checkpointing` extension uses this footer to:
 - extract compaction instructions
-- validate the checkpoint path
+- validate that the checkpoint path is not obviously malformed and that the target exists
 - compact with targeted `customInstructions`
 - resume work via a self-ping
 
@@ -77,11 +77,12 @@ The `self-checkpointing` extension uses this footer to:
     - (We intentionally do not rely on any transcript-visible signal because tool usage can split a single user-visible turn into multiple internal turns.)
   - footer matches the strict shape (instruction block + completion line)
   - checkpoint path validates and exists:
-    - `work/log/checkpoints/*.md`
-    - reject placeholders like `<...>`
-    - `existsSync(checkpointPath)`
+    - reject placeholders like `<...>` and other obviously malformed paths
+    - allow relative or absolute paths
+    - local mode checks the local filesystem; `pi-ssh` mode checks the remote workspace via SSH
   - checkpoint file freshness check:
-    - `statSync(checkpointPath).mtimeMs` must be within `PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS` (default 10 minutes)
+    - file mtime must be within `PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS` (default 10 minutes)
+    - in `pi-ssh` mode, freshness/existence checks use the SSH-aware checkpoint probe instead of local `fs` calls
   - duplicate-footer dedupe does not block it (same path ignored for `PI_SELF_CHECKPOINT_FOOTER_DEDUPE_MS`, default 15s)
   - compaction owner PID lock is held by the current process (the pid that injected the steering directive is the pid that performs compaction+resume)
 - Action:
@@ -176,6 +177,7 @@ Purpose: enable hands-off E2E testing without needing to type extension commands
   - debug mode logs “footer not matched” if it looks like the assistant tried
 - If a pending resume record exists but the referenced checkpoint file no longer exists:
   - clear the pending record (prevents confusing self-pings from stale state)
+  - in `pi-ssh` mode, use the SSH-aware checkpoint probe so remote-only checkpoints are not cleared incorrectly
 
 ## Observability
 
@@ -191,7 +193,7 @@ Purpose: enable hands-off E2E testing without needing to type extension commands
    - `/autockpt threshold 1`
 2) Run a tool or continue work until the threshold logic trips.
 3) Confirm the auto-checkpoint directive appears.
-4) Write a checkpoint note and end with the footer block.
+4) Write a checkpoint note and end with the footer block. The footer may reference a relative or absolute path as long as the target exists.
 5) Verify compaction+resume occurred by checking the session JSONL:
    - new `{"type":"compaction", ...}` line appended
    - injected resume user message referencing the checkpoint path

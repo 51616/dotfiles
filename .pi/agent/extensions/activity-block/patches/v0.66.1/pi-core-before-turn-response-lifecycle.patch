@@ -1,0 +1,1061 @@
+diff --git a/packages/agent/src/agent-loop.ts b/packages/agent/src/agent-loop.ts
+index 586a1b7..2592083 100644
+--- a/packages/agent/src/agent-loop.ts
++++ b/packages/agent/src/agent-loop.ts
+@@ -113,7 +113,7 @@ export async function runAgentLoop(
+ 		await emit({ type: "message_end", message: prompt });
+ 	}
+ 
+-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
++	await runLoop(currentContext, newMessages, config, signal, emit, streamFn, prompts);
+ 	return newMessages;
+ }
+ 
+@@ -138,7 +138,7 @@ export async function runAgentLoopContinue(
+ 	await emit({ type: "agent_start" });
+ 	await emit({ type: "turn_start" });
+ 
+-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
++	await runLoop(currentContext, newMessages, config, signal, emit, streamFn, []);
+ 	return newMessages;
+ }
+ 
+@@ -149,6 +149,47 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
+ 	);
+ }
+ 
++async function appendMessages(
++	messages: AgentMessage[],
++	context: AgentContext,
++	newMessages: AgentMessage[],
++	emit: AgentEventSink,
++): Promise<void> {
++	for (const message of messages) {
++		await emit({ type: "message_start", message });
++		await emit({ type: "message_end", message });
++		context.messages.push(message);
++		newMessages.push(message);
++	}
++}
++
++async function runBeforeTurn(
++	context: AgentContext,
++	newMessages: AgentMessage[],
++	config: AgentLoopConfig,
++	signal: AbortSignal | undefined,
++	emit: AgentEventSink,
++	triggerMessages: AgentMessage[],
++): Promise<void> {
++	if (!config.beforeTurn) {
++		return;
++	}
++
++	const result = await config.beforeTurn(
++		{
++			context,
++			triggerMessages: [...triggerMessages],
++		},
++		signal,
++	);
++
++	if (!result?.messages || result.messages.length === 0) {
++		return;
++	}
++
++	await appendMessages(result.messages, context, newMessages, emit);
++}
++
+ /**
+  * Main loop logic shared by agentLoop and agentLoopContinue.
+  */
+@@ -158,7 +199,8 @@ async function runLoop(
+ 	config: AgentLoopConfig,
+ 	signal: AbortSignal | undefined,
+ 	emit: AgentEventSink,
+-	streamFn?: StreamFn,
++	streamFn: StreamFn | undefined,
++	initialTriggerMessages: AgentMessage[],
+ ): Promise<void> {
+ 	let firstTurn = true;
+ 	// Check for steering messages at start (user may have typed while waiting)
+@@ -170,6 +212,8 @@ async function runLoop(
+ 
+ 		// Inner loop: process tool calls and steering messages
+ 		while (hasMoreToolCalls || pendingMessages.length > 0) {
++			const triggerMessages = firstTurn ? [...initialTriggerMessages, ...pendingMessages] : pendingMessages;
++
+ 			if (!firstTurn) {
+ 				await emit({ type: "turn_start" });
+ 			} else {
+@@ -178,15 +222,12 @@ async function runLoop(
+ 
+ 			// Process pending messages (inject before next assistant response)
+ 			if (pendingMessages.length > 0) {
+-				for (const message of pendingMessages) {
+-					await emit({ type: "message_start", message });
+-					await emit({ type: "message_end", message });
+-					currentContext.messages.push(message);
+-					newMessages.push(message);
+-				}
++				await appendMessages(pendingMessages, currentContext, newMessages, emit);
+ 				pendingMessages = [];
+ 			}
+ 
++			await runBeforeTurn(currentContext, newMessages, config, signal, emit, triggerMessages);
++
+ 			// Stream assistant response
+ 			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+ 			newMessages.push(message);
+diff --git a/packages/agent/src/agent.ts b/packages/agent/src/agent.ts
+index b7d6954..2e43a9b 100644
+--- a/packages/agent/src/agent.ts
++++ b/packages/agent/src/agent.ts
+@@ -20,6 +20,8 @@ import type {
+ 	AgentTool,
+ 	BeforeToolCallContext,
+ 	BeforeToolCallResult,
++	BeforeTurnContext,
++	BeforeTurnResult,
+ 	StreamFn,
+ 	ToolExecutionMode,
+ } from "./types.js";
+@@ -100,6 +102,7 @@ export interface AgentOptions {
+ 	onPayload?: SimpleStreamOptions["onPayload"];
+ 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
+ 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
++	beforeTurn?: (context: BeforeTurnContext, signal?: AbortSignal) => Promise<BeforeTurnResult | undefined>;
+ 	steeringMode?: QueueMode;
+ 	followUpMode?: QueueMode;
+ 	sessionId?: string;
+@@ -173,6 +176,10 @@ export class Agent {
+ 		context: AfterToolCallContext,
+ 		signal?: AbortSignal,
+ 	) => Promise<AfterToolCallResult | undefined>;
++	public beforeTurn?: (
++		context: BeforeTurnContext,
++		signal?: AbortSignal,
++	) => Promise<BeforeTurnResult | undefined>;
+ 	private activeRun?: ActiveRun;
+ 	/** Session identifier forwarded to providers for cache-aware backends. */
+ 	public sessionId?: string;
+@@ -194,6 +201,7 @@ export class Agent {
+ 		this.onPayload = options.onPayload;
+ 		this.beforeToolCall = options.beforeToolCall;
+ 		this.afterToolCall = options.afterToolCall;
++		this.beforeTurn = options.beforeTurn;
+ 		this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? "one-at-a-time");
+ 		this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? "one-at-a-time");
+ 		this.sessionId = options.sessionId;
+@@ -417,6 +425,7 @@ export class Agent {
+ 			toolExecution: this.toolExecution,
+ 			beforeToolCall: this.beforeToolCall,
+ 			afterToolCall: this.afterToolCall,
++			beforeTurn: this.beforeTurn,
+ 			convertToLlm: this.convertToLlm,
+ 			transformContext: this.transformContext,
+ 			getApiKey: this.getApiKey,
+diff --git a/packages/agent/src/types.ts b/packages/agent/src/types.ts
+index b1214c9..9b73fb0 100644
+--- a/packages/agent/src/types.ts
++++ b/packages/agent/src/types.ts
+@@ -93,6 +93,20 @@ export interface AfterToolCallContext {
+ 	context: AgentContext;
+ }
+ 
++/** Context passed to `beforeTurn`. */
++export interface BeforeTurnContext {
++	/** Current agent context for the upcoming assistant response. */
++	context: AgentContext;
++	/** Messages that triggered this response turn. Empty for tool-result continuations. */
++	triggerMessages: AgentMessage[];
++}
++
++/** Result returned from `beforeTurn`. */
++export interface BeforeTurnResult {
++	/** Additional messages to inject before the assistant response is requested. */
++	messages?: AgentMessage[];
++}
++
+ export interface AgentLoopConfig extends SimpleStreamOptions {
+ 	model: Model<any>;
+ 
+@@ -146,6 +160,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
+ 	 */
+ 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+ 
++	/**
++	 * Called before each assistant response turn.
++	 *
++	 * This fires after any trigger messages for the turn have been added to the
++	 * context, but before the provider request is started. Tool-result
++	 * continuations call this with `triggerMessages = []`.
++	 */
++	beforeTurn?: (context: BeforeTurnContext, signal?: AbortSignal) => Promise<BeforeTurnResult | undefined>;
++
+ 	/**
+ 	 * Resolves an API key dynamically for each LLM call.
+ 	 *
+diff --git a/packages/agent/test/agent.test.ts b/packages/agent/test/agent.test.ts
+index 94be88c..c07b8d4 100644
+--- a/packages/agent/test/agent.test.ts
++++ b/packages/agent/test/agent.test.ts
+@@ -1,6 +1,7 @@
+ import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@mariozechner/pi-ai";
++import { Type } from "@sinclair/typebox";
+ import { describe, expect, it } from "vitest";
+-import { Agent } from "../src/index.js";
++import { type AgentTool, Agent } from "../src/index.js";
+ 
+ // Mock stream that mimics AssistantMessageEventStream
+ class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
+@@ -36,6 +37,36 @@ function createAssistantMessage(text: string): AssistantMessage {
+ 	};
+ }
+ 
++function createToolCallAssistantMessage(toolCallId: string, toolName: string, args: Record<string, unknown>): AssistantMessage {
++	return {
++		role: "assistant",
++		content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: args }],
++		api: "openai-responses",
++		provider: "openai",
++		model: "mock",
++		usage: {
++			input: 0,
++			output: 0,
++			cacheRead: 0,
++			cacheWrite: 0,
++			totalTokens: 0,
++			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++		},
++		stopReason: "toolUse",
++		timestamp: Date.now(),
++	};
++}
++
++function getMessageText(message: { content: string | Array<{ type: string; text?: string }> }): string {
++	if (typeof message.content === "string") {
++		return message.content;
++	}
++	return message.content
++		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
++		.map((part) => part.text)
++		.join("\n");
++}
++
+ function createDeferred(): {
+ 	promise: Promise<void>;
+ 	resolve: () => void;
+@@ -353,6 +384,161 @@ describe("Agent", () => {
+ 		await firstPrompt.catch(() => {});
+ 	});
+ 
++	it("calls beforeTurn with initial prompt trigger messages and injects messages before the response", async () => {
++		const triggerSnapshots: string[][] = [];
++		let providerSawInjectedMessage = false;
++		const agent = new Agent({
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(triggerMessages.map((message) => getMessageText(message as { content: string | Array<{ type: string; text?: string }> })));
++				return {
++					messages: [
++						{
++							role: "user",
++							content: [{ type: "text", text: "injected before response" }],
++							timestamp: Date.now(),
++						},
++					],
++				};
++			},
++			streamFn: (_model, context) => {
++				providerSawInjectedMessage = context.messages.some(
++					(message) => message.role === "user" && getMessageText(message) === "injected before response",
++				);
++				const stream = new MockAssistantStream();
++				queueMicrotask(() => {
++					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
++				});
++				return stream;
++			},
++		});
++
++		await agent.prompt("hello");
++
++		expect(triggerSnapshots).toEqual([["hello"]]);
++		expect(providerSawInjectedMessage).toBe(true);
++		expect(
++			agent.state.messages.some(
++				(message) => message.role === "user" && getMessageText(message) === "injected before response",
++			),
++		).toBe(true);
++	});
++
++	it("calls beforeTurn with empty triggerMessages for tool-result continuations", async () => {
++		const triggerSnapshots: string[][] = [];
++		const echoTool: AgentTool = {
++			name: "echo",
++			label: "Echo",
++			description: "Echo text back",
++			parameters: Type.Object({ text: Type.String() }),
++			execute: async (_toolCallId, params) => {
++				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
++				return {
++					content: [{ type: "text", text }],
++					details: { text },
++				};
++			},
++		};
++		const agent = new Agent({
++			initialState: { tools: [echoTool] },
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(triggerMessages.map((message) => getMessageText(message as { content: string | Array<{ type: string; text?: string }> })));
++				return undefined;
++			},
++			streamFn: (() => {
++				let callCount = 0;
++				return () => {
++					const stream = new MockAssistantStream();
++					queueMicrotask(() => {
++						if (callCount === 0) {
++							stream.push({
++								type: "done",
++								reason: "toolUse",
++								message: createToolCallAssistantMessage("tool-1", "echo", { text: "hello" }),
++							});
++						} else {
++							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("done") });
++						}
++						callCount++;
++					});
++					return stream;
++				};
++			})(),
++		});
++
++		await agent.prompt("start");
++
++		expect(triggerSnapshots).toEqual([["start"], []]);
++	});
++
++	it("calls beforeTurn with queued steering messages for interrupted turns", async () => {
++		const triggerSnapshots: string[][] = [];
++		let releaseToolExecution: (() => void) | undefined;
++		const waitForRelease = new Promise<void>((resolve) => {
++			releaseToolExecution = resolve;
++		});
++		const waitTool: AgentTool = {
++			name: "wait",
++			label: "Wait",
++			description: "Wait for release",
++			parameters: Type.Object({}),
++			execute: async () => {
++				await waitForRelease;
++				return {
++					content: [{ type: "text", text: "released" }],
++					details: {},
++				};
++			},
++		};
++		let toolStartedResolve = () => {};
++		const toolStarted = new Promise<void>((resolve) => {
++			toolStartedResolve = resolve;
++		});
++		const agent = new Agent({
++			initialState: { tools: [waitTool] },
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(triggerMessages.map((message) => getMessageText(message as { content: string | Array<{ type: string; text?: string }> })));
++				return undefined;
++			},
++			streamFn: (() => {
++				let callCount = 0;
++				return () => {
++					const stream = new MockAssistantStream();
++					queueMicrotask(() => {
++						if (callCount === 0) {
++							stream.push({
++								type: "done",
++								reason: "toolUse",
++								message: createToolCallAssistantMessage("tool-1", "wait", {}),
++							});
++						} else {
++							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("handled steer") });
++						}
++						callCount++;
++					});
++					return stream;
++				};
++			})(),
++		});
++
++		agent.subscribe((event) => {
++			if (event.type === "tool_execution_start" && event.toolName === "wait") {
++				toolStartedResolve();
++			}
++		});
++
++		const promptPromise = agent.prompt("start");
++		await toolStarted;
++		agent.steer({
++			role: "user",
++			content: [{ type: "text", text: "steer now" }],
++			timestamp: Date.now(),
++		});
++		releaseToolExecution?.();
++		await promptPromise;
++
++		expect(triggerSnapshots).toEqual([["start"], ["steer now"]]);
++	});
++
+ 	it("continue() should process queued follow-up messages after an assistant turn", async () => {
+ 		const agent = new Agent({
+ 			streamFn: () => {
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index 2136466..d9c1e33 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -361,6 +361,31 @@ export class AgentSession {
+ 	 * happens here instead of in wrappers.
+ 	 */
+ 	private _installAgentToolHooks(): void {
++		this.agent.beforeTurn = async ({ triggerMessages }) => {
++			const runner = this._extensionRunner;
++			if (!runner?.hasHandlers("before_turn_response")) {
++				return undefined;
++			}
++
++			await this._agentEventQueue;
++
++			const hookResult = await runner.emitBeforeTurnResponse(triggerMessages);
++			if (!hookResult?.messages || hookResult.messages.length === 0) {
++				return undefined;
++			}
++
++			return {
++				messages: hookResult.messages.map((message) => ({
++					role: "custom" as const,
++					customType: message.customType,
++					content: message.content,
++					display: message.display,
++					details: message.details,
++					timestamp: Date.now(),
++				})),
++			};
++		};
++
+ 		this.agent.beforeToolCall = async ({ toolCall, args }) => {
+ 			const runner = this._extensionRunner;
+ 			if (!runner?.hasHandlers("tool_call")) {
+@@ -1020,11 +1045,12 @@ export class AgentSession {
+ 		if (currentImages) {
+ 			userContent.push(...currentImages);
+ 		}
+-		messages.push({
++		const userMessage: AgentMessage = {
+ 			role: "user",
+ 			content: userContent,
+ 			timestamp: Date.now(),
+-		});
++		};
++		messages.push(userMessage);
+ 
+ 		// Inject any pending "nextTurn" messages as context alongside the user message
+ 		for (const msg of this._pendingNextTurnMessages) {
+@@ -1038,6 +1064,7 @@ export class AgentSession {
+ 				expandedText,
+ 				currentImages,
+ 				this._baseSystemPrompt,
++				{ source: "user", triggerMessage: userMessage },
+ 			);
+ 			// Add all custom messages from extensions
+ 			if (result?.messages) {
+@@ -1252,7 +1279,64 @@ export class AgentSession {
+ 				this.agent.steer(appMessage);
+ 			}
+ 		} else if (options?.triggerTurn) {
+-			await this.agent.prompt(appMessage);
++			// Start a new LLM turn with the custom message as the trigger.
++			// Important: run the same extension lifecycle as normal prompt() so extensions
++			// can inject messages and/or modify the system prompt.
++			const messages: AgentMessage[] = [appMessage];
++
++			for (const msg of this._pendingNextTurnMessages) {
++				messages.push(msg);
++			}
++			this._pendingNextTurnMessages = [];
++
++			// Normalize content to text + optional images for before_agent_start.
++			let text = "";
++			let images: ImageContent[] | undefined;
++			if (typeof appMessage.content === "string") {
++				text = appMessage.content;
++			} else {
++				const textParts: string[] = [];
++				images = [];
++				for (const part of appMessage.content) {
++					if (part.type === "text") {
++						textParts.push(part.text);
++					} else {
++						images.push(part);
++					}
++				}
++				text = textParts.join("\n");
++				if (images.length === 0) images = undefined;
++			}
++
++			if (this._extensionRunner) {
++				const result = await this._extensionRunner.emitBeforeAgentStart(text, images, this._baseSystemPrompt, {
++					source: "customMessage",
++					triggerMessage: appMessage,
++				});
++
++				// Add all custom messages from extensions
++				if (result?.messages) {
++					for (const msg of result.messages) {
++						messages.push({
++							role: "custom",
++							customType: msg.customType,
++							content: msg.content,
++							display: msg.display,
++							details: msg.details,
++							timestamp: Date.now(),
++						});
++					}
++				}
++
++				// Apply extension-modified system prompt, or reset to base
++				if (result?.systemPrompt) {
++					this.agent.state.systemPrompt = result.systemPrompt;
++				} else {
++					this.agent.state.systemPrompt = this._baseSystemPrompt;
++				}
++			}
++
++			await this.agent.prompt(messages);
+ 		} else {
+ 			this.agent.state.messages.push(appMessage);
+ 			this.sessionManager.appendCustomMessageEntry(
+diff --git a/packages/coding-agent/src/core/extensions/index.ts b/packages/coding-agent/src/core/extensions/index.ts
+index cca8c91..f599ffd 100644
+--- a/packages/coding-agent/src/core/extensions/index.ts
++++ b/packages/coding-agent/src/core/extensions/index.ts
+@@ -35,6 +35,8 @@ export type {
+ 	BeforeAgentStartEventResult,
+ 	BeforeProviderRequestEvent,
+ 	BeforeProviderRequestEventResult,
++	BeforeTurnResponseEvent,
++	BeforeTurnResponseEventResult,
+ 	// Context
+ 	CompactOptions,
+ 	// Events - Agent
+@@ -76,11 +78,13 @@ export type {
+ 	GetThinkingLevelHandler,
+ 	GrepToolCallEvent,
+ 	GrepToolResultEvent,
++	HistoricalTranscriptMode,
+ 	// Events - Input
+ 	InputEvent,
+ 	InputEventResult,
+ 	InputSource,
+ 	KeybindingsManager,
++	LiveTranscriptMode,
+ 	LoadExtensionsResult,
+ 	LsToolCallEvent,
+ 	LsToolResultEvent,
+diff --git a/packages/coding-agent/src/core/extensions/runner.ts b/packages/coding-agent/src/core/extensions/runner.ts
+index f2257fa..0dc203f 100644
+--- a/packages/coding-agent/src/core/extensions/runner.ts
++++ b/packages/coding-agent/src/core/extensions/runner.ts
+@@ -12,8 +12,11 @@ import type { ModelRegistry } from "../model-registry.js";
+ import type { SessionManager } from "../session-manager.js";
+ import type {
+ 	BeforeAgentStartEvent,
++	BeforeAgentStartSource,
+ 	BeforeAgentStartEventResult,
+ 	BeforeProviderRequestEvent,
++	BeforeTurnResponseEvent,
++	BeforeTurnResponseEventResult,
+ 	CompactOptions,
+ 	ContextEvent,
+ 	ContextEventResult,
+@@ -99,6 +102,11 @@ interface BeforeAgentStartCombinedResult {
+ 	systemPrompt?: string;
+ }
+ 
++/** Combined result from all before_turn_response handlers */
++interface BeforeTurnResponseCombinedResult {
++	messages?: NonNullable<BeforeTurnResponseEventResult["message"]>[];
++}
++
+ /**
+  * Events handled by the generic emit() method.
+  * Events with dedicated emitXxx() methods are excluded for stronger type safety.
+@@ -111,6 +119,7 @@ type RunnerEmitEvent = Exclude<
+ 	| ContextEvent
+ 	| BeforeProviderRequestEvent
+ 	| BeforeAgentStartEvent
++	| BeforeTurnResponseEvent
+ 	| ResourcesDiscoverEvent
+ 	| InputEvent
+ >;
+@@ -179,6 +188,8 @@ const noOpUIContext: ExtensionUIContext = {
+ 	setStatus: () => {},
+ 	setWorkingMessage: () => {},
+ 	setHiddenThinkingLabel: () => {},
++	setLiveTranscriptMode: () => {},
++	setHistoricalTranscriptMode: () => {},
+ 	setWidget: () => {},
+ 	setFooter: () => {},
+ 	setHeader: () => {},
+@@ -781,6 +792,7 @@ export class ExtensionRunner {
+ 		prompt: string,
+ 		images: ImageContent[] | undefined,
+ 		systemPrompt: string,
++		options: { source: BeforeAgentStartSource; triggerMessage: AgentMessage },
+ 	): Promise<BeforeAgentStartCombinedResult | undefined> {
+ 		const ctx = this.createContext();
+ 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
+@@ -798,6 +810,8 @@ export class ExtensionRunner {
+ 						prompt,
+ 						images,
+ 						systemPrompt: currentSystemPrompt,
++						source: options.source,
++						triggerMessage: options.triggerMessage,
+ 					};
+ 					const handlerResult = await handler(event, ctx);
+ 
+@@ -834,6 +848,49 @@ export class ExtensionRunner {
+ 		return undefined;
+ 	}
+ 
++	async emitBeforeTurnResponse(
++		triggerMessages: AgentMessage[],
++	): Promise<BeforeTurnResponseCombinedResult | undefined> {
++		const ctx = this.createContext();
++		const messages: NonNullable<BeforeTurnResponseEventResult["message"]>[] = [];
++
++		for (const ext of this.extensions) {
++			const handlers = ext.handlers.get("before_turn_response");
++			if (!handlers || handlers.length === 0) continue;
++
++			for (const handler of handlers) {
++				try {
++					const event: BeforeTurnResponseEvent = {
++						type: "before_turn_response",
++						triggerMessages,
++					};
++					const handlerResult = await handler(event, ctx);
++					if (handlerResult) {
++						const result = handlerResult as BeforeTurnResponseEventResult;
++						if (result.message) {
++							messages.push(result.message);
++						}
++					}
++				} catch (err) {
++					const message = err instanceof Error ? err.message : String(err);
++					const stack = err instanceof Error ? err.stack : undefined;
++					this.emitError({
++						extensionPath: ext.path,
++						event: "before_turn_response",
++						error: message,
++						stack,
++					});
++				}
++			}
++		}
++
++		if (messages.length > 0) {
++			return { messages };
++		}
++
++		return undefined;
++	}
++
+ 	async emitResourcesDiscover(
+ 		cwd: string,
+ 		reason: ResourcesDiscoverEvent["reason"],
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index 2c20469..496bcae 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -105,6 +105,23 @@ export type TerminalInputHandler = (data: string) => { consume?: boolean; data?:
+  * UI context for extensions to request interactive UI.
+  * Each mode (interactive, RPC, print) provides its own implementation.
+  */
++
++export type LiveTranscriptMode = {
++	/** Live tool execution rows in interactive mode. */
++	toolRows?: "show" | "hide";
++	/** Live thinking blocks in interactive mode. */
++	thinking?: "show" | "collapse" | "hide";
++	/** The separate live working/spinner row in interactive mode. */
++	working?: "show" | "hide";
++};
++
++export type HistoricalTranscriptMode = {
++	/** Replayed tool execution rows when rebuilding transcript history in interactive mode. */
++	toolRows?: "show" | "hide";
++	/** Replayed thinking blocks when rebuilding transcript history in interactive mode. */
++	thinking?: "show" | "collapse" | "hide";
++};
++
+ export interface ExtensionUIContext {
+ 	/** Show a selector and return the user's choice. */
+ 	select(title: string, options: string[], opts?: ExtensionUIDialogOptions): Promise<string | undefined>;
+@@ -130,6 +147,24 @@ export interface ExtensionUIContext {
+ 	/** Set the label shown for hidden thinking blocks. Call with no argument to restore default. */
+ 	setHiddenThinkingLabel(label?: string): void;
+ 
++	/**
++	 * Control live transcript rendering in interactive mode.
++	 *
++	 * This only affects live rendering. Suppressed rows are not backfilled automatically.
++	 *
++	 * Non-interactive modes ignore this.
++	 */
++	setLiveTranscriptMode(mode?: LiveTranscriptMode): void;
++
++	/**
++	 * Control rebuilt/replayed transcript rendering in interactive mode (session resume and rebuilds).
++	 *
++	 * This triggers a transcript rebuild so changes take effect immediately.
++	 *
++	 * Non-interactive modes ignore this.
++	 */
++	setHistoricalTranscriptMode(mode?: HistoricalTranscriptMode): void;
++
+ 	/** Set a widget to display above or below the editor. Accepts string array or component factory. */
+ 	setWidget(key: string, content: string[] | undefined, options?: ExtensionWidgetOptions): void;
+ 	setWidget(
+@@ -541,12 +576,25 @@ export interface BeforeProviderRequestEvent {
+ 	payload: unknown;
+ }
+ 
+-/** Fired after user submits prompt but before agent loop. */
++export type BeforeAgentStartSource = "user" | "customMessage";
++
++/** Fired after a turn-triggering message is prepared but before the agent loop starts. */
+ export interface BeforeAgentStartEvent {
+ 	type: "before_agent_start";
++	/** Normalized text for the triggering message. */
+ 	prompt: string;
+ 	images?: ImageContent[];
+ 	systemPrompt: string;
++	/** The source of the turn-triggering message. */
++	source: BeforeAgentStartSource;
++	/** The actual message that triggered the turn. */
++	triggerMessage: AgentMessage;
++}
++
++/** Fired before each assistant response turn. Can inject messages into the turn context. */
++export interface BeforeTurnResponseEvent {
++	type: "before_turn_response";
++	triggerMessages: AgentMessage[];
+ }
+ 
+ /** Fired when an agent loop starts */
+@@ -862,6 +910,7 @@ export type ExtensionEvent =
+ 	| ContextEvent
+ 	| BeforeProviderRequestEvent
+ 	| BeforeAgentStartEvent
++	| BeforeTurnResponseEvent
+ 	| AgentStartEvent
+ 	| AgentEndEvent
+ 	| TurnStartEvent
+@@ -914,6 +963,10 @@ export interface BeforeAgentStartEventResult {
+ 	systemPrompt?: string;
+ }
+ 
++export interface BeforeTurnResponseEventResult {
++	message?: Pick<CustomMessage, "customType" | "content" | "display" | "details">;
++}
++
+ export interface SessionBeforeSwitchResult {
+ 	cancel?: boolean;
+ }
+@@ -1009,6 +1062,10 @@ export interface ExtensionAPI {
+ 		handler: ExtensionHandler<BeforeProviderRequestEvent, BeforeProviderRequestEventResult>,
+ 	): void;
+ 	on(event: "before_agent_start", handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>): void;
++	on(
++		event: "before_turn_response",
++		handler: ExtensionHandler<BeforeTurnResponseEvent, BeforeTurnResponseEventResult>,
++	): void;
+ 	on(event: "agent_start", handler: ExtensionHandler<AgentStartEvent>): void;
+ 	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): void;
+ 	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 5b0ba08..7d82b75 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -58,6 +58,8 @@ export type {
+ 	BeforeAgentStartEvent,
+ 	BeforeProviderRequestEvent,
+ 	BeforeProviderRequestEventResult,
++	BeforeTurnResponseEvent,
++	BeforeTurnResponseEventResult,
+ 	CompactOptions,
+ 	ContextEvent,
+ 	ContextUsage,
+diff --git a/packages/coding-agent/test/suite/agent-session-model-extension.test.ts b/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
+index 1b20795..555ea21 100644
+--- a/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
++++ b/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
+@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxToolCall, type Model } from "@mariozechner/pi
+ import { Type } from "@sinclair/typebox";
+ import { afterEach, describe, expect, it } from "vitest";
+ import type { ExtensionAPI } from "../../src/index.js";
+-import { createHarness, getAssistantTexts, type Harness } from "./harness.js";
++import { createHarness, getAssistantTexts, getMessageText, type Harness } from "./harness.js";
+ 
+ describe("AgentSession model and extension characterization", () => {
+ 	const harnesses: Harness[] = [];
+@@ -260,6 +260,180 @@ describe("AgentSession model and extension characterization", () => {
+ 		expect(extensionApi).toBeDefined();
+ 	});
+ 
++	it("allows before_turn_response handlers to inject custom messages for prompts and tool-result continuations", async () => {
++		const triggerSnapshots: string[][] = [];
++		const echoTool: AgentTool = {
++			name: "echo",
++			label: "Echo",
++			description: "Echo text back",
++			parameters: Type.Object({ text: Type.String() }),
++			execute: async (_toolCallId, params) => {
++				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
++				return { content: [{ type: "text", text }], details: { text } };
++			},
++		};
++		const harness = await createHarness({
++			tools: [echoTool],
++			extensionFactories: [
++				(pi) => {
++					pi.on("before_turn_response", async (event) => {
++						triggerSnapshots.push(
++							event.triggerMessages.map((message) =>
++								message.role === "custom" ? `custom:${message.customType}` : getMessageText(message),
++							),
++						);
++						return {
++							message: {
++								customType: `turn-hook-${triggerSnapshots.length}`,
++								content: `hook ${triggerSnapshots.length}`,
++								display: true,
++								details: { turn: triggerSnapshots.length },
++							},
++						};
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++		harness.setResponses([
++			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
++			(context) => {
++				const providerTexts = context.messages
++					.filter((message) => message.role === "user")
++					.map((message) => getMessageText(message));
++				return fauxAssistantMessage(
++					JSON.stringify({
++						hook1: providerTexts.includes("hook 1"),
++						hook2: providerTexts.includes("hook 2"),
++						hasToolResult: context.messages.some((message) => message.role === "toolResult"),
++					}),
++				);
++			},
++		]);
++
++		await harness.session.prompt("hello");
++
++		expect(triggerSnapshots).toEqual([["hello"], []]);
++		expect(getAssistantTexts(harness)).toContain('{"hook1":true,"hook2":true,"hasToolResult":true}');
++		expect(
++			harness.session.messages
++				.filter((message) => message.role === "custom")
++				.map((message) => message.customType),
++		).toEqual(["turn-hook-1", "turn-hook-2"]);
++	});
++
++	it("passes queued steering messages through before_turn_response triggerMessages", async () => {
++		let extensionApi: ExtensionAPI | undefined;
++		const triggerSnapshots: string[][] = [];
++		let releaseToolExecution: (() => void) | undefined;
++		const waitForRelease = new Promise<void>((resolve) => {
++			releaseToolExecution = resolve;
++		});
++		const waitTool: AgentTool = {
++			name: "wait",
++			label: "Wait",
++			description: "Wait for release",
++			parameters: Type.Object({}),
++			execute: async () => {
++				await waitForRelease;
++				return { content: [{ type: "text", text: "released" }], details: {} };
++			},
++		};
++		const harness = await createHarness({
++			tools: [waitTool],
++			extensionFactories: [
++				(pi) => {
++					extensionApi = pi;
++					pi.on("before_turn_response", async (event) => {
++						triggerSnapshots.push(
++							event.triggerMessages.map((message) =>
++								message.role === "custom" ? `custom:${message.customType}` : getMessageText(message),
++							),
++						);
++						return {
++							message: {
++								customType: `turn-hook-${triggerSnapshots.length}`,
++								content: `hook ${triggerSnapshots.length}`,
++								display: true,
++							},
++						};
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++		const waitForToolStart = new Promise<void>((resolve) => {
++			const unsubscribe = harness.session.subscribe((event) => {
++				if (event.type === "tool_execution_start" && event.toolName === "wait") {
++					unsubscribe();
++					resolve();
++				}
++			});
++		});
++		harness.setResponses([
++			fauxAssistantMessage([fauxToolCall("wait", {})], { stopReason: "toolUse" }),
++			(context) => {
++				const providerTexts = context.messages
++					.filter((message) => message.role === "user")
++					.map((message) => getMessageText(message));
++				return fauxAssistantMessage(
++					JSON.stringify({
++						hasSteer: providerTexts.includes("steer now"),
++						hasTurnHook2: providerTexts.includes("hook 2"),
++					}),
++				);
++			},
++		]);
++
++		const promptPromise = harness.session.prompt("start");
++		await waitForToolStart;
++		await extensionApi?.sendUserMessage("steer now", { deliverAs: "steer" });
++		releaseToolExecution?.();
++		await promptPromise;
++
++		expect(triggerSnapshots).toEqual([["start"], ["steer now"]]);
++		expect(getAssistantTexts(harness)).toContain('{"hasSteer":true,"hasTurnHook2":true}');
++	});
++
++	it("passes triggerTurn custom messages through before_turn_response triggerMessages", async () => {
++		const triggerSnapshots: string[][] = [];
++		const harness = await createHarness({
++			extensionFactories: [
++				(pi) => {
++					pi.on("before_turn_response", async (event) => {
++						triggerSnapshots.push(
++							event.triggerMessages.map((message) =>
++								message.role === "custom" ? `custom:${message.customType}` : getMessageText(message),
++							),
++						);
++						return undefined;
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++		harness.setResponses([
++			(context) => {
++				const sawTriggerCustom = context.messages.some(
++					(message) => message.role === "user" && getMessageText(message) === "queued custom",
++				);
++				return fauxAssistantMessage(sawTriggerCustom ? "saw custom" : "missing custom");
++			},
++		]);
++
++		await harness.session.sendCustomMessage(
++			{
++				customType: "queued-note",
++				content: "queued custom",
++				display: true,
++			},
++			{ triggerTurn: true },
++		);
++
++		expect(triggerSnapshots).toEqual([["custom:queued-note"]]);
++		expect(getAssistantTexts(harness)).toContain("saw custom");
++	});
++
+ 	it("allows before_agent_start handlers to inject custom messages and modify the system prompt", async () => {
+ 		const harness = await createHarness({
+ 			extensionFactories: [
+@@ -301,6 +475,70 @@ describe("AgentSession model and extension characterization", () => {
+ 		).toBe(true);
+ 	});
+ 
++
++	it("fires before_agent_start for triggerTurn custom messages", async () => {
++		let sawSource: string | undefined;
++		let sawTriggerRole: string | undefined;
++		let sawTriggerType: string | undefined;
++		const harness = await createHarness({
++			extensionFactories: [
++				(pi) => {
++					pi.on("before_agent_start", async (event) => {
++						sawSource = event.source;
++						sawTriggerRole = event.triggerMessage.role;
++						sawTriggerType = event.triggerMessage.role === "custom" ? event.triggerMessage.customType : undefined;
++						return {
++							message: {
++								customType: "before-start",
++								content: "injected",
++								display: true,
++								details: { injected: true },
++							},
++							systemPrompt: `${event.systemPrompt}\n\nextra instructions`,
++						};
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++
++		let providerSystemPrompt = "";
++		let sawInjectedUserMessage = false;
++		let sawTriggerUserMessage = false;
++		harness.setResponses([
++			(context) => {
++				providerSystemPrompt = context.systemPrompt ?? "";
++				sawInjectedUserMessage = context.messages.some(
++					(message) =>
++						message.role === "user" &&
++						typeof message.content !== "string" &&
++						message.content.some((part) => part.type === "text" && part.text === "injected"),
++				);
++				sawTriggerUserMessage = context.messages.some(
++					(message) =>
++						message.role === "user" &&
++						typeof message.content !== "string" &&
++						message.content.some((part) => part.type === "text" && part.text === "trigger custom"),
++				);
++				return fauxAssistantMessage("done");
++			},
++		]);
++
++		await harness.session.sendCustomMessage(
++			{ customType: "trigger", content: "trigger custom", display: true, details: { v: 1 } },
++			{ triggerTurn: true },
++		);
++
++		expect(sawSource).toBe("customMessage");
++		expect(sawTriggerRole).toBe("custom");
++		expect(sawTriggerType).toBe("trigger");
++		expect(providerSystemPrompt).toContain("extra instructions");
++		expect(sawInjectedUserMessage).toBe(true);
++		expect(sawTriggerUserMessage).toBe(true);
++		expect(
++			harness.session.messages.some((message) => message.role === "custom" && message.customType === "before-start"),
++		).toBe(true);
++	});
+ 	it("bindExtensions emits session_start and reload emits session_shutdown then session_start", async () => {
+ 		const lifecycleEvents: string[] = [];
+ 		const harness = await createHarness({

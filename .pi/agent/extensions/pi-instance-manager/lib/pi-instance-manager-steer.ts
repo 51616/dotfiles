@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { expandPromptTemplateCommand } from "./pi-instance-manager-command-expansion.ts";
 
 export function normalizeSteerMessage(args: string): string {
   return String(args || "").trim();
@@ -21,7 +22,8 @@ export async function handleSteerCommand({
     return { ok: false };
   }
 
-  pi.sendUserMessage(message, { deliverAs: "steer" });
+  const expandedMessage = expandPromptTemplateCommand(message, pi) || message;
+  pi.sendUserMessage(expandedMessage, { deliverAs: "steer" });
 
   if (ctx.hasUI) {
     ctx.ui.notify("Steering message queued (bypasses instance-manager queue).", "info");

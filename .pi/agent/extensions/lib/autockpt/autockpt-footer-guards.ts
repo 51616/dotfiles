@@ -41,7 +41,13 @@ function sanitizeCheckpointPath(value: string): string {
   // Occasionally the path gets wrapped in parentheses.
   p = p.replace(/^\(+/, "").replace(/\)+$/, "");
 
-  return p.trim();
+  p = p.trim().replace(/\\/g, "/");
+
+  if (p.startsWith("./")) {
+    p = p.slice(2);
+  }
+
+  return p;
 }
 
 export function shouldParseFooterGate(args: {
@@ -102,11 +108,10 @@ export function parseCheckpointFooter(
 export function isLikelyCheckpointPath(checkpointPath: string): boolean {
   return (
     checkpointPath.length > 0 &&
-    checkpointPath.startsWith("work/log/checkpoints/") &&
-    checkpointPath.endsWith(".md") &&
     !checkpointPath.includes("<") &&
     !checkpointPath.includes(">") &&
-    !checkpointPath.includes("`")
+    !checkpointPath.includes("`") &&
+    !/[\r\n\0]/.test(checkpointPath)
   );
 }
 

@@ -85,6 +85,7 @@ If the implementation is hard to explain, it's a bad idea.
 - pi should always just run the needed (safe) commands/scripts itself instead of asking the user to run them. In the report, explicitly list any important scripts/commands that were executed (service restarts, migrations, etc.).
 - For straightforward repository operations (e.g., commit when requested), execute directly without asking extra confirmation.
 - Avoid overestimating large changes; pi has strong execution capacity, propose an aggressive-but-safe plan, and proceed unless the user asks to slow down.
+- Never write tests for the sake of testsing. Tests should be meaningful and correspond to real specs and code behaviors that we care about.
 - Save your temporary work at `/tmp/pi-work`, avoid cluttering the current workspace.
 
 ## Keep changes and diffs minimal and safe

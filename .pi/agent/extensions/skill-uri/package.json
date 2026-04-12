@@ -1,0 +1,35 @@
+{
+  "name": "skill-uri",
+  "version": "0.1.0",
+  "description": "pi extension for canonical skill:// URI handling across local and remote sessions",
+  "type": "module",
+  "private": false,
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "lib",
+    "README.md",
+    "extension-spec.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "skills"
+  ],
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.41"
+  }
+}

@@ -12,6 +12,7 @@ import { SessionInputQueue } from "./lib/pi-instance-manager-queue.ts";
 import { registerQueueCommand } from "./lib/pi-instance-manager-queue-command.ts";
 import { registerInstanceManagerEventHooks } from "./lib/pi-instance-manager-event-hooks.ts";
 import { handleSteerCommand } from "./lib/pi-instance-manager-steer.ts";
+import { expandPromptTemplateCommand } from "./lib/pi-instance-manager-command-expansion.ts";
 import {
   clearSessionResyncState,
   createSessionResyncState,
@@ -397,6 +398,11 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     },
   });
 
+  const expandQueuedCommandText = (text: string) => {
+    const expanded = expandPromptTemplateCommand(text, pi);
+    return expanded.length > 0 ? expanded : text;
+  };
+
   registerQueueCommand({
     pi,
     queue,
@@ -512,5 +518,6 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     },
     enqueueTurnTicket,
     setFooter: updateFooterStatus,
+    expandQueuedCommandText,
   });
 }

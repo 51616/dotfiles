@@ -123,3 +123,20 @@ What this proves:
 - unreadable remote context files stop the probe and surface warnings instead of falling through silently
 - decoded remote context is injected into the existing local-style `# Project Context` section without inventing a separate remote-only format
 - prompt-context injection is idempotent for the same remote file block
+
+## Self-checkpointing footer parsing and SSH-backed resume stay aligned
+
+Owned by:
+- `.pi/extensions/test/autockpt-footer-guards.test.mjs`
+- `.pi/extensions/self-checkpointing/test/footer-handler.test.mjs`
+- `.pi/extensions/self-checkpointing/test/pending-resume.test.mjs`
+- `.pi/extensions/self-checkpointing/test/checkpoint-probe.test.mjs`
+- `.pi/extensions/self-checkpointing/test/compaction-ui.test.mjs`
+
+What this proves:
+- footer parsing tolerates normal markdown noise while preserving explicit absolute paths instead of forcing them into a `work/log/checkpoints/` shape
+- footer-path validation rejects only obviously malformed values and otherwise relies on existence/freshness checks
+- a valid footer path can reach `startCompaction()` even when the assistant emits an absolute remote-workspace path
+- SSH-backed checkpoint probing is used for remote existence/freshness checks instead of local-only filesystem assumptions
+- pending resume does not clear a valid remote checkpoint just because it is absent from the local filesystem
+- compaction callbacks still show/clear UI state and preserve the queued resume path after compaction completes or throws

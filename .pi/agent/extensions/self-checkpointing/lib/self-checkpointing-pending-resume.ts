@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { PendingResume } from "../../lib/autockpt/autockpt-pending-resume.ts";
 import type { PidLockRecord } from "../../lib/autockpt/autockpt-pid-lock.ts";
@@ -13,6 +12,7 @@ export type PendingResumeControllerDeps = {
 
   sessionIdFor: (ctx: ExtensionContext) => string;
   getActiveCompactionLock: (ctx: ExtensionContext) => PidLockRecord | null;
+  isCheckpointAvailable: (checkpointPath: string) => boolean;
 
   pushDebug: (ctx: ExtensionContext, line: string) => void;
   sendUserMessage: (text: string) => void;
@@ -42,7 +42,9 @@ export function createPendingResumeController(deps: PendingResumeControllerDeps)
     }
 
     // If the checkpoint file is gone, the pending record is useless and can cause confusing self-pings.
-    if (!existsSync(pending.checkpointPath)) {
+    // In pi-ssh mode the checkpoint may exist only on the remote workspace, so use the injected
+    // checkpoint-availability probe instead of a local fs existence check.
+    if (!deps.isCheckpointAvailable(pending.checkpointPath)) {
       deps.pushDebug(ctx, `stale pending resume: missing checkpoint file (${pending.checkpointPath}); clearing`);
       deps.clearPending(ctx);
       return false;

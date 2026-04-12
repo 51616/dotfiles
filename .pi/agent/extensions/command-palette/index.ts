@@ -49,12 +49,19 @@ type EditorLike = {
 	getLines(): string[];
 };
 
+type AutocompleteEditorLike = EditorLike & {
+	handleInput(data: string): void;
+	isShowingAutocomplete(): boolean;
+	cancelAutocomplete?: () => void;
+};
+
 const PALETTE_COMMAND = "palette";
 const PALETTE_SHORTCUT = Key.ctrlShift("p");
 const PALETTE_FALLBACK_SHORTCUT = Key.ctrlAlt("p");
 const MAX_VISIBLE_COMMANDS = 8;
 const COMMAND_LIST_VIEWPORT_ROWS = MAX_VISIBLE_COMMANDS + 1;
 const MIN_DESCRIPTION_WIDTH = 16;
+const MAX_FRAME_WIDTH = 116;
 const GROUP_ORDER: Record<PaletteCommandSource, number> = {
 	builtin: 0,
 	prompt: 1,
@@ -93,8 +100,27 @@ function comparePaletteCommands(left: PaletteCommand, right: PaletteCommand): nu
 	return left.name.localeCompare(right.name);
 }
 
+export function comparePaletteCommandsForDisplay(left: PaletteCommand, right: PaletteCommand): number {
+	const executableDiff = Number(isDirectlyExecutable(right)) - Number(isDirectlyExecutable(left));
+	if (executableDiff !== 0) {
+		return executableDiff;
+	}
+	return comparePaletteCommands(left, right);
+}
+
+function normalizeCommandDescription(description?: string): string {
+	return description ? description.replace(/\s+/g, " ").trim() : "";
+}
+
 function getSearchText(command: PaletteCommand): string {
-	return [command.name, command.description, getSourceBadge(command), isDirectlyExecutable(command) ? "executable" : "insert", command.scope, command.path]
+	return [
+		command.name,
+		normalizeCommandDescription(command.description),
+		getSourceBadge(command),
+		isDirectlyExecutable(command) ? "executable" : "insert",
+		command.scope,
+		command.path,
+	]
 		.filter(Boolean)
 		.join(" ");
 }
@@ -111,11 +137,19 @@ function isEditorLike(value: unknown): value is EditorLike {
 	return !!value && typeof value === "object" && typeof (value as Partial<EditorLike>).getCursor === "function" && typeof (value as Partial<EditorLike>).getLines === "function";
 }
 
+export function isAutocompleteEditorLike(value: unknown): value is AutocompleteEditorLike {
+	return (
+		isEditorLike(value) &&
+		typeof (value as Partial<AutocompleteEditorLike>).handleInput === "function" &&
+		typeof (value as Partial<AutocompleteEditorLike>).isShowingAutocomplete === "function"
+	);
+}
+
 export function isDirectlyExecutable(command: PaletteCommand): boolean {
 	if (isPromptCommand(command)) {
 		return true;
 	}
-	return ["compact", "quit", "session", "name"].includes(command.name);
+	return ["compact", "name", "new", "quit", "reload", "resume", "session"].includes(command.name);
 }
 
 export function getFocusedEditorCurrentLineText(tui: TUI): string | null {
@@ -125,6 +159,18 @@ export function getFocusedEditorCurrentLineText(tui: TUI): string | null {
 	}
 	const { line } = focusedComponent.getCursor();
 	return focusedComponent.getLines()[line] ?? "";
+}
+
+export function dismissFocusedEditorAutocomplete(tui: TUI): void {
+	const focusedComponent = (tui as TUI & { focusedComponent?: unknown }).focusedComponent;
+	if (!isAutocompleteEditorLike(focusedComponent) || !focusedComponent.isShowingAutocomplete()) {
+		return;
+	}
+	if (typeof focusedComponent.cancelAutocomplete === "function") {
+		focusedComponent.cancelAutocomplete();
+		return;
+	}
+	focusedComponent.handleInput("\x1b");
 }
 
 function styleCommandName(theme: Theme, command: PaletteCommand, text: string, selected: boolean): string {
@@ -251,8 +297,8 @@ export class CommandPaletteOverlay implements Component, Focusable {
 	}
 
 	render(width: number): string[] {
-		const frameWidth = Math.max(44, width);
-		const innerWidth = Math.max(24, frameWidth - 4);
+		const frameWidth = Math.max(4, Math.min(MAX_FRAME_WIDTH, width));
+		const innerWidth = Math.max(0, frameWidth - 4);
 		const lines: string[] = [];
 
 		lines.push(this.borderLine(frameWidth, "top"));
@@ -294,7 +340,7 @@ export class CommandPaletteOverlay implements Component, Focusable {
 	private applyFilter(query: string): void {
 		this.filteredCommands = query.trim()
 			? fuzzyFilter(this.commands, query, (command) => getSearchText(command))
-			: [...this.commands];
+			: [...this.commands].sort(comparePaletteCommandsForDisplay);
 		this.selectedIndex = 0;
 	}
 
@@ -327,15 +373,16 @@ export class CommandPaletteOverlay implements Component, Focusable {
 				const badgePadding = " ".repeat(Math.max(0, badgeColumnWidth - visibleWidth(badgeText)));
 				const baseWidth = visibleWidth(prefix) + nameColumnWidth + visibleWidth(badgeText) + badgePadding.length + 2;
 				const descriptionWidth = Math.max(0, innerWidth - baseWidth);
+				const normalizedDescription = normalizeCommandDescription(command.description);
 				const descriptionText =
-					descriptionWidth >= MIN_DESCRIPTION_WIDTH && command.description
-						? truncateToWidth(command.description, descriptionWidth, "")
+					descriptionWidth >= MIN_DESCRIPTION_WIDTH && normalizedDescription
+						? truncateToWidth(normalizedDescription, descriptionWidth, "")
 						: "";
 
 				const left = `${prefix}${styleCommandName(this.theme, command, `${name}${namePadding}`, isSelected)}`;
 				const badge = this.theme.fg("muted", `${badgeText}${badgePadding}`);
 				const description = descriptionText ? ` ${this.theme.fg("dim", descriptionText)}` : "";
-				const line = truncateToWidth(`${left} ${badge}${description}`, innerWidth, "");
+				const line = truncateToWidth(`${left} ${badge}${description}`, innerWidth, "", true);
 				lines.push(isSelected ? this.theme.bg("selectedBg", line) : line);
 			}
 		}
@@ -348,17 +395,21 @@ export class CommandPaletteOverlay implements Component, Focusable {
 	}
 
 	private renderCommandListFooter(visibleRange: { start: number; end: number }): string {
-		if (this.filteredCommands.length === 0) {
+		const total = this.filteredCommands.length;
+		if (total === 0) {
 			return this.theme.fg("dim", "Showing 0 of 0");
 		}
+
 		const visibleCount = visibleRange.end - visibleRange.start;
+		const digits = String(total).length;
+		const formatCount = (value: number): string => String(value).padStart(digits, " ");
 		if (visibleCount <= 0) {
-			return this.theme.fg("dim", `Showing 0 of ${this.filteredCommands.length}`);
+			return this.theme.fg("dim", `Showing ${formatCount(0)} of ${formatCount(total)}`);
 		}
-		if (visibleCount === this.filteredCommands.length) {
-			return this.theme.fg("dim", `Showing ${this.filteredCommands.length} of ${this.filteredCommands.length}`);
+		if (visibleCount === total) {
+			return this.theme.fg("dim", `Showing ${formatCount(total)} of ${formatCount(total)}`);
 		}
-		return this.theme.fg("dim", `Showing ${visibleRange.start + 1}-${visibleRange.end} of ${this.filteredCommands.length}`);
+		return this.theme.fg("dim", `Showing ${formatCount(visibleRange.start + 1)}-${formatCount(visibleRange.end)} of ${formatCount(total)}`);
 	}
 
 	private getVisibleRange(): { start: number; end: number } {
@@ -525,6 +576,7 @@ async function openCommandPalette(ctx: ExtensionContext, pi: ExtensionAPI): Prom
 	const selection = await ctx.ui.custom<PaletteSelection | null>(
 		(tui, theme, _keybindings, done) => {
 			currentLineText = getFocusedEditorCurrentLineText(tui) ?? currentLineText;
+			dismissFocusedEditorAutocomplete(tui);
 			return new CommandPaletteOverlay(tui, theme, commands, getInitialQuery(currentEditorText), done);
 		},
 		{
@@ -533,7 +585,6 @@ async function openCommandPalette(ctx: ExtensionContext, pi: ExtensionAPI): Prom
 				anchor: "top-center",
 				width: "78%",
 				minWidth: 64,
-				maxWidth: 116,
 				maxHeight: "84%",
 				margin: { top: 1, left: 2, right: 2 },
 			},

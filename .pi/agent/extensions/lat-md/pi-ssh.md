@@ -22,6 +22,8 @@ Remote prompt-context pickup is exact-directory only: probe `remoteCwd/AGENTS.md
 
 Unreadable remote prompt-context files should fail closed with warnings instead of silently injecting partial or guessed content.
 
+When other extensions validate artifact paths against the SSH workspace, they should use an SSH-aware probe instead of assuming the path exists on the local filesystem. `self-checkpointing` depends on this for footer validation and pending resume.
+
 ## Failure and recovery
 
 If SSH connection setup fails, fail clearly instead of silently falling back to local execution for a session that was explicitly started in SSH mode.

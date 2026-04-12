@@ -59,7 +59,7 @@ test("createCheckpointProbe validates and infers checkpoints through ssh when --
   assert.match(calls[0].remoteCommand, /python3|python/);
 });
 
-test("createCheckpointProbe rejects invalid checkpoint paths before ssh probing", () => {
+test("createCheckpointProbe rejects obviously malformed checkpoint paths before ssh probing", () => {
   let called = false;
   const probe = createCheckpointProbe(
     {
@@ -76,6 +76,6 @@ test("createCheckpointProbe rejects invalid checkpoint paths before ssh probing"
     },
   );
 
-  assert.equal(probe.isFreshCheckpointFile("../bad.md", 60_000), false);
+  assert.equal(probe.isFreshCheckpointFile("<bad>", 60_000), false);
   assert.equal(called, false);
 });

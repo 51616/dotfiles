@@ -1,0 +1,462 @@
+From 3efd909e4931b621fbef1fa1621bbc41e12ce35c Mon Sep 17 00:00:00 2001
+From: 51616 <rujikorn.ch@gmail.com>
+Date: Thu, 2 Apr 2026 14:44:04 +0900
+Subject: [PATCH] fix(coding-agent): run before_agent_start for custom turns
+
+---
+ packages/coding-agent/docs/extensions.md      |  10 +-
+ .../coding-agent/src/core/agent-session.ts    |  86 +++++++--
+ .../coding-agent/src/core/extensions/index.ts |   1 +
+ .../src/core/extensions/runner.ts             |   5 +
+ .../coding-agent/src/core/extensions/types.ts |   6 +-
+ packages/coding-agent/src/core/index.ts       |   1 +
+ packages/coding-agent/src/index.ts            |   1 +
+ .../agent-session-custom-message-turn.test.ts | 169 ++++++++++++++++++
+ 8 files changed, 255 insertions(+), 24 deletions(-)
+ create mode 100644 packages/coding-agent/test/agent-session-custom-message-turn.test.ts
+
+diff --git a/packages/coding-agent/docs/extensions.md b/packages/coding-agent/docs/extensions.md
+index fdd2d365..6c0b99e4 100644
+--- a/packages/coding-agent/docs/extensions.md
++++ b/packages/coding-agent/docs/extensions.md
+@@ -233,7 +233,7 @@ pi starts (CLI only)
+   └─► resources_discover { reason: "startup" }
+       │
+       ▼
+-user sends prompt ─────────────────────────────────────────┐
++turn-triggering message arrives ──────────────────────────┐
+   │                                                        │
+   ├─► (extension commands checked first, bypass if found)  │
+   ├─► input (can intercept, transform, or handle)          │
+@@ -437,13 +437,15 @@ pi.on("session_shutdown", async (_event, ctx) => {
+ 
+ #### before_agent_start
+ 
+-Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
++Fired after a turn-triggering message is prepared, before the agent loop starts. Can inject a message and/or modify the system prompt.
+ 
+ ```typescript
+ pi.on("before_agent_start", async (event, ctx) => {
+-  // event.prompt - user's prompt text
++  // event.prompt - normalized text for the triggering message
+   // event.images - attached images (if any)
+   // event.systemPrompt - current system prompt
++  // event.source - "user" | "customMessage"
++  // event.triggerMessage - the actual message that triggered the turn
+ 
+   return {
+     // Inject a persistent message (stored in session, sent to LLM)
+@@ -460,7 +462,7 @@ pi.on("before_agent_start", async (event, ctx) => {
+ 
+ #### agent_start / agent_end
+ 
+-Fired once per user prompt.
++Fired once per triggered agent loop.
+ 
+ ```typescript
+ pi.on("agent_start", async (_event, ctx) => {});
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index f3a5b753..5d3caba5 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -44,6 +44,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
+ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.js";
+ import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
+ import {
++	type BeforeAgentStartSource,
+ 	type ContextUsage,
+ 	type ExtensionCommandContextActions,
+ 	type ExtensionErrorListener,
+@@ -1012,34 +1013,50 @@ export class AgentSession {
+ 			await this._checkCompaction(lastAssistant, false);
+ 		}
+ 
+-		// Build messages array (custom message if any, then user message)
+-		const messages: AgentMessage[] = [];
+-
+-		// Add user message
+ 		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
+ 		if (currentImages) {
+ 			userContent.push(...currentImages);
+ 		}
+-		messages.push({
+-			role: "user",
+-			content: userContent,
+-			timestamp: Date.now(),
+-		});
++		const messages = await this._prepareTurnMessages(
++			{
++				role: "user",
++				content: userContent,
++				timestamp: Date.now(),
++			},
++			{
++				prompt: expandedText,
++				images: currentImages,
++				source: "user",
++			},
++		);
++
++		await this.agent.prompt(messages);
++		await this.waitForRetry();
++	}
++
++	private async _prepareTurnMessages(
++		triggerMessage: AgentMessage,
++		options: {
++			prompt: string;
++			images?: ImageContent[];
++			source: BeforeAgentStartSource;
++		},
++	): Promise<AgentMessage[]> {
++		const messages: AgentMessage[] = [triggerMessage];
+ 
+-		// Inject any pending "nextTurn" messages as context alongside the user message
+ 		for (const msg of this._pendingNextTurnMessages) {
+ 			messages.push(msg);
+ 		}
+ 		this._pendingNextTurnMessages = [];
+ 
+-		// Emit before_agent_start extension event
+ 		if (this._extensionRunner) {
+ 			const result = await this._extensionRunner.emitBeforeAgentStart(
+-				expandedText,
+-				currentImages,
++				options.prompt,
++				options.images,
+ 				this._baseSystemPrompt,
++				options.source,
++				triggerMessage,
+ 			);
+-			// Add all custom messages from extensions
+ 			if (result?.messages) {
+ 				for (const msg of result.messages) {
+ 					messages.push({
+@@ -1052,17 +1069,37 @@ export class AgentSession {
+ 					});
+ 				}
+ 			}
+-			// Apply extension-modified system prompt, or reset to base
+ 			if (result?.systemPrompt) {
+ 				this.agent.state.systemPrompt = result.systemPrompt;
+ 			} else {
+-				// Ensure we're using the base prompt (in case previous turn had modifications)
+ 				this.agent.state.systemPrompt = this._baseSystemPrompt;
+ 			}
+ 		}
+ 
+-		await this.agent.prompt(messages);
+-		await this.waitForRetry();
++		return messages;
++	}
++
++	private _extractCustomMessagePromptAndImages(message: CustomMessage): {
++		prompt: string;
++		images?: ImageContent[];
++	} {
++		if (typeof message.content === "string") {
++			return { prompt: message.content };
++		}
++
++		const promptParts: string[] = [];
++		const images: ImageContent[] = [];
++		for (const part of message.content) {
++			if (part.type === "text") {
++				promptParts.push(part.text);
++			} else {
++				images.push(part);
++			}
++		}
++		return {
++			prompt: promptParts.join("\n"),
++			images: images.length > 0 ? images : undefined,
++		};
+ 	}
+ 
+ 	/**
+@@ -1252,7 +1289,18 @@ export class AgentSession {
+ 				this.agent.steer(appMessage);
+ 			}
+ 		} else if (options?.triggerTurn) {
+-			await this.agent.prompt(appMessage);
++			const lastAssistant = this._findLastAssistantMessage();
++			if (lastAssistant) {
++				await this._checkCompaction(lastAssistant, false);
++			}
++			const extracted = this._extractCustomMessagePromptAndImages(appMessage);
++			const messages = await this._prepareTurnMessages(appMessage, {
++				prompt: extracted.prompt,
++				images: extracted.images,
++				source: "customMessage",
++			});
++			await this.agent.prompt(messages);
++			await this.waitForRetry();
+ 		} else {
+ 			this.agent.state.messages.push(appMessage);
+ 			this.sessionManager.appendCustomMessageEntry(
+diff --git a/packages/coding-agent/src/core/extensions/index.ts b/packages/coding-agent/src/core/extensions/index.ts
+index 1fbb8e67..cc285a27 100644
+--- a/packages/coding-agent/src/core/extensions/index.ts
++++ b/packages/coding-agent/src/core/extensions/index.ts
+@@ -33,6 +33,7 @@ export type {
+ 	BashToolResultEvent,
+ 	BeforeAgentStartEvent,
+ 	BeforeAgentStartEventResult,
++	BeforeAgentStartSource,
+ 	BeforeProviderRequestEvent,
+ 	BeforeProviderRequestEventResult,
+ 	// Context
+diff --git a/packages/coding-agent/src/core/extensions/runner.ts b/packages/coding-agent/src/core/extensions/runner.ts
+index 639cd034..8b15b4e8 100644
+--- a/packages/coding-agent/src/core/extensions/runner.ts
++++ b/packages/coding-agent/src/core/extensions/runner.ts
+@@ -13,6 +13,7 @@ import type { SessionManager } from "../session-manager.js";
+ import type {
+ 	BeforeAgentStartEvent,
+ 	BeforeAgentStartEventResult,
++	BeforeAgentStartSource,
+ 	BeforeProviderRequestEvent,
+ 	CompactOptions,
+ 	ContextEvent,
+@@ -783,6 +784,8 @@ export class ExtensionRunner {
+ 		prompt: string,
+ 		images: ImageContent[] | undefined,
+ 		systemPrompt: string,
++		source: BeforeAgentStartSource,
++		triggerMessage: AgentMessage,
+ 	): Promise<BeforeAgentStartCombinedResult | undefined> {
+ 		const ctx = this.createContext();
+ 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
+@@ -800,6 +803,8 @@ export class ExtensionRunner {
+ 						prompt,
+ 						images,
+ 						systemPrompt: currentSystemPrompt,
++						source,
++						triggerMessage,
+ 					};
+ 					const handlerResult = await handler(event, ctx);
+ 
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index 474aae0e..515416c4 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -557,12 +557,16 @@ export interface BeforeProviderRequestEvent {
+ 	payload: unknown;
+ }
+ 
+-/** Fired after user submits prompt but before agent loop. */
++export type BeforeAgentStartSource = "user" | "customMessage";
++
++/** Fired after a turn-triggering message is prepared but before the agent loop starts. */
+ export interface BeforeAgentStartEvent {
+ 	type: "before_agent_start";
+ 	prompt: string;
+ 	images?: ImageContent[];
+ 	systemPrompt: string;
++	source: BeforeAgentStartSource;
++	triggerMessage: AgentMessage;
+ }
+ 
+ /** Fired when an agent loop starts */
+diff --git a/packages/coding-agent/src/core/index.ts b/packages/coding-agent/src/core/index.ts
+index d649535e..b31a130b 100644
+--- a/packages/coding-agent/src/core/index.ts
++++ b/packages/coding-agent/src/core/index.ts
+@@ -27,6 +27,7 @@ export {
+ 	type AgentToolResult,
+ 	type AgentToolUpdateCallback,
+ 	type BeforeAgentStartEvent,
++	type BeforeAgentStartSource,
+ 	type ContextEvent,
+ 	discoverAndLoadExtensions,
+ 	type ExecOptions,
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index c85c7611..a7607eac 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -56,6 +56,7 @@ export type {
+ 	AppKeybinding,
+ 	BashToolCallEvent,
+ 	BeforeAgentStartEvent,
++	BeforeAgentStartSource,
+ 	BeforeProviderRequestEvent,
+ 	BeforeProviderRequestEventResult,
+ 	CompactOptions,
+diff --git a/packages/coding-agent/test/agent-session-custom-message-turn.test.ts b/packages/coding-agent/test/agent-session-custom-message-turn.test.ts
+new file mode 100644
+index 00000000..5a51ffd2
+--- /dev/null
++++ b/packages/coding-agent/test/agent-session-custom-message-turn.test.ts
+@@ -0,0 +1,169 @@
++import { existsSync, mkdirSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { Agent } from "@mariozechner/pi-agent-core";
++import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@mariozechner/pi-ai";
++import { afterEach, beforeEach, describe, expect, it } from "vitest";
++import { AgentSession } from "../src/core/agent-session.js";
++import { AuthStorage } from "../src/core/auth-storage.js";
++import { ModelRegistry } from "../src/core/model-registry.js";
++import { SessionManager } from "../src/core/session-manager.js";
++import { SettingsManager } from "../src/core/settings-manager.js";
++import { createTestResourceLoader } from "./utilities.js";
++
++class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
++	constructor() {
++		super(
++			(event) => event.type === "done" || event.type === "error",
++			(event) => {
++				if (event.type === "done") return event.message;
++				if (event.type === "error") return event.error;
++				throw new Error("Unexpected event type");
++			},
++		);
++	}
++}
++
++function createAssistantMessage(text: string): AssistantMessage {
++	return {
++		role: "assistant",
++		content: [{ type: "text", text }],
++		api: "anthropic-messages",
++		provider: "anthropic",
++		model: "mock",
++		usage: {
++			input: 0,
++			output: 0,
++			cacheRead: 0,
++			cacheWrite: 0,
++			totalTokens: 0,
++			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++		},
++		stopReason: "stop",
++		timestamp: Date.now(),
++	};
++}
++
++describe("AgentSession custom-message turn lifecycle", () => {
++	let session: AgentSession;
++	let tempDir: string;
++
++	beforeEach(() => {
++		tempDir = join(tmpdir(), `pi-custom-turn-test-${Date.now()}`);
++		mkdirSync(tempDir, { recursive: true });
++	});
++
++	afterEach(() => {
++		if (session) {
++			session.dispose();
++		}
++		if (tempDir && existsSync(tempDir)) {
++			rmSync(tempDir, { recursive: true });
++		}
++	});
++
++	it("runs before_agent_start for triggerTurn custom messages and preserves transcript ordering", async () => {
++		const model = getModel("anthropic", "claude-sonnet-4-5")!;
++		const agent = new Agent({
++			getApiKey: () => "test-key",
++			initialState: {
++				model,
++				systemPrompt: "Base prompt",
++				tools: [],
++			},
++			streamFn: async () => {
++				const stream = new MockAssistantStream();
++				queueMicrotask(() => {
++					const message = createAssistantMessage("checkpoint written");
++					stream.push({ type: "start", partial: { ...message, content: [] } });
++					stream.push({ type: "done", reason: "stop", message });
++				});
++				return stream;
++			},
++		});
++
++		const sessionManager = SessionManager.inMemory();
++		const settingsManager = SettingsManager.create(tempDir, tempDir);
++		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
++		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
++		authStorage.setRuntimeApiKey("anthropic", "test-key");
++
++		session = new AgentSession({
++			agent,
++			sessionManager,
++			settingsManager,
++			cwd: tempDir,
++			modelRegistry,
++			resourceLoader: createTestResourceLoader(),
++		});
++
++		const beforeAgentStartCalls: Array<{
++			prompt: string;
++			source: string;
++			triggerRole: string;
++			triggerCustomType?: string;
++		}> = [];
++
++		const sessionWithRunner = session as unknown as {
++			_extensionRunner?: {
++				hasHandlers: (eventType: string) => boolean;
++				emit: (event: { type: string; message?: { role?: string } }) => Promise<void>;
++				emitInput: (
++					text: string,
++					images: unknown,
++					source: "interactive" | "rpc" | "extension",
++				) => Promise<{ action: "continue" }>;
++				emitBeforeAgentStart: (
++					prompt: string,
++					images: unknown,
++					systemPrompt: string,
++					source: "user" | "customMessage",
++					triggerMessage: { role: string; customType?: string },
++				) => Promise<{
++					messages: Array<{ customType: string; content: string; display: boolean }>;
++					systemPrompt: string;
++				}>;
++			};
++		};
++
++		sessionWithRunner._extensionRunner = {
++			hasHandlers: () => false,
++			emit: async () => {},
++			emitInput: async () => ({ action: "continue" }),
++			emitBeforeAgentStart: async (prompt, _images, systemPrompt, source, triggerMessage) => {
++				beforeAgentStartCalls.push({
++					prompt,
++					source,
++					triggerRole: triggerMessage.role,
++					triggerCustomType: triggerMessage.customType,
++				});
++				return {
++					messages: [{ customType: "activity-block-turn", content: "activity block", display: true }],
++					systemPrompt: `${systemPrompt}\n\ncheckpoint mode`,
++				};
++			},
++		};
++
++		await session.sendCustomMessage(
++			{ customType: "pi-self-checkpointing", content: "[autockpt] write checkpoint now", display: true },
++			{ triggerTurn: true, deliverAs: "steer" },
++		);
++		await session.agent.waitForIdle();
++
++		expect(beforeAgentStartCalls).toEqual([
++			{
++				prompt: "[autockpt] write checkpoint now",
++				source: "customMessage",
++				triggerRole: "custom",
++				triggerCustomType: "pi-self-checkpointing",
++			},
++		]);
++
++		const transcript = session.messages.map((message) =>
++			message.role === "custom" ? `custom:${message.customType}` : message.role,
++		);
++		// triggering custom message -> activity block injected by before_agent_start -> assistant response
++		expect(transcript).toEqual(["custom:pi-self-checkpointing", "custom:activity-block-turn", "assistant"]);
++		expect(session.agent.state.systemPrompt).toContain("checkpoint mode");
++	});
++});
+-- 
+2.53.0
+

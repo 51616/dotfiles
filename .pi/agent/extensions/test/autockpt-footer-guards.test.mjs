@@ -128,24 +128,37 @@ test("parseCheckpointFooter extracts path + instructions, tolerates markdown noi
   const parsed5 = parseCheckpointFooter(multi, 8000);
   assert.equal(parsed5?.checkpointPath, "work/log/checkpoints/2026-02-18_0005_new.md");
 
+  // Preserve absolute paths instead of forcing the checkpoint directory shape.
+  const absolute = [
+    "report",
+    `${AUTOCHECKPOINT_DONE_MARKER} path=/remote/home/repo/work/log/checkpoints/2026-02-18_0006_abs.md`,
+  ].join("\n");
+  const parsed6 = parseCheckpointFooter(absolute, 8000);
+  assert.equal(parsed6?.checkpointPath, "/remote/home/repo/work/log/checkpoints/2026-02-18_0006_abs.md");
+
   assert.equal(parseCheckpointFooter("no footer"), null);
 });
 
-test("checkpoint path guards validate pattern + freshness", () => {
+test("checkpoint path guards only reject obviously malformed paths and use existence for freshness", () => {
   const rel = "work/log/checkpoints/2026-02-18_0000_guard.md";
   const abs = path.join(process.cwd(), rel);
+  const txt = path.join(process.cwd(), "work/log/checkpoints/2026-02-18_0000_guard.txt");
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, "ok", "utf8");
+  fs.writeFileSync(txt, "ok", "utf8");
 
   assert.equal(isLikelyCheckpointPath(rel), true);
-  assert.equal(isLikelyCheckpointPath("/tmp/nope.md"), false);
-  assert.equal(isLikelyCheckpointPath("work/log/checkpoints/bad.txt"), false);
+  assert.equal(isLikelyCheckpointPath("/tmp/nope.md"), true);
+  assert.equal(isLikelyCheckpointPath("work/log/checkpoints/bad.txt"), true);
+  assert.equal(isLikelyCheckpointPath("<bad>"), false);
 
   assert.equal(isFreshCheckpointFile(rel, 60_000), true);
+  assert.equal(isFreshCheckpointFile(txt, 60_000), true);
 
   const old = new Date(Date.now() - 3_600_000);
   fs.utimesSync(abs, old, old);
   assert.equal(isFreshCheckpointFile(rel, 60_000), false);
 
   fs.unlinkSync(abs);
+  fs.unlinkSync(txt);
 });

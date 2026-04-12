@@ -1,13 +1,8 @@
 ---
 name: read-git-repo
 description: |
-  Use when:
-  - You want to read from a git repo. 
-  - Tan gives you a Git URL (GitHub/GitLab/etc.) and wants you to inspect, debug, review, or modify the code.
-  - Tan says “read this repo”, “look at this repository”, “clone it and check…”, or similar.
-
-  Don’t use when:
-  - The task is primarily reading a web page or online docs (use `codex-browse`).
+  Use when: You want to read from a git repo. You are provided a Git URL (GitHub/GitLab/etc.) and you want to inspect, debug, review, or modify the code. Tan says “read this repo”, “look at this repository”, “clone it and check…”, or similar.
+  Don’t use when: The task is primarily reading a web page or online docs (use `codex-browse`).
 ---
 
 # read-git-repo

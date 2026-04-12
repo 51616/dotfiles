@@ -1,0 +1,92 @@
+--- a/packages/coding-agent/src/main.ts
++++ b/packages/coding-agent/src/main.ts
+@@ -622,6 +622,7 @@
+ 		scopedModels: sessionOptions.scopedModels,
+ 		tools: sessionOptions.tools,
+ 		customTools: sessionOptions.customTools,
++		extensionFlagValues: new Map(parsed.unknownFlags),
+ 		resourceLoader: {
+ 			additionalExtensionPaths: resolveCliPaths(cwd, parsed.extensions),
+ 			additionalSkillPaths: resolveCliPaths(cwd, parsed.skills),
+--- a/packages/coding-agent/src/core/agent-session-runtime.ts
++++ b/packages/coding-agent/src/core/agent-session-runtime.ts
+@@ -35,6 +35,8 @@
+ 	tools?: Tool[];
+ 	/** Additional custom tools registered directly through the SDK. */
+ 	customTools?: ToolDefinition[];
++	/** Parsed extension CLI flag values that must survive runtime replacement. */
++	extensionFlagValues?: Map<string, boolean | string>;
+ 	/**
+ 	 * Resource loader input used for each created runtime.
+ 	 *
+@@ -97,6 +99,11 @@
+ 	await resourceLoader.reload();
+ 
+ 	const extensionsResult = resourceLoader.getExtensions();
++	if (bootstrap.extensionFlagValues) {
++		for (const [name, value] of bootstrap.extensionFlagValues) {
++			extensionsResult.runtime.flagValues.set(name, value);
++		}
++	}
+ 	for (const { name, config } of extensionsResult.runtime.pendingProviderRegistrations) {
+ 		modelRegistry.registerProvider(name, config);
+ 	}
+--- a/packages/coding-agent/test/agent-session-runtime-events.test.ts
++++ b/packages/coding-agent/test/agent-session-runtime-events.test.ts
+@@ -131,6 +131,56 @@
+ 		expect(events).toEqual([{ type: "session_before_switch", reason: "new", targetSessionFile: undefined }]);
+ 	});
+ 
++	it("preserves extension flag values across runtime bootstrap", async () => {
++		const tempDir = join(tmpdir(), `pi-runtime-flags-${Date.now()}-${Math.random().toString(36).slice(2)}`);
++		mkdirSync(tempDir, { recursive: true });
++
++		const faux = registerFauxProvider();
++		faux.setResponses([fauxAssistantMessage("one")]);
++
++		const authStorage = AuthStorage.inMemory();
++		authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
++
++		let seenFlag: string | undefined;
++		const bootstrap: AgentSessionRuntimeBootstrap = {
++			agentDir: tempDir,
++			authStorage,
++			model: faux.getModel(),
++			extensionFlagValues: new Map([["my-flag", "hello"]]),
++			resourceLoader: {
++				extensionFactories: [
++					(pi) => {
++						pi.registerFlag("my-flag", { description: "test flag", type: "string" });
++						pi.on("session_start", () => {
++							seenFlag = pi.getFlag("my-flag") as string | undefined;
++						});
++					},
++				],
++				noSkills: true,
++				noPromptTemplates: true,
++				noThemes: true,
++			},
++		};
++
++		const runtime = await createAgentSessionRuntime(bootstrap, {
++			cwd: tempDir,
++			sessionManager: SessionManager.create(tempDir),
++		});
++		const runtimeHost = new AgentSessionRuntimeHost(bootstrap, runtime);
++		await runtimeHost.session.bindExtensions({});
++
++		cleanups.push(async () => {
++			await runtimeHost.dispose();
++			faux.unregister();
++			process.chdir(tmpdir());
++			if (existsSync(tempDir)) {
++				rmSync(tempDir, { recursive: true, force: true });
++			}
++		});
++
++		expect(seenFlag).toBe("hello");
++	});
++
+ 	it("emits session_before_fork and session_start and honors cancellation", async () => {
+ 		const events: RecordedSessionEvent[] = [];
+ 		let cancelNextFork = false;

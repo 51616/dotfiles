@@ -194,6 +194,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     clearPending: sessionStore.clearPending,
     sessionIdFor: sessionStore.sessionIdFor,
     getActiveCompactionLock: sessionStore.getActiveCompactionLock,
+    isCheckpointAvailable: (checkpointPath) => checkpointProbe.isFreshCheckpointFile(checkpointPath, 0),
     pushDebug,
     sendUserMessage: (text) => sendFollowUpUserMessage(text),
   });

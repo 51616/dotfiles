@@ -1,0 +1,911 @@
+From b2bbba5968c87421c349e2a8308eaa8f7fe71aad Mon Sep 17 00:00:00 2001
+From: 51616 <rujikorn.ch@gmail.com>
+Date: Thu, 2 Apr 2026 13:21:21 +0900
+Subject: [PATCH] feat(coding-agent): add extension transcript modes
+
+---
+ packages/coding-agent/docs/extensions.md      |  25 ++
+ packages/coding-agent/docs/tui.md             |  20 ++
+ .../examples/extensions/README.md             |   1 +
+ .../extensions/live-transcript-mode.ts        |  27 ++
+ .../coding-agent/src/core/extensions/index.ts |   2 +
+ .../src/core/extensions/runner.ts             |   2 +
+ .../coding-agent/src/core/extensions/types.ts |  24 ++
+ packages/coding-agent/src/index.ts            |   2 +
+ .../components/assistant-message.ts           |  46 ++--
+ .../interactive/components/tool-execution.ts  |   8 +-
+ .../src/modes/interactive/interactive-mode.ts | 154 ++++++++++--
+ .../coding-agent/src/modes/rpc/rpc-mode.ts    |   8 +
+ .../interactive-mode-live-transcript.test.ts  | 233 ++++++++++++++++++
+ .../test/tool-execution-component.test.ts     |  18 ++
+ 14 files changed, 535 insertions(+), 35 deletions(-)
+ create mode 100644 packages/coding-agent/examples/extensions/live-transcript-mode.ts
+ create mode 100644 packages/coding-agent/test/interactive-mode-live-transcript.test.ts
+
+diff --git a/packages/coding-agent/docs/extensions.md b/packages/coding-agent/docs/extensions.md
+index 076208e9..fdd2d365 100644
+--- a/packages/coding-agent/docs/extensions.md
++++ b/packages/coding-agent/docs/extensions.md
+@@ -1951,6 +1951,14 @@ ctx.ui.setStatus("my-ext", undefined);  // Clear
+ ctx.ui.setWorkingMessage("Thinking deeply...");
+ ctx.ui.setWorkingMessage();  // Restore default
+ 
++// Live transcript mode (interactive mode only)
++ctx.ui.setLiveTranscriptMode({ toolRows: "hide", thinking: "hide", working: "hide" });
++ctx.ui.setLiveTranscriptMode();  // Restore default live rendering
++
++// Historical transcript mode (interactive mode only)
++ctx.ui.setHistoricalTranscriptMode({ toolRows: "hide", thinking: "hide" });
++ctx.ui.setHistoricalTranscriptMode();  // Restore default history rendering
++
+ // Widget above editor (default)
+ ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);
+ // Widget below editor
+@@ -1995,6 +2003,23 @@ ctx.ui.setTheme(lightTheme!);  // Or switch by Theme object
+ ctx.ui.theme.fg("accent", "styled text");  // Access current theme
+ ```
+ 
++`setLiveTranscriptMode()` only affects live interactive-mode rendering. Existing session history stays as-is, and suppressed live rows are not backfilled automatically, which makes it a good fit for activity widgets and other in-progress views.
++
++Useful live mode switches:
++- `toolRows: "hide"` suppresses live tool execution rows.
++- `thinking: "collapse"` keeps live thinking as the hidden-thinking label.
++- `thinking: "hide"` removes the live thinking placeholder entirely.
++- `working: "hide"` suppresses the separate live working spinner row.
++
++`setHistoricalTranscriptMode()` applies the same idea to replayed interactive transcript history. Hidden historical rows stay in session storage and may still appear in non-interactive views, but `/resume` and `pi --session <id>` can render a compact extension-owned view instead of replaying default tool rows and thinking blocks.
++
++Useful historical mode switches:
++- `toolRows: "hide"` suppresses replayed tool execution rows reconstructed from assistant tool calls.
++- `thinking: "collapse"` keeps replayed thinking as the hidden-thinking label.
++- `thinking: "hide"` removes the replayed thinking placeholder entirely.
++
++See [examples/extensions/live-transcript-mode.ts](../examples/extensions/live-transcript-mode.ts) for a minimal usage example.
++
+ ### Custom Components
+ 
+ For complex UI, use `ctx.ui.custom()`. This temporarily replaces the editor with your component until `done()` is called:
+diff --git a/packages/coding-agent/docs/tui.md b/packages/coding-agent/docs/tui.md
+index ccd0dd7c..81113bb5 100644
+--- a/packages/coding-agent/docs/tui.md
++++ b/packages/coding-agent/docs/tui.md
+@@ -765,6 +765,26 @@ ctx.ui.setWidget("my-widget", undefined);
+ 
+ **Examples:** [plan-mode.ts](../examples/extensions/plan-mode.ts)
+ 
++### Pattern 5b: Transcript modes
++
++When an extension provides its own activity surface, you can suppress default transcript clutter in interactive mode both while a run is active and when a stored session is replayed:
++
++```typescript
++ctx.ui.setLiveTranscriptMode({ toolRows: "hide", thinking: "hide", working: "hide" });
++ctx.ui.setHistoricalTranscriptMode({ toolRows: "hide", thinking: "hide" });
++
++ctx.ui.setLiveTranscriptMode(); // Restore live defaults
++ctx.ui.setHistoricalTranscriptMode(); // Restore historical defaults
++```
++
++Use `thinking: "collapse"` if you still want the hidden-thinking label. Use `thinking: "hide"` if the extension will surface that state itself.
++
++`setLiveTranscriptMode()` only affects the active run. Suppressed live rows are not backfilled automatically.
++
++`setHistoricalTranscriptMode()` only affects replayed transcript rendering in interactive mode. Historical rows stay in session storage, so they can still appear in non-interactive outputs or future tooling that reads raw session history.
++
++**Examples:** [live-transcript-mode.ts](../examples/extensions/live-transcript-mode.ts)
++
+ ### Pattern 6: Custom Footer
+ 
+ Replace the footer. `footerData` exposes data not otherwise accessible to extensions.
+diff --git a/packages/coding-agent/examples/extensions/README.md b/packages/coding-agent/examples/extensions/README.md
+index e05ed521..9369f8fb 100644
+--- a/packages/coding-agent/examples/extensions/README.md
++++ b/packages/coding-agent/examples/extensions/README.md
+@@ -53,6 +53,7 @@ cp permission-gate.ts ~/.pi/agent/extensions/
+ | `status-line.ts` | Shows turn progress in footer via `ctx.ui.setStatus()` with themed colors |
+ | `widget-placement.ts` | Shows widgets above and below the editor via `ctx.ui.setWidget()` placement |
+ | `hidden-thinking-label.ts` | Customizes the collapsed thinking label via `ctx.ui.setHiddenThinkingLabel()` |
++| `live-transcript-mode.ts` | Suppresses replayed tool/thinking history plus live tool rows, the separate working spinner row, and live thinking via transcript mode APIs |
+ | `model-status.ts` | Shows model changes in status bar via `model_select` hook |
+ | `snake.ts` | Snake game with custom UI, keyboard handling, and session persistence |
+ | `send-user-message.ts` | Demonstrates `pi.sendUserMessage()` for sending user messages from extensions |
+diff --git a/packages/coding-agent/examples/extensions/live-transcript-mode.ts b/packages/coding-agent/examples/extensions/live-transcript-mode.ts
+new file mode 100644
+index 00000000..d9790c21
+--- /dev/null
++++ b/packages/coding-agent/examples/extensions/live-transcript-mode.ts
+@@ -0,0 +1,27 @@
++/**
++ * Transcript Mode Extension
++ *
++ * Demonstrates the split transcript controls for compact activity surfaces.
++ * Historical replay hides default tool rows and thinking blocks on `/resume` and
++ * `pi --session <id>`, while live rendering hides inline tool rows, the separate
++ * working spinner row, and live thinking during the active run.
++ */
++
++import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
++
++export default function liveTranscriptModeExtension(pi: ExtensionAPI) {
++	pi.on("session_start", async (_event, ctx) => {
++		if (!ctx.hasUI) return;
++		ctx.ui.setHistoricalTranscriptMode({ toolRows: "hide", thinking: "hide" });
++	});
++
++	pi.on("agent_start", async (_event, ctx) => {
++		if (!ctx.hasUI) return;
++		ctx.ui.setLiveTranscriptMode({ toolRows: "hide", thinking: "hide", working: "hide" });
++	});
++
++	pi.on("agent_end", async (_event, ctx) => {
++		if (!ctx.hasUI) return;
++		ctx.ui.setLiveTranscriptMode();
++	});
++}
+diff --git a/packages/coding-agent/src/core/extensions/index.ts b/packages/coding-agent/src/core/extensions/index.ts
+index 7853cd4a..1fbb8e67 100644
+--- a/packages/coding-agent/src/core/extensions/index.ts
++++ b/packages/coding-agent/src/core/extensions/index.ts
+@@ -62,6 +62,8 @@ export type {
+ 	ExtensionFactory,
+ 	ExtensionFlag,
+ 	ExtensionHandler,
++	ExtensionHistoricalTranscriptMode,
++	ExtensionLiveTranscriptMode,
+ 	// Runtime
+ 	ExtensionRuntime,
+ 	ExtensionShortcut,
+diff --git a/packages/coding-agent/src/core/extensions/runner.ts b/packages/coding-agent/src/core/extensions/runner.ts
+index f2257faa..639cd034 100644
+--- a/packages/coding-agent/src/core/extensions/runner.ts
++++ b/packages/coding-agent/src/core/extensions/runner.ts
+@@ -179,6 +179,8 @@ const noOpUIContext: ExtensionUIContext = {
+ 	setStatus: () => {},
+ 	setWorkingMessage: () => {},
+ 	setHiddenThinkingLabel: () => {},
++	setLiveTranscriptMode: () => {},
++	setHistoricalTranscriptMode: () => {},
+ 	setWidget: () => {},
+ 	setFooter: () => {},
+ 	setHeader: () => {},
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index bf05f991..474aae0e 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -98,6 +98,24 @@ export interface ExtensionWidgetOptions {
+ 	placement?: WidgetPlacement;
+ }
+ 
++/** Controls how interactive mode renders live, in-progress transcript elements. */
++export interface ExtensionLiveTranscriptMode {
++	/** Show or suppress per-tool execution rows while a run is still active. */
++	toolRows?: "show" | "hide";
++	/** Show, collapse to a label, or fully hide assistant thinking blocks while a run is still active. */
++	thinking?: "show" | "collapse" | "hide";
++	/** Show or suppress the separate live working spinner row while a run is still active. */
++	working?: "show" | "hide";
++}
++
++/** Controls how interactive mode renders replayed session transcript elements from history. */
++export interface ExtensionHistoricalTranscriptMode {
++	/** Show or suppress historical per-tool execution rows reconstructed from prior assistant tool calls. */
++	toolRows?: "show" | "hide";
++	/** Show, collapse to a label, or fully hide assistant thinking blocks when replaying transcript history. */
++	thinking?: "show" | "collapse" | "hide";
++}
++
+ /** Raw terminal input listener for extensions. */
+ export type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
+ 
+@@ -130,6 +148,12 @@ export interface ExtensionUIContext {
+ 	/** Set the label shown for hidden thinking blocks. Call with no argument to restore default. */
+ 	setHiddenThinkingLabel(label?: string): void;
+ 
++	/** Control how live in-progress transcript rows are rendered in interactive mode. Call with no argument to restore defaults for future live rendering. Suppressed rows are not backfilled automatically. */
++	setLiveTranscriptMode(mode?: ExtensionLiveTranscriptMode): void;
++
++	/** Control how replayed transcript history is rendered in interactive mode. Call with no argument to restore default history rendering. Hidden historical rows remain stored in the session and may still appear in non-interactive views. */
++	setHistoricalTranscriptMode(mode?: ExtensionHistoricalTranscriptMode): void;
++
+ 	/** Set a widget to display above or below the editor. Accepts string array or component factory. */
+ 	setWidget(key: string, content: string[] | undefined, options?: ExtensionWidgetOptions): void;
+ 	setWidget(
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index c8e3b666..c85c7611 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -77,6 +77,8 @@ export type {
+ 	ExtensionFactory,
+ 	ExtensionFlag,
+ 	ExtensionHandler,
++	ExtensionHistoricalTranscriptMode,
++	ExtensionLiveTranscriptMode,
+ 	ExtensionRuntime,
+ 	ExtensionShortcut,
+ 	ExtensionUIContext,
+diff --git a/packages/coding-agent/src/modes/interactive/components/assistant-message.ts b/packages/coding-agent/src/modes/interactive/components/assistant-message.ts
+index 6d6893a9..706c2860 100644
+--- a/packages/coding-agent/src/modes/interactive/components/assistant-message.ts
++++ b/packages/coding-agent/src/modes/interactive/components/assistant-message.ts
+@@ -10,6 +10,7 @@ export class AssistantMessageComponent extends Container {
+ 	private hideThinkingBlock: boolean;
+ 	private markdownTheme: MarkdownTheme;
+ 	private hiddenThinkingLabel: string;
++	private suppressHiddenThinkingLabel: boolean;
+ 	private lastMessage?: AssistantMessage;
+ 
+ 	constructor(
+@@ -17,12 +18,14 @@ export class AssistantMessageComponent extends Container {
+ 		hideThinkingBlock = false,
+ 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
+ 		hiddenThinkingLabel = "Thinking...",
++		suppressHiddenThinkingLabel = false,
+ 	) {
+ 		super();
+ 
+ 		this.hideThinkingBlock = hideThinkingBlock;
+ 		this.markdownTheme = markdownTheme;
+ 		this.hiddenThinkingLabel = hiddenThinkingLabel;
++		this.suppressHiddenThinkingLabel = suppressHiddenThinkingLabel;
+ 
+ 		// Container for text/thinking content
+ 		this.contentContainer = new Container();
+@@ -54,15 +57,24 @@ export class AssistantMessageComponent extends Container {
+ 		}
+ 	}
+ 
++	setSuppressHiddenThinkingLabel(suppress: boolean): void {
++		this.suppressHiddenThinkingLabel = suppress;
++		if (this.lastMessage) {
++			this.updateContent(this.lastMessage);
++		}
++	}
++
+ 	updateContent(message: AssistantMessage): void {
+ 		this.lastMessage = message;
+ 
+ 		// Clear content container
+ 		this.contentContainer.clear();
+ 
+-		const hasVisibleContent = message.content.some(
+-			(c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
+-		);
++		const hasVisibleContent = message.content.some((c) => {
++			if (c.type === "text") return Boolean(c.text.trim());
++			if (c.type === "thinking") return this.shouldRenderThinkingContent(c.thinking);
++			return false;
++		});
+ 
+ 		if (hasVisibleContent) {
+ 			this.contentContainer.addChild(new Spacer(1));
+@@ -76,19 +88,20 @@ export class AssistantMessageComponent extends Container {
+ 				// Set paddingY=0 to avoid extra spacing before tool executions
+ 				this.contentContainer.addChild(new Markdown(content.text.trim(), 1, 0, this.markdownTheme));
+ 			} else if (content.type === "thinking" && content.thinking.trim()) {
+-				// Add spacing only when another visible assistant content block follows.
+-				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
+-				const hasVisibleContentAfter = message.content
+-					.slice(i + 1)
+-					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
++				const hasVisibleContentAfter = message.content.slice(i + 1).some((nextContent) => {
++					if (nextContent.type === "text") return Boolean(nextContent.text.trim());
++					if (nextContent.type === "thinking") return this.shouldRenderThinkingContent(nextContent.thinking);
++					return false;
++				});
+ 
+ 				if (this.hideThinkingBlock) {
+-					// Show static thinking label when hidden
+-					this.contentContainer.addChild(
+-						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 1, 0),
+-					);
+-					if (hasVisibleContentAfter) {
+-						this.contentContainer.addChild(new Spacer(1));
++					if (!this.suppressHiddenThinkingLabel) {
++						this.contentContainer.addChild(
++							new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 1, 0),
++						);
++						if (hasVisibleContentAfter) {
++							this.contentContainer.addChild(new Spacer(1));
++						}
+ 					}
+ 				} else {
+ 					// Thinking traces in thinkingText color, italic
+@@ -127,4 +140,9 @@ export class AssistantMessageComponent extends Container {
+ 			}
+ 		}
+ 	}
++
++	private shouldRenderThinkingContent(thinking: string): boolean {
++		if (!thinking.trim()) return false;
++		return !this.hideThinkingBlock || !this.suppressHiddenThinkingLabel;
++	}
+ }
+diff --git a/packages/coding-agent/src/modes/interactive/components/tool-execution.ts b/packages/coding-agent/src/modes/interactive/components/tool-execution.ts
+index 0e87287e..2f443658 100644
+--- a/packages/coding-agent/src/modes/interactive/components/tool-execution.ts
++++ b/packages/coding-agent/src/modes/interactive/components/tool-execution.ts
+@@ -36,6 +36,7 @@ export class ToolExecutionComponent extends Container {
+ 	};
+ 	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
+ 	private hideComponent = false;
++	private forceHidden = false;
+ 
+ 	constructor(
+ 		toolName: string,
+@@ -187,6 +188,11 @@ export class ToolExecutionComponent extends Container {
+ 		this.updateDisplay();
+ 	}
+ 
++	setHidden(hidden: boolean): void {
++		this.forceHidden = hidden;
++		this.ui.requestRender();
++	}
++
+ 	setShowImages(show: boolean): void {
+ 		this.showImages = show;
+ 		this.updateDisplay();
+@@ -198,7 +204,7 @@ export class ToolExecutionComponent extends Container {
+ 	}
+ 
+ 	override render(width: number): string[] {
+-		if (this.hideComponent) {
++		if (this.forceHidden || this.hideComponent) {
+ 			return [];
+ 		}
+ 		return super.render(width);
+diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+index 014e85be..8401b595 100644
+--- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+@@ -50,6 +50,8 @@ import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../.
+ import type { AgentSessionRuntimeHost } from "../../core/agent-session-runtime.js";
+ import type {
+ 	ExtensionContext,
++	ExtensionHistoricalTranscriptMode,
++	ExtensionLiveTranscriptMode,
+ 	ExtensionRunner,
+ 	ExtensionUIContext,
+ 	ExtensionUIDialogOptions,
+@@ -166,7 +168,20 @@ export class InteractiveMode {
+ 	private pendingWorkingMessage: string | undefined = undefined;
+ 	private readonly defaultWorkingMessage = "Working...";
+ 	private readonly defaultHiddenThinkingLabel = "Thinking...";
++	private readonly defaultLiveTranscriptMode: Required<ExtensionLiveTranscriptMode> = {
++		toolRows: "show",
++		thinking: "show",
++		working: "show",
++	};
++	private readonly defaultHistoricalTranscriptMode: Required<ExtensionHistoricalTranscriptMode> = {
++		toolRows: "show",
++		thinking: "show",
++	};
+ 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
++	private liveTranscriptMode: Required<ExtensionLiveTranscriptMode> = { ...this.defaultLiveTranscriptMode };
++	private historicalTranscriptMode: Required<ExtensionHistoricalTranscriptMode> = {
++		...this.defaultHistoricalTranscriptMode,
++	};
+ 
+ 	private lastSigintTime = 0;
+ 	private lastEscapeTime = 0;
+@@ -1366,6 +1381,90 @@ export class InteractiveMode {
+ 		this.ui.requestRender();
+ 	}
+ 
++	private shouldHideLiveToolRows(): boolean {
++		return this.liveTranscriptMode.toolRows === "hide";
++	}
++
++	private shouldCollapseLiveThinking(): boolean {
++		return this.liveTranscriptMode.thinking === "collapse" || this.liveTranscriptMode.thinking === "hide";
++	}
++
++	private shouldHideLiveThinkingPlaceholder(): boolean {
++		return this.liveTranscriptMode.thinking === "hide";
++	}
++
++	private shouldHideWorkingIndicator(): boolean {
++		return this.liveTranscriptMode.working === "hide";
++	}
++
++	private shouldHideHistoricalToolRows(): boolean {
++		return this.historicalTranscriptMode.toolRows === "hide";
++	}
++
++	private shouldCollapseHistoricalThinking(): boolean {
++		return this.historicalTranscriptMode.thinking === "collapse" || this.historicalTranscriptMode.thinking === "hide";
++	}
++
++	private shouldHideHistoricalThinkingPlaceholder(): boolean {
++		return this.historicalTranscriptMode.thinking === "hide";
++	}
++
++	private getStreamingThinkingHidden(): boolean {
++		return this.hideThinkingBlock || this.shouldCollapseLiveThinking();
++	}
++
++	private getHistoricalThinkingHidden(): boolean {
++		return this.hideThinkingBlock || this.shouldCollapseHistoricalThinking();
++	}
++
++	private syncLoadingAnimationForLiveTranscriptMode(): void {
++		if (this.shouldHideWorkingIndicator()) {
++			if (this.loadingAnimation) {
++				this.loadingAnimation.stop();
++				this.loadingAnimation = undefined;
++			}
++			this.statusContainer.clear();
++			return;
++		}
++		if (!this.loadingAnimation && (this.streamingComponent || this.pendingTools.size > 0)) {
++			this.loadingAnimation = new Loader(
++				this.ui,
++				(spinner) => theme.fg("accent", spinner),
++				(text) => theme.fg("muted", text),
++				this.defaultWorkingMessage,
++			);
++			this.statusContainer.addChild(this.loadingAnimation);
++			if (this.pendingWorkingMessage !== undefined) {
++				if (this.pendingWorkingMessage) {
++					this.loadingAnimation.setMessage(this.pendingWorkingMessage);
++				}
++				this.pendingWorkingMessage = undefined;
++			}
++		}
++	}
++
++	private setLiveTranscriptMode(mode?: ExtensionLiveTranscriptMode): void {
++		this.liveTranscriptMode = { ...this.defaultLiveTranscriptMode, ...mode };
++		if (this.streamingComponent) {
++			this.streamingComponent.setHideThinkingBlock(this.getStreamingThinkingHidden());
++			this.streamingComponent.setSuppressHiddenThinkingLabel(this.shouldHideLiveThinkingPlaceholder());
++		}
++		for (const component of this.pendingTools.values()) {
++			component.setHidden(this.shouldHideLiveToolRows());
++		}
++		this.syncLoadingAnimationForLiveTranscriptMode();
++		this.ui.requestRender();
++	}
++
++	private setHistoricalTranscriptMode(mode?: ExtensionHistoricalTranscriptMode): void {
++		this.historicalTranscriptMode = { ...this.defaultHistoricalTranscriptMode, ...mode };
++		if (!this.streamingComponent && this.pendingTools.size === 0) {
++			this.rebuildChatFromMessages();
++			return;
++		}
++		this.ui.requestRender();
++	}
++
+ 	/**
+ 	 * Set an extension widget (string array or custom component).
+ 	 */
+@@ -1600,6 +1699,8 @@ export class InteractiveMode {
+ 				}
+ 			},
+ 			setHiddenThinkingLabel: (label) => this.setHiddenThinkingLabel(label),
++			setLiveTranscriptMode: (mode) => this.setLiveTranscriptMode(mode),
++			setHistoricalTranscriptMode: (mode) => this.setHistoricalTranscriptMode(mode),
+ 			setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
+ 			setFooter: (factory) => this.setExtensionFooter(factory),
+ 			setHeader: (factory) => this.setExtensionHeader(factory),
+@@ -2270,19 +2371,21 @@ export class InteractiveMode {
+ 					this.loadingAnimation.stop();
+ 				}
+ 				this.statusContainer.clear();
+-				this.loadingAnimation = new Loader(
+-					this.ui,
+-					(spinner) => theme.fg("accent", spinner),
+-					(text) => theme.fg("muted", text),
+-					this.defaultWorkingMessage,
+-				);
+-				this.statusContainer.addChild(this.loadingAnimation);
+-				// Apply any pending working message queued before loader existed
+-				if (this.pendingWorkingMessage !== undefined) {
+-					if (this.pendingWorkingMessage) {
+-						this.loadingAnimation.setMessage(this.pendingWorkingMessage);
++				if (!this.shouldHideWorkingIndicator()) {
++					this.loadingAnimation = new Loader(
++						this.ui,
++						(spinner) => theme.fg("accent", spinner),
++						(text) => theme.fg("muted", text),
++						this.defaultWorkingMessage,
++					);
++					this.statusContainer.addChild(this.loadingAnimation);
++					// Apply any pending working message queued before loader existed
++					if (this.pendingWorkingMessage !== undefined) {
++						if (this.pendingWorkingMessage) {
++							this.loadingAnimation.setMessage(this.pendingWorkingMessage);
++						}
++						this.pendingWorkingMessage = undefined;
+ 					}
+-					this.pendingWorkingMessage = undefined;
+ 				}
+ 				this.ui.requestRender();
+ 				break;
+@@ -2303,9 +2406,10 @@ export class InteractiveMode {
+ 				} else if (event.message.role === "assistant") {
+ 					this.streamingComponent = new AssistantMessageComponent(
+ 						undefined,
+-						this.hideThinkingBlock,
++						this.getStreamingThinkingHidden(),
+ 						this.getMarkdownThemeWithSettings(),
+ 						this.hiddenThinkingLabel,
++						this.shouldHideLiveThinkingPlaceholder(),
+ 					);
+ 					this.streamingMessage = event.message;
+ 					this.chatContainer.addChild(this.streamingComponent);
+@@ -2321,7 +2425,7 @@ export class InteractiveMode {
+ 
+ 					for (const content of this.streamingMessage.content) {
+ 						if (content.type === "toolCall") {
+-							if (!this.pendingTools.has(content.id)) {
++							if (!this.pendingTools.has(content.id) && !this.shouldHideLiveToolRows()) {
+ 								const component = new ToolExecutionComponent(
+ 									content.name,
+ 									content.id,
+@@ -2334,6 +2438,7 @@ export class InteractiveMode {
+ 									this.sessionManager.getCwd(),
+ 								);
+ 								component.setExpanded(this.toolOutputExpanded);
++								component.setHidden(this.shouldHideLiveToolRows());
+ 								this.chatContainer.addChild(component);
+ 								this.pendingTools.set(content.id, component);
+ 							} else {
+@@ -2389,7 +2494,7 @@ export class InteractiveMode {
+ 
+ 			case "tool_execution_start": {
+ 				let component = this.pendingTools.get(event.toolCallId);
+-				if (!component) {
++				if (!component && !this.shouldHideLiveToolRows()) {
+ 					component = new ToolExecutionComponent(
+ 						event.toolName,
+ 						event.toolCallId,
+@@ -2402,10 +2507,11 @@ export class InteractiveMode {
+ 						this.sessionManager.getCwd(),
+ 					);
+ 					component.setExpanded(this.toolOutputExpanded);
++					component.setHidden(this.shouldHideLiveToolRows());
+ 					this.chatContainer.addChild(component);
+ 					this.pendingTools.set(event.toolCallId, component);
+ 				}
+-				component.markExecutionStarted();
++				component?.markExecutionStarted();
+ 				this.ui.requestRender();
+ 				break;
+ 			}
+@@ -2588,7 +2694,10 @@ export class InteractiveMode {
+ 		this.ui.requestRender();
+ 	}
+ 
+-	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
++	private addMessageToChat(
++		message: AgentMessage,
++		options?: { populateHistory?: boolean; historicalTranscript?: boolean },
++	): void {
+ 		switch (message.role) {
+ 			case "bashExecution": {
+ 				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
+@@ -2659,11 +2768,13 @@ export class InteractiveMode {
+ 				break;
+ 			}
+ 			case "assistant": {
++				const historicalTranscript = options?.historicalTranscript ?? false;
+ 				const assistantComponent = new AssistantMessageComponent(
+ 					message,
+-					this.hideThinkingBlock,
++					historicalTranscript ? this.getHistoricalThinkingHidden() : this.hideThinkingBlock,
+ 					this.getMarkdownThemeWithSettings(),
+ 					this.hiddenThinkingLabel,
++					historicalTranscript ? this.shouldHideHistoricalThinkingPlaceholder() : false,
+ 				);
+ 				this.chatContainer.addChild(assistantComponent);
+ 				break;
+@@ -2698,10 +2809,10 @@ export class InteractiveMode {
+ 		for (const message of sessionContext.messages) {
+ 			// Assistant messages need special handling for tool calls
+ 			if (message.role === "assistant") {
+-				this.addMessageToChat(message);
++				this.addMessageToChat(message, { historicalTranscript: true });
+ 				// Render tool call components
+ 				for (const content of message.content) {
+-					if (content.type === "toolCall") {
++					if (content.type === "toolCall" && !this.shouldHideHistoricalToolRows()) {
+ 						const component = new ToolExecutionComponent(
+ 							content.name,
+ 							content.id,
+@@ -3371,6 +3482,9 @@ export class InteractiveMode {
+ 								child.setHideThinkingBlock(hidden);
+ 							}
+ 						}
++						if (this.streamingComponent) {
++							this.streamingComponent.setHideThinkingBlock(this.getStreamingThinkingHidden());
++						}
+ 						this.chatContainer.clear();
+ 						this.rebuildChatFromMessages();
+ 					},
+diff --git a/packages/coding-agent/src/modes/rpc/rpc-mode.ts b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+index e00aa64d..e1d0709a 100644
+--- a/packages/coding-agent/src/modes/rpc/rpc-mode.ts
++++ b/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+@@ -173,6 +173,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntimeHost): Promise<
+ 			// Hidden thinking label not supported in RPC mode - requires TUI message rendering access
+ 		},
+ 
++		setLiveTranscriptMode(): void {
++			// Live transcript mode is interactive-mode only
++		},
++
++		setHistoricalTranscriptMode(): void {
++			// Historical transcript mode is interactive-mode only
++		},
++
+ 		setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {
+ 			// Only support string arrays in RPC mode - factory functions are ignored
+ 			if (content === undefined || Array.isArray(content)) {
+diff --git a/packages/coding-agent/test/interactive-mode-live-transcript.test.ts b/packages/coding-agent/test/interactive-mode-live-transcript.test.ts
+new file mode 100644
+index 00000000..2aa0c584
+--- /dev/null
++++ b/packages/coding-agent/test/interactive-mode-live-transcript.test.ts
+@@ -0,0 +1,233 @@
++import { Container } from "@mariozechner/pi-tui";
++import stripAnsi from "strip-ansi";
++import { beforeAll, describe, expect, test, vi } from "vitest";
++import { InteractiveMode } from "../src/modes/interactive/interactive-mode.js";
++import { initTheme } from "../src/modes/interactive/theme/theme.js";
++
++function assistantMessage(content: Array<Record<string, unknown>>) {
++	return {
++		role: "assistant",
++		content,
++		stopReason: "stop",
++		usage: {
++			input: 0,
++			output: 0,
++			cacheRead: 0,
++			cacheWrite: 0,
++			totalTokens: 0,
++			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++		},
++		api: "anthropic-messages",
++		provider: "faux",
++		model: "faux-model",
++		timestamp: Date.now(),
++	};
++}
++
++describe("InteractiveMode live transcript mode", () => {
++	beforeAll(() => {
++		initTheme("dark");
++	});
++
++	test("extension UI context updates live transcript mode and refreshes active components", () => {
++		const streamingComponent = {
++			setHideThinkingBlock: vi.fn(),
++			setSuppressHiddenThinkingLabel: vi.fn(),
++		};
++		const toolComponent = { setHidden: vi.fn() };
++		const loadingAnimation = { stop: vi.fn() };
++		const statusContainer = { clear: vi.fn(), addChild: vi.fn() };
++		const fakeThis: any = {
++			defaultLiveTranscriptMode: { toolRows: "show", thinking: "show", working: "show" },
++			liveTranscriptMode: { toolRows: "show", thinking: "show", working: "show" },
++			streamingComponent,
++			pendingTools: new Map([["tool-1", toolComponent]]),
++			loadingAnimation,
++			statusContainer,
++			hideThinkingBlock: false,
++			shouldHideLiveToolRows: (InteractiveMode as any).prototype.shouldHideLiveToolRows,
++			shouldCollapseLiveThinking: (InteractiveMode as any).prototype.shouldCollapseLiveThinking,
++			shouldHideLiveThinkingPlaceholder: (InteractiveMode as any).prototype.shouldHideLiveThinkingPlaceholder,
++			shouldHideWorkingIndicator: (InteractiveMode as any).prototype.shouldHideWorkingIndicator,
++			getStreamingThinkingHidden: (InteractiveMode as any).prototype.getStreamingThinkingHidden,
++			syncLoadingAnimationForLiveTranscriptMode: (InteractiveMode as any).prototype
++				.syncLoadingAnimationForLiveTranscriptMode,
++			setLiveTranscriptMode: (InteractiveMode as any).prototype.setLiveTranscriptMode,
++			ui: { requestRender: vi.fn() },
++		};
++
++		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
++		uiContext.setLiveTranscriptMode({ toolRows: "hide", thinking: "hide", working: "hide" });
++
++		expect(fakeThis.liveTranscriptMode).toEqual({ toolRows: "hide", thinking: "hide", working: "hide" });
++		expect(streamingComponent.setHideThinkingBlock).toHaveBeenCalledWith(true);
++		expect(streamingComponent.setSuppressHiddenThinkingLabel).toHaveBeenCalledWith(true);
++		expect(toolComponent.setHidden).toHaveBeenCalledWith(true);
++		expect(loadingAnimation.stop).toHaveBeenCalledTimes(1);
++		expect(statusContainer.clear).toHaveBeenCalledTimes(1);
++		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
++	});
++
++	test("extension UI context updates historical transcript mode and rebuilds replayed chat", () => {
++		const fakeThis: any = {
++			defaultHistoricalTranscriptMode: { toolRows: "show", thinking: "show" },
++			historicalTranscriptMode: { toolRows: "show", thinking: "show" },
++			streamingComponent: undefined,
++			pendingTools: new Map(),
++			rebuildChatFromMessages: vi.fn(),
++			setHistoricalTranscriptMode: (InteractiveMode as any).prototype.setHistoricalTranscriptMode,
++			ui: { requestRender: vi.fn() },
++		};
++
++		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
++		uiContext.setHistoricalTranscriptMode({ toolRows: "hide", thinking: "hide" });
++
++		expect(fakeThis.historicalTranscriptMode).toEqual({ toolRows: "hide", thinking: "hide" });
++		expect(fakeThis.rebuildChatFromMessages).toHaveBeenCalledTimes(1);
++		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
++	});
++
++	test("message_start can fully hide live thinking when transcript mode requests it", async () => {
++		const fakeThis: any = {
++			isInitialized: true,
++			chatContainer: new Container(),
++			ui: { requestRender: vi.fn() },
++			footer: { invalidate: vi.fn() },
++			liveTranscriptMode: { toolRows: "show", thinking: "hide", working: "show" },
++			hideThinkingBlock: false,
++			hiddenThinkingLabel: "Thinking in activity block…",
++			shouldCollapseLiveThinking: (InteractiveMode as any).prototype.shouldCollapseLiveThinking,
++			shouldHideLiveThinkingPlaceholder: (InteractiveMode as any).prototype.shouldHideLiveThinkingPlaceholder,
++			getStreamingThinkingHidden: (InteractiveMode as any).prototype.getStreamingThinkingHidden,
++			getMarkdownThemeWithSettings: () => undefined,
++		};
++
++		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
++			type: "message_start",
++			message: assistantMessage([]),
++		});
++		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
++			type: "message_update",
++			message: assistantMessage([{ type: "thinking", thinking: "this would normally be verbose" }]),
++			assistantMessageEvent: { type: "thinking_delta", delta: "verbose", contentIndex: 0, partial: {} },
++		});
++
++		const rendered = stripAnsi(fakeThis.streamingComponent.render(80).join("\n"));
++		expect(rendered).not.toContain("Thinking in activity block…");
++		expect(rendered).not.toContain("this would normally be verbose");
++	});
++
++	test("tool execution rows are suppressed when live transcript mode hides tool rows", async () => {
++		const fakeThis: any = {
++			isInitialized: true,
++			chatContainer: new Container(),
++			ui: { requestRender: vi.fn() },
++			footer: { invalidate: vi.fn() },
++			streamingComponent: { updateContent: vi.fn() },
++			streamingMessage: undefined,
++			pendingTools: new Map(),
++			liveTranscriptMode: { toolRows: "hide", thinking: "show", working: "show" },
++			shouldHideLiveToolRows: (InteractiveMode as any).prototype.shouldHideLiveToolRows,
++			settingsManager: { getShowImages: () => false },
++			getRegisteredToolDefinition: () => undefined,
++			sessionManager: { getCwd: () => process.cwd() },
++		};
++
++		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
++			type: "message_update",
++			message: assistantMessage([
++				{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "README.md" } },
++			]),
++			assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: {}, partial: {} },
++		});
++		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
++			type: "tool_execution_start",
++			toolCallId: "tool-1",
++			toolName: "read",
++			args: { path: "README.md" },
++		});
++
++		expect(fakeThis.pendingTools.size).toBe(0);
++		expect(fakeThis.chatContainer.children).toHaveLength(0);
++	});
++
++	test("historical transcript mode suppresses replayed tool rows", () => {
++		const fakeThis: any = {
++			chatContainer: new Container(),
++			pendingTools: new Map(),
++			ui: { requestRender: vi.fn() },
++			settingsManager: { getShowImages: () => false },
++			sessionManager: { getCwd: () => process.cwd() },
++			session: { retryAttempt: 0 },
++			toolOutputExpanded: false,
++			historicalTranscriptMode: { toolRows: "hide", thinking: "show" },
++			shouldHideHistoricalToolRows: (InteractiveMode as any).prototype.shouldHideHistoricalToolRows,
++			addMessageToChat: vi.fn(),
++			getRegisteredToolDefinition: () => undefined,
++		};
++
++		(InteractiveMode as any).prototype.renderSessionContext.call(fakeThis, {
++			messages: [
++				assistantMessage([{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "README.md" } }]),
++			],
++		});
++
++		expect(fakeThis.addMessageToChat).toHaveBeenCalledWith(expect.objectContaining({ role: "assistant" }), {
++			historicalTranscript: true,
++		});
++		expect(fakeThis.chatContainer.children).toHaveLength(0);
++		expect(fakeThis.pendingTools.size).toBe(0);
++	});
++
++	test("historical transcript mode can fully hide replayed thinking blocks", () => {
++		const fakeThis: any = {
++			chatContainer: new Container(),
++			hideThinkingBlock: false,
++			hiddenThinkingLabel: "Thinking in activity block…",
++			historicalTranscriptMode: { toolRows: "show", thinking: "hide" },
++			shouldCollapseHistoricalThinking: (InteractiveMode as any).prototype.shouldCollapseHistoricalThinking,
++			shouldHideHistoricalThinkingPlaceholder: (InteractiveMode as any).prototype
++				.shouldHideHistoricalThinkingPlaceholder,
++			getHistoricalThinkingHidden: (InteractiveMode as any).prototype.getHistoricalThinkingHidden,
++			getMarkdownThemeWithSettings: () => undefined,
++		};
++
++		(InteractiveMode as any).prototype.addMessageToChat.call(
++			fakeThis,
++			assistantMessage([{ type: "thinking", thinking: "this would normally replay" }]),
++			{ historicalTranscript: true },
++		);
++
++		const rendered = stripAnsi(fakeThis.chatContainer.children[0].render(80).join("\n"));
++		expect(rendered).not.toContain("Thinking in activity block…");
++		expect(rendered).not.toContain("this would normally replay");
++	});
++
++	test("tool execution rows still render when live transcript mode uses defaults", async () => {
++		const fakeThis: any = {
++			isInitialized: true,
++			chatContainer: new Container(),
++			ui: { requestRender: vi.fn() },
++			footer: { invalidate: vi.fn() },
++			streamingComponent: { updateContent: vi.fn() },
++			streamingMessage: undefined,
++			pendingTools: new Map(),
++			liveTranscriptMode: { toolRows: "show", thinking: "show", working: "show" },
++			shouldHideLiveToolRows: (InteractiveMode as any).prototype.shouldHideLiveToolRows,
++			settingsManager: { getShowImages: () => false },
++			getRegisteredToolDefinition: () => undefined,
++			sessionManager: { getCwd: () => process.cwd() },
++			toolOutputExpanded: false,
++		};
++
++		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
++			type: "tool_execution_start",
++			toolCallId: "tool-1",
++			toolName: "read",
++			args: { path: "README.md" },
++		});
++
++		expect(fakeThis.pendingTools.size).toBe(1);
++		expect(fakeThis.chatContainer.children.length).toBeGreaterThan(0);
++	});
++});
+diff --git a/packages/coding-agent/test/tool-execution-component.test.ts b/packages/coding-agent/test/tool-execution-component.test.ts
+index 1bfb0ec2..3a346bc8 100644
+--- a/packages/coding-agent/test/tool-execution-component.test.ts
++++ b/packages/coding-agent/test/tool-execution-component.test.ts
+@@ -301,4 +301,22 @@ describe("ToolExecutionComponent parity", () => {
+ 		expect(rendered).toContain("two");
+ 		expect(rendered).not.toContain("two\n\n");
+ 	});
++
++	test("forced hidden state survives later display updates", () => {
++		const component = new ToolExecutionComponent(
++			"read",
++			"tool-9",
++			{ path: "README.md" },
++			{},
++			createReadToolDefinition(process.cwd()),
++			createFakeTui(),
++		);
++		component.setHidden(true);
++		component.updateResult({ content: [{ type: "text", text: "hello" }], details: undefined, isError: false }, false);
++		expect(component.render(120)).toEqual([]);
++		component.setHidden(false);
++		const rendered = stripAnsi(component.render(120).join("\n"));
++		expect(rendered).toContain("read");
++		expect(rendered).toContain("hello");
++	});
+ });
+-- 
+2.53.0
+
