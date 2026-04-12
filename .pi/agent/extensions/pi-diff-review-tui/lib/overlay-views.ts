@@ -2,8 +2,8 @@ import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { formatCommentLocation, formatOriginalCommentLocation, summarizeCommentStatus } from "./comments.ts";
 import { formatScopeBadge } from "./comment-resolution.ts";
-import { scopeDisplay } from "./scope.ts";
-import type { CandidateRemap, DiffScope, ReviewComment } from "./types.ts";
+import { reviewModeDisplay } from "./review-mode.ts";
+import type { CandidateRemap, ReviewComment, ReviewMode } from "./types.ts";
 import { bottomBorder, boxLine, statusColor, topBorder } from "./ui-helpers.ts";
 
 function wrapPlainText({
@@ -70,17 +70,17 @@ export function renderHelpOverlay(theme: Theme, width: number): string[] {
     "tab switch files/diff focus",
     "→ files→diff focus, ← diff→files focus",
     "enter files→focus diff, diff→line comment",
-    "n/b next/prev comment in scope",
+    "n/b next/prev comment in mode",
     ",/. next/prev comment in file",
     "w next file with comments, z next file with stale comments",
     "",
     theme.fg("muted", "review"),
-    "t/u/i/a switch source or scope (last turn / unstaged / staged / all)",
+    "t/a switch review mode (last turn / workspace vs HEAD)",
     "c line comment, h auto-range comment, x start/finish user range",
     "space toggle current changed block accepted/rejected (accepted by default)",
     "f file comment, o overall comment, v peek comments at cursor",
-    "m comments list, t toggle all scopes (inside comments)",
-    "e edit at cursor, g edit file, r reload current scope",
+    "m comments list, t toggle all modes (inside comments)",
+    "e edit at cursor, g edit file, r reload current mode",
     "",
     theme.fg("muted", "session"),
     "s submit review, q close, esc clears range selection before quitting",
@@ -113,7 +113,7 @@ export function renderRejectedHunksErrorOverlay({
   }
   out.push(boxLine(theme, "│", "", inner, "│", "error"));
   out.push(boxLine(theme, "│", theme.fg("muted", "Recovery:"), inner, "│", "error"));
-  out.push(boxLine(theme, "│", "1) r reload current scope", inner, "│", "error"));
+  out.push(boxLine(theme, "│", "1) r reload current mode", inner, "│", "error"));
   out.push(boxLine(theme, "│", "2) reselect rejected changed blocks with space", inner, "│", "error"));
   out.push(boxLine(theme, "│", "3) s submit again once the patch lines up", inner, "│", "error"));
   out.push(boxLine(theme, "│", theme.fg("dim", "enter/q/esc close"), inner, "│", "error"));
@@ -140,7 +140,7 @@ export function renderCommentsOverlay({
   theme: Theme;
   width: number;
   terminalRows: number;
-  scope: DiffScope;
+  scope: ReviewMode;
   showAllScopes: boolean;
   comments: ReviewComment[];
   index: number;
@@ -162,7 +162,7 @@ export function renderCommentsOverlay({
 
   const lines: string[] = [topBorder(theme, "comments", inner, "accent")];
   const staleCount = comments.filter((c) => c.status === "stale_unresolved").length;
-  lines.push(boxLine(theme, "│", `${theme.fg("muted", "scope filter")} ${showAllScopes ? "all scopes" : scopeDisplay(scope)}   ${theme.fg("muted", "total")} ${comments.length}   ${theme.fg(staleCount ? "warning" : "muted", `stale ${staleCount}`)}`, inner, "│", "accent"));
+  lines.push(boxLine(theme, "│", `${theme.fg("muted", "mode filter")} ${showAllScopes ? "all modes" : reviewModeDisplay(scope)}   ${theme.fg("muted", "total")} ${comments.length}   ${theme.fg(staleCount ? "warning" : "muted", `stale ${staleCount}`)}`, inner, "│", "accent"));
   lines.push(boxLine(theme, "│", "", inner, "│", "accent"));
 
   if (!comments.length) {

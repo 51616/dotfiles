@@ -20,8 +20,8 @@ const PATCH = [
 
 test("removeCommentById renumbers remaining comments densely", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const first = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" });
-  const second = createComment({ comments: [first], file, row: file.rows[7], kind: "line", scope: "u", body: "two" });
+  const first = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" });
+  const second = createComment({ comments: [first], file, row: file.rows[7], kind: "line", scope: "a", body: "two" });
 
   const next = removeCommentById([first, second], first.id);
   assert.equal(next.length, 1);
@@ -31,15 +31,15 @@ test("removeCommentById renumbers remaining comments densely", () => {
 
 test("updateCommentBody trims the edited body", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const comment = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" });
+  const comment = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" });
   const next = updateCommentBody([comment], comment.id, "  changed body  ");
   assert.equal(next[0].body, "changed body");
 });
 
 test("updateCommentBody removes the comment when the edited body is empty", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const first = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" });
-  const second = createComment({ comments: [first], file, row: file.rows[7], kind: "line", scope: "u", body: "two" });
+  const first = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" });
+  const second = createComment({ comments: [first], file, row: file.rows[7], kind: "line", scope: "a", body: "two" });
 
   const next = updateCommentBody([first, second], first.id, "   ");
   assert.equal(next.length, 1);
@@ -50,7 +50,7 @@ test("updateCommentBody removes the comment when the edited body is empty", () =
 test("resolveCommentAtCursor can downgrade a stale comment to file level", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const comment = {
-    ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" }),
+    ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" }),
     status: "stale_unresolved",
   };
 
@@ -65,7 +65,7 @@ test("resolveCommentAtCursor can downgrade a stale comment to file level", () =>
 test("applyCandidateRemap rewrites location and clears candidate list", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const comment = {
-    ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" }),
+    ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" }),
     status: "stale_unresolved",
     candidateRemaps: [{
       kind: "candidate",
@@ -88,7 +88,7 @@ test("applyCandidateRemap rewrites location and clears candidate list", () => {
 
 test("phase 13: applyCandidateRemap preserves originalAnchor", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const base = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" });
+  const base = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" });
   const originalLine = base.originalAnchor.line;
 
   const comment = {
@@ -114,10 +114,10 @@ test("phase 13: applyCandidateRemap preserves originalAnchor", () => {
 
 test("unresolvedCommentsForScope returns only stale comments for the active scope", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const stale = { ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "one" }), status: "stale_unresolved" };
-  const ok = createComment({ comments: [stale], file, row: file.rows[7], kind: "line", scope: "u", body: "two" });
-  const otherScope = createComment({ comments: [stale, ok], file, row: file.rows[7], kind: "line", scope: "s", body: "three" });
+  const stale = { ...createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "one" }), status: "stale_unresolved" };
+  const ok = createComment({ comments: [stale], file, row: file.rows[7], kind: "line", scope: "a", body: "two" });
+  const otherScope = createComment({ comments: [stale, ok], file, row: file.rows[7], kind: "line", scope: "t", body: "three" });
 
-  const next = unresolvedCommentsForScope([stale, ok, otherScope], "u");
+  const next = unresolvedCommentsForScope([stale, ok, otherScope], "a");
   assert.deepEqual(next.map((comment) => comment.id), [stale.id]);
 });

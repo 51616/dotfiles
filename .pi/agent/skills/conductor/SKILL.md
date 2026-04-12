@@ -1,7 +1,7 @@
 ---
 name: conductor
 description: |
-  Use when: the user asks to plan or start/resume a track, or when the work is large enough to benefit from a durable spec/plan/resume workflow. Trigger on phrases like "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly needs repo audit or explicit planning before implementation.
+  Use when: the user asks to plan or start/resume a track, or when the work is large enough to benefit from a durable spec/plan/resume workflow. Trigger on phrases like "write a spec", "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly benefits explicit planning before implementation.
   Don’t use when: the task is a tiny one-off edit or simple Q&A (use normal repo editing instead), or when the user explicitly wants a repeated scrutiny loop with per-round `review -> trim -> implement` artifacts (use `conductor-scrutinize` instead).
 ---
 
@@ -11,9 +11,9 @@ Conductor is a *repo-native* workflow for larger work: **Audit → Structured Co
 
 If the work is explicitly a multi-round audit/scrutiny loop (review/trim/implement per round), switch to `conductor-scrutinize`.
 
-This skill ports the Conductor ideas into pi’s world, but keeps the durable state in repo Markdown files instead of hiding the important bits in session history. Do not stop until the track implementation has been fully verified (except required manual tests). Do not resume existing tracks unless explicitly asked.
+Do not resume existing tracks unless explicitly asked.
 
-## Flow (practical)
+## Flow
 
 ### 1) Audit the repo first (always)
 
@@ -21,7 +21,7 @@ Before setup or track planning, audit the repo to infer the current reality.
 
 If the repo contains a `lat.md/` knowledge graph, use it as the default “what is this system and why?” reference. Prefer `lat locate`, `lat section`, and `lat refs` to navigate, and update `lat.md/` when you discover drift.
 
-When editing `lat.md/` files, defer to the `lat-md` skill for authoring rules and drift checks.
+When editing `lat.md/` files, defer to the `lat-md` skill for authoring rules and drift checks, including the `index.md` root-file convention and the current `lat.md` symlink requirement.
 Do not rely on semantic search (`lat search`) in the Conductor flow for now.
 
 Inspect enough to answer the important questions, preferring high-signal files first:
@@ -43,8 +43,6 @@ Rule:
 - confirm those inferences with the user
 - ask only for missing or ambiguous decisions
 
-Do **not** pretend the repo is blank if the code already tells us what it is.
-
 ### 2) Setup project context (once per repo)
 
 1. Run scaffolding script (from anywhere):
@@ -54,8 +52,12 @@ Do **not** pretend the repo is blank if the code already tells us what it is.
    - `conductor/project-guidelines.md` (optional, but useful for user-facing projects)
    - `conductor/tech-stack.md`
    - `conductor/workflow.md`
-3. Confirm inferred answers with the user, then ask only for missing/ambiguous decisions.
-4. Ensure `conductor/index.md` and `conductor/tracks.md` exist.
+3. If the repo uses `lat.md/`, ensure the lattice has an explicit test-spec file:
+   - `lat.md/tests.md` with frontmatter `require-code-mention: true`
+
+   This makes test/spec drift mechanically detectable via `lat check code-refs`. Defer to the `lat-md` skill for the exact structure and authoring rules.
+4. Confirm inferred answers with the user, then ask only for missing/ambiguous decisions.
+5. Ensure `conductor/index.md` and `conductor/tracks.md` exist.
 
 This is a structured intake, not a vague “interview briefly”.
 
@@ -69,14 +71,16 @@ This is a structured intake, not a vague “interview briefly”.
    - **acceptance criteria**
    - **expected behaviors**
    - **scenario examples** (plain language, not Gherkin)
+   - **evidence plan**: how each scenario will be proven (tests and/or other verification)
    - constraints / assumptions / risks / open questions
 4. Propose a balanced set of scenarios by default:
    - happy path
    - key validation failures
    - important edge cases
+   - open questions
    - ambiguity checks where needed
-5. **Require approval** of `spec.md` unless Tan explicitly says to skip approval. Return to the user before moving on.
-6. Draft a **plan** from the approved spec + behaviors:
+5. **Require approval** of `spec.md` unless Tan explicitly says to skip approval. Return to the user before moving on. *(This step require working back-and-forth with the user until everything is approved and clarified. Please work with the user on open questions, ambiguity, assumptions and edge cases.)*
+6. After working with the user and the `spec.md` is approved, draft a **plan** from the approved spec + behaviors:
    - phases → tasks → subtasks
    - `[ ]` checkboxes everywhere
    - behavior-driven implementation slices
@@ -126,6 +130,9 @@ Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - mark the current task `[~]` before starting
 - write tests first **when feasible**, using the approved behaviors/scenarios as the source of truth
 - do not write tests “for the sake of testing”: every new/changed test must directly prove one of the approved behaviors/scenarios in `spec.md` (if it doesn’t map, delete or rewrite it)
+- maintain explicit traceability between tests and spec behaviors:
+  - for each spec scenario you implement, record which test(s) prove it (file + test name) in `plan.md` Change evidence and/or `resume.md`
+  - when the repo uses `lat.md/`, tighten the link by writing/maintaining test-spec sections in `lat.md/tests.md` (or a module’s own `lat.md/tests.md` if the repo is structured that way) and adding `@lat:` comments next to the tests that implement them; defer to the `lat-md` skill for the exact authoring rules and required `lat check` gates
 - if the repo uses `lat.md/`, keep it in sync during implementation; defer to the `lat-md` skill for the exact conventions and required checks
 - if tests-first is not feasible, record why and define another verification method before coding
 - implement the smallest code change that satisfies the approved behavior
@@ -165,7 +172,7 @@ Keep progress and track status **continuously** updated (not just at the end):
 
 After implementation is done, run a lightweight review gate before marking the track complete.
 
-Use `codex-review` explicitly as the default second-opinion reviewer for this stage. Give it the minimum high-signal context needed to review precisely: the relevant `spec.md`, `plan.md`, `resume.md`, the touched paths, and the `plan.md` Change evidence snippets.
+Use `codex-review` explicitly as the default second-opinion reviewer for this stage. Give it the minimum high-signal context needed to review precisely: the relevant `spec.md`, `plan.md`, `resume.md`, the touched paths, and the `plan.md` Change evidence snippets. Use 25 minute-timeout (1500 seconds) by default for the review.
 
 Example:
 - `codex-review.sh "Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, tests that don’t map to approved behaviors/scenarios, missing tests where behaviors lack proof, and weak verification."`
@@ -175,6 +182,7 @@ The review should be driven by the approved `spec.md` and `plan.md`, not by rand
 - plan compliance / scope drift
 - whether tests and verification actually prove the approved behavior
 - whether every new/changed test maps to an approved behavior/scenario (no “testing for its own sake”)
+- whether every approved behavior/scenario has at least one concrete proof (test and/or explicit manual/ops verification) and that proof is recorded
 - if the repo uses `lat.md/`, that `lat check` passes for the relevant project root(s)
 - whether `plan.md` contains sufficient **Change evidence** (paths + snippets) for precise review
 - obvious correctness, maintainability, safety, and observability issues
@@ -198,6 +206,7 @@ Review and update as needed:
 - the track docs for final consistency
 - `resume.md` so the terminal state is clear
 - if the repo uses `lat.md/`, update the relevant sections and ensure `lat check` passes (defer to the `lat-md` skill)
+- if the repo uses `lat.md/`, append/update test specs in `lat.md/tests.md` (or the relevant module’s `lat.md/tests.md`) so that the tests you added/changed have explicit spec sections, and ensure `lat check code-refs` enforces coverage
 
 Keep this practical. The goal is to leave accurate docs behind, not to create ritual.
 

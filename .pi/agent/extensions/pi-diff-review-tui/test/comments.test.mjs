@@ -40,7 +40,7 @@ function makeMultiClusterPatch() {
 test("revalidateComment keeps exact matches ok", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
-  const comment = createComment({ comments: [], file, row, kind: "line", scope: "u", body: "note" });
+  const comment = createComment({ comments: [], file, row, kind: "line", scope: "a", body: "note" });
   const next = revalidateComment(comment, file);
   assert.equal(next.status, "ok");
   assert.equal(mapCommentToRow(file, next), row.rowIndex);
@@ -49,14 +49,14 @@ test("revalidateComment keeps exact matches ok", () => {
 test("phase 13: createComment stores originalAnchor equal to initial anchor", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
-  const comment = createComment({ comments: [], file, row, kind: "line", scope: "u", body: "note" });
+  const comment = createComment({ comments: [], file, row, kind: "line", scope: "a", body: "note" });
   assert.deepEqual(comment.originalAnchor, comment.anchor);
 });
 
 test("revalidateComment marks unresolved when text disappears", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
-  const comment = createComment({ comments: [], file, row, kind: "line", scope: "u", body: "note" });
+  const comment = createComment({ comments: [], file, row, kind: "line", scope: "a", body: "note" });
   const updatedFile = parseSingleFilePatch({ rawPatch: makePatch("totally different"), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const next = revalidateComment(comment, updatedFile);
   assert.equal(next.status, "stale_unresolved");
@@ -66,7 +66,7 @@ test("revalidateComment marks unresolved when text disappears", () => {
 test("revalidateComment keeps hunk comments ok across no-op reload", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
-  const comment = createComment({ comments: [], file, row, kind: "hunk", scope: "u", body: "hunk note" });
+  const comment = createComment({ comments: [], file, row, kind: "hunk", scope: "a", body: "hunk note" });
   const reloaded = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const next = revalidateComment(comment, reloaded);
   assert.equal(next.status, "ok");
@@ -77,7 +77,7 @@ test("hunk comments use contiguous changed rows instead of full git hunks", () =
   const file = parseSingleFilePatch({ rawPatch: makeMultiClusterPatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "new1");
   const range = getCommentHunkRange(file, row.rowIndex);
-  const comment = createComment({ comments: [], file, row, kind: "hunk", scope: "u", body: "first cluster" });
+  const comment = createComment({ comments: [], file, row, kind: "hunk", scope: "a", body: "first cluster" });
 
   assert.equal(range.oldStart, 2);
   assert.equal(range.oldEnd, 2);
@@ -91,7 +91,7 @@ test("hunk comments use contiguous changed rows instead of full git hunks", () =
 test("file comments map to the first visible diff row", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const fileRow = file.rows.find((entry) => entry.kind === "context" && entry.text === "line1");
-  const fileComment = createComment({ comments: [], file, row: fileRow, kind: "file", scope: "u", body: "file note" });
+  const fileComment = createComment({ comments: [], file, row: fileRow, kind: "file", scope: "a", body: "file note" });
 
   assert.equal(mapCommentToRow(file, fileComment), fileRow.rowIndex);
 });
@@ -100,14 +100,14 @@ test("findCommentAtTarget matches existing comments for the same location", () =
   const file = parseSingleFilePatch({ rawPatch: makePatch(), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const lineRow = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
   const fileRow = file.rows.find((entry) => entry.kind === "context" && entry.text === "line1");
-  const lineComment = createComment({ comments: [], file, row: lineRow, kind: "line", scope: "u", body: "note" });
-  const rangeComment = createComment({ comments: [lineComment], file, row: lineRow, kind: "range", scope: "u", body: "range note" });
-  const fileComment = createComment({ comments: [lineComment, rangeComment], file, row: fileRow, kind: "file", scope: "u", body: "file note" });
+  const lineComment = createComment({ comments: [], file, row: lineRow, kind: "line", scope: "a", body: "note" });
+  const rangeComment = createComment({ comments: [lineComment], file, row: lineRow, kind: "range", scope: "a", body: "range note" });
+  const fileComment = createComment({ comments: [lineComment, rangeComment], file, row: fileRow, kind: "file", scope: "a", body: "file note" });
   const comments = [lineComment, rangeComment, fileComment];
 
-  assert.equal(findCommentAtTarget({ comments, file, row: lineRow, kind: "line", scope: "u" })?.id, lineComment.id);
-  assert.equal(findCommentAtTarget({ comments, file, row: lineRow, kind: "range", scope: "u" })?.id, rangeComment.id);
-  assert.equal(findCommentAtTarget({ comments, file, row: fileRow, kind: "file", scope: "u" })?.id, fileComment.id);
+  assert.equal(findCommentAtTarget({ comments, file, row: lineRow, kind: "line", scope: "a" })?.id, lineComment.id);
+  assert.equal(findCommentAtTarget({ comments, file, row: lineRow, kind: "range", scope: "a" })?.id, rangeComment.id);
+  assert.equal(findCommentAtTarget({ comments, file, row: fileRow, kind: "file", scope: "a" })?.id, fileComment.id);
 });
 
 test("user-selected range comments keep explicit range anchors and cover rows inside the range", () => {
@@ -115,7 +115,7 @@ test("user-selected range comments keep explicit range anchors and cover rows in
   const firstAdded = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
   const secondAdded = file.rows.find((entry) => entry.kind === "added" && entry.text === "line3.5");
   const selection = buildRangeSelection({ file, side: "new", startRowIndex: firstAdded.rowIndex, endRowIndex: secondAdded.rowIndex });
-  const comment = createComment({ comments: [], file, row: firstAdded, kind: "range", scope: "u", body: "multi-line note", selection });
+  const comment = createComment({ comments: [], file, row: firstAdded, kind: "range", scope: "a", body: "multi-line note", selection });
 
   assert.equal(comment.anchor.kind, "range");
   assert.equal(comment.anchor.origin, "user_range");
@@ -123,13 +123,13 @@ test("user-selected range comments keep explicit range anchors and cover rows in
   assert.equal(comment.anchor.endLine, 3);
   assert.equal(comment.anchor.applyStartLine, 2);
   assert.equal(comment.anchor.applyEndLine, 3);
-  assert.equal(commentsAtLocation({ comments: [comment], file, row: secondAdded, scope: "u" })[0]?.id, comment.id);
+  assert.equal(commentsAtLocation({ comments: [comment], file, row: secondAdded, scope: "a" })[0]?.id, comment.id);
 });
 
 test("revalidateComment survives whitespace-only edits using normalized anchor hashes", () => {
   const file = parseSingleFilePatch({ rawPatch: makePatch("line2   changed"), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const row = file.rows.find((entry) => entry.kind === "added" && entry.text === "line2   changed");
-  const comment = createComment({ comments: [], file, row, kind: "line", scope: "u", body: "note" });
+  const comment = createComment({ comments: [], file, row, kind: "line", scope: "a", body: "note" });
   const updatedFile = parseSingleFilePatch({ rawPatch: makePatch("line2 changed"), status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
   const next = revalidateComment(comment, updatedFile);
 
@@ -156,7 +156,7 @@ test("revalidateComment auto-remaps moved lines when the best candidate is clear
     newPath: "src/foo.ts",
   });
   const row = original.rows.find((entry) => entry.kind === "added" && entry.text === "const moved = helper();");
-  const comment = createComment({ comments: [], file: original, row, kind: "line", scope: "u", body: "move-safe" });
+  const comment = createComment({ comments: [], file: original, row, kind: "line", scope: "a", body: "move-safe" });
 
   const moved = parseSingleFilePatch({
     rawPatch: [
@@ -200,7 +200,7 @@ test("phase 13: revalidateComment preserves original anchor and keeps moved stat
     newPath: "src/foo.ts",
   });
   const row = original.rows.find((entry) => entry.kind === "added" && entry.text === "const moved = helper();");
-  const comment = createComment({ comments: [], file: original, row, kind: "line", scope: "u", body: "move-safe" });
+  const comment = createComment({ comments: [], file: original, row, kind: "line", scope: "a", body: "move-safe" });
 
   const moved = parseSingleFilePatch({
     rawPatch: [

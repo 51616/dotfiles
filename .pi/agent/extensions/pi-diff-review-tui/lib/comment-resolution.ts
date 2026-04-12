@@ -1,7 +1,7 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { anchorLocationEqual, buildRangeSelection, commentAnchorForTarget, getCommentHunkRange, renumberComments } from "./comments.ts";
-import { scopeHotkey } from "./scope.ts";
-import type { CommentKind, CommentSide, DiffScope, ParsedDiffRow, ParsedFilePatch, RangeSelection, ReviewComment } from "./types.ts";
+import { reviewModeHotkey } from "./review-mode.ts";
+import type { CommentKind, CommentSide, ParsedDiffRow, ParsedFilePatch, RangeSelection, ReviewComment, ReviewMode } from "./types.ts";
 
 export function printableChar(data: string): string | null {
   if (!data || data.length !== 1) return null;
@@ -10,8 +10,8 @@ export function printableChar(data: string): string | null {
   return data;
 }
 
-export function formatScopeBadge(theme: Theme, scope: DiffScope): string {
-  return theme.fg("muted", `[${scopeHotkey(scope)}]`);
+export function formatScopeBadge(theme: Theme, scope: ReviewMode): string {
+  return theme.fg("muted", `[${reviewModeHotkey(scope)}]`);
 }
 
 export function lineForRowAndSide(row: ParsedDiffRow, side: CommentSide): number | null {
@@ -63,7 +63,7 @@ export function describeCommentTarget(
   return `${file.displayPath} (file)`;
 }
 
-export function unresolvedCommentsForScope(comments: ReviewComment[], scope: DiffScope): ReviewComment[] {
+export function unresolvedCommentsForScope(comments: ReviewComment[], scope: ReviewMode): ReviewComment[] {
   return comments.filter((comment) => comment.scope === scope && comment.status === "stale_unresolved");
 }
 

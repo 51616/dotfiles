@@ -34,18 +34,30 @@ export function safeSessionDirName(cwd: string): string {
 
 export function diffReviewCandidateRoots({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  /**
+   * A stable identifier used only for local storage paths.
+   * Defaults to repoRoot. In SSH mode this should include the remote host.
+   */
+  scopeKey?: string;
+  /**
+   * Whether repo-local writes (repoRoot/.pi/diff-review) are allowed.
+   * In SSH mode this should be false to avoid attempting remote-path writes locally.
+   */
+  allowRepoRoot?: boolean;
   tmpRoot?: string;
   agentDir?: string;
-}): { tmp: string; home: string; repo: string } {
-  const safe = safeSessionDirName(repoRoot);
+}): { tmp: string; home: string; repo?: string } {
+  const safe = safeSessionDirName(scopeKey ?? repoRoot);
   return {
     tmp: path.join(tmpRoot, "pi", "sessions", safe, "diff-review"),
     home: path.join(agentDir, "sessions", safe, "diff-review"),
-    repo: path.join(repoRoot, ".pi", "diff-review"),
+    ...(allowRepoRoot ? { repo: path.join(repoRoot, ".pi", "diff-review") } : {}),
   };
 }
 
@@ -61,14 +73,18 @@ function tryEnsureWritableDir(dir: string): string | null {
 
 export function resolveDiffReviewRootForWrite({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
   tmpRoot?: string;
   agentDir?: string;
 }): { rootDir: string; outputLocation: ReviewOutputLocation } {
-  const roots = diffReviewCandidateRoots({ repoRoot, tmpRoot, agentDir });
+  const roots = diffReviewCandidateRoots({ repoRoot, scopeKey, allowRepoRoot, tmpRoot, agentDir });
 
   const tmp = tryEnsureWritableDir(roots.tmp);
   if (tmp) return { rootDir: tmp, outputLocation: "tmp" };
@@ -76,31 +92,39 @@ export function resolveDiffReviewRootForWrite({
   const home = tryEnsureWritableDir(roots.home);
   if (home) return { rootDir: home, outputLocation: "home" };
 
-  const repo = tryEnsureWritableDir(roots.repo);
-  if (repo) return { rootDir: repo, outputLocation: "repo" };
+  if (roots.repo) {
+    const repo = tryEnsureWritableDir(roots.repo);
+    if (repo) return { rootDir: repo, outputLocation: "repo" };
+  }
 
+  const repoLabel = roots.repo ? `, or ${roots.repo}` : "";
   throw new Error(
-    `Unable to create a writable diff-review directory in ${roots.tmp}, ${roots.home}, or ${roots.repo}.`,
+    `Unable to create a writable diff-review directory in ${roots.tmp}, ${roots.home}${repoLabel}.`,
   );
 }
 
 export function resolveTurnLatestCandidates({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   sessionId,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
   sessionId?: string;
   tmpRoot?: string;
   agentDir?: string;
 }): Array<{ patchPath: string; jsonPath: string }> {
-  const roots = diffReviewCandidateRoots({ repoRoot, tmpRoot, agentDir });
+  const roots = diffReviewCandidateRoots({ repoRoot, scopeKey, allowRepoRoot, tmpRoot, agentDir });
+  const candidateRoots = [roots.tmp, roots.home, ...(roots.repo ? [roots.repo] : [])];
   const candidates: Array<{ patchPath: string; jsonPath: string }> = [];
   const stems = ["latest-reviewable", "latest"];
 
   if (sessionId?.trim()) {
-    for (const root of [roots.tmp, roots.home, roots.repo]) {
+    for (const root of candidateRoots) {
       const turnsRoot = path.join(root, "turns");
       const sessionRoot = path.join(turnsRoot, "sessions", sessionId);
       for (const stem of stems) {
@@ -112,7 +136,7 @@ export function resolveTurnLatestCandidates({
     }
   }
 
-  for (const root of [roots.tmp, roots.home, roots.repo]) {
+  for (const root of candidateRoots) {
     const turnsRoot = path.join(root, "turns");
     for (const stem of stems) {
       candidates.push({

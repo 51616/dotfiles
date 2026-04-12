@@ -34,6 +34,24 @@ export interface OmittedPathInfo {
   size_bytes?: number;
 }
 
+export interface AgentChangeFile {
+  path: string;
+  summary?: string;
+}
+
+export interface AgentChangeReportDraft {
+  generator: string;
+  files: unknown;
+}
+
+export interface AgentChangeReport {
+  generated_at: string;
+  generator: string;
+  files: AgentChangeFile[];
+  missing_from_observed: string[];
+  missing_from_agent_report: string[];
+}
+
 export interface TrackedPathState {
   repoRelPath: string;
   absolutePath: string;
@@ -57,9 +75,11 @@ export interface RepoTurnArtifactMetadata {
   repo_root: string;
   repo_key: string;
   touched_paths: string[];
+  observed_changed_paths: string[];
   has_bash_calls: boolean;
   note?: string;
   omitted_paths?: Record<string, OmittedPathInfo>;
+  agent_change_report?: AgentChangeReport;
   workspace?: false;
   repos?: undefined;
 }
@@ -68,6 +88,7 @@ export interface WorkspaceRepoSummary {
   repo_key: string;
   repo_root: string;
   touched_paths: string[];
+  observed_changed_paths: string[];
   omitted_paths?: Record<string, OmittedPathInfo>;
 }
 
@@ -80,9 +101,11 @@ export interface WorkspaceTurnArtifactMetadata {
   repo_root: "workspace";
   repo_key: "workspace";
   touched_paths: string[];
+  observed_changed_paths: string[];
   has_bash_calls: boolean;
   note?: string;
   omitted_paths?: Record<string, OmittedPathInfo>;
+  agent_change_report?: AgentChangeReport;
   workspace: true;
   repos: WorkspaceRepoSummary[];
 }

@@ -68,7 +68,7 @@ test("captureScopeViewState and restore helpers keep cursor line and relative sc
 
 test("nextScopeState preserves start state and rolls previous hashes on reload", () => {
   const initialBundle = {
-    scope: "u",
+    scope: "a",
     repoRoot: "/tmp/repo",
     head: "abc1234",
     files: [],
@@ -77,9 +77,9 @@ test("nextScopeState preserves start state and rolls previous hashes on reload",
     fileHashes: new Map([["a", "1"]]),
     loadedAt: "2026-03-23T00:00:00.000Z",
   };
-  const first = nextScopeState({ scope: "u", bundle: initialBundle, previous: undefined, loadedAt: "2026-03-23T00:00:00.000Z" });
+  const first = nextScopeState({ scope: "a", bundle: initialBundle, previous: undefined, loadedAt: "2026-03-23T00:00:00.000Z" });
   const nextBundle = { ...initialBundle, fingerprint: "fp-2", fileHashes: new Map([["a", "2"]]) };
-  const second = nextScopeState({ scope: "u", bundle: nextBundle, previous: first, loadedAt: "2026-03-23T00:05:00.000Z" });
+  const second = nextScopeState({ scope: "a", bundle: nextBundle, previous: first, loadedAt: "2026-03-23T00:05:00.000Z" });
 
   assert.equal(first.startFingerprint, "fp-1");
   assert.equal(second.startFingerprint, "fp-1");

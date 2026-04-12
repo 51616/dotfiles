@@ -1,42 +1,21 @@
-import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, KeybindingsManager, Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, type Component, type Focusable, type OverlayHandle, type TUI } from "@mariozechner/pi-tui";
-import {
-  commentsAtLocation,
-  commentsForScope,
-  compareCommentsByLocation,
-  createComment,
-  findCommentAtTarget,
-  formatCommentLocation,
-  mapCommentToRow,
-  revalidateComment,
-} from "./comments.ts";
+import { truncateToWidth, type Component, type Focusable, type OverlayHandle, type TUI } from "@mariozechner/pi-tui";
+import { commentsForScope, revalidateComment } from "./comments.ts";
 import { resolveInputAction } from "./app-input.ts";
-import { renderAppShell, renderStatusShell, statusLetter } from "./app-shell-render.ts";
-import { commentsSortedForNavigation, nextFileIndexMatching } from "./comment-navigation.ts";
-import { editorSnippetForDraft, editorSnippetForExisting } from "./comment-snippets.ts";
+import { commentsSortedForNavigation } from "./comment-navigation.ts";
+import { describeRangeSelection, unresolvedCommentsForScope } from "./comment-resolution.ts";
+import { summarizeFileHashChanges } from "./git.ts";
+import { getDiffBundle } from "./review-bundles.ts";
 import {
-  applyCandidateRemap,
-  autoChunkSelection,
-  describeCommentTarget,
-  describeRangeSelection,
-  formatScopeBadge,
-  printableChar,
-  removeCommentById,
-  resolveCommentAtCursor,
-  unresolvedCommentsForScope,
-  updateCommentBody,
-} from "./comment-resolution.ts";
-import { openExternalEditor } from "./external-editor.ts";
-import { getDiffBundle, summarizeFileHashChanges } from "./git.ts";
+  applyReversePatch as applyReversePatchViaBackend,
+  getSshReverseApplyConsent,
+  setSshReverseApplyConsent,
+  type DiffReviewBackendKind,
+  type DiffReviewRepoIdentity,
+} from "./backend.ts";
+import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
+import { buildTurnSourceSummary, commentDisabledReason } from "./agent-report-ui.ts";
 import { nextNavigableChangeBlockRowIndex, nextNavigableRowIndex } from "./navigation.ts";
-import {
-  renderCommentsOverlay,
-  renderHelpOverlay,
-  renderPeekCommentsOverlay,
-  renderRejectedHunksErrorOverlay,
-  renderStaleResolverOverlay,
-} from "./overlay-views.ts";
 import {
   captureScopeViewState,
   defaultScopeViewState,
@@ -47,19 +26,11 @@ import {
   restoredDiffScroll,
   restoredFileIndex,
 } from "./review-state.ts";
-import { commentsForSubmission, editorLineForRow, savedReviewMessage, saveScopedReview, shouldGenerateCompactPrompt } from "./review-session.ts";
-import { scopeDisplay, scopeName } from "./scope.ts";
-import { CommentEditorOverlay } from "./comment-editor-overlay.ts";
-import { renderDiffRows, renderFileList } from "./diff-render.ts";
-import { renderCommentPanel as renderCommentInfoPanel } from "./comment-panel.ts";
-import { SimpleOverlay } from "./simple-overlay.ts";
-import type { AppCallbacks, ChangeSummary, DiffRowRenderCache, DiffScope, DiffViewportCache, FocusMode, ParsedDiffRow, RangeSelection, ReviewComment, ScopeState } from "./types.ts";
-import { padLine } from "./ui-helpers.ts";
-import { getLanguageFromPath, highlightFileRows } from "./syntax-highlight.ts";
+import { reviewModeName } from "./review-mode.ts";
+import type { AppCallbacks, ChangeSummary, DiffBundle, DiffRowRenderCache, DiffViewportCache, FocusMode, ParsedDiffRow, ParsedFilePatch, RangeSelection, ReviewComment, ReviewMode, ScopeState } from "./types.ts";
 import { buildRejectedHunksPatch, countRejectedHunks, reverseApplyPatch } from "./rejected-hunks.ts";
-
-const MIN_WIDTH = 60;
-const COMMENT_MARKER_WIDTH = 4;
+import { createAppWorkflows } from "./app-workflows.ts";
+import { createAppRendering } from "./app-rendering.ts";
 
 type PerfBucket = {
   count: number;
@@ -72,14 +43,19 @@ export class DiffReviewApp implements Component, Focusable {
 
   private readonly pi: ExtensionAPI;
   private readonly repoRoot: string;
+  private readonly repoLabel: string;
+  private readonly scopeKey: string;
+  private readonly allowRepoRootWrites: boolean;
+  private readonly backendKind: DiffReviewBackendKind;
+  private readonly sshHelper?: DiffReviewSshHelperClient;
   private readonly sessionId: string;
   private readonly tui: TUI;
   private readonly theme: Theme;
   private readonly keybindings: KeybindingsManager;
   private readonly callbacks: AppCallbacks;
 
-  private scope: DiffScope = "u";
-  private scopeStates = new Map<DiffScope, ScopeState>();
+  private scope: ReviewMode = "a";
+  private scopeStates = new Map<ReviewMode, ScopeState>();
   private loadingMessage = "Loading diff…";
   private focusMode: FocusMode = "files";
   private selectedFileIndex = 0;
@@ -87,26 +63,28 @@ export class DiffReviewApp implements Component, Focusable {
   private fileScroll = 0;
   private diffScroll = 0;
   private comments: ReviewComment[] = [];
-  private overallComments: Record<DiffScope, string> = { t: "", u: "", s: "", a: "" };
+  private overallComments: Record<ReviewMode, string> = { t: "", a: "" };
   private lastReloadTimestamp = "";
   private activeOverlayHandle: OverlayHandle | null = null;
   private closing = false;
   private commentsEpoch = 0;
   private hunkSelectionEpoch = 0;
-  private rejectedHunks = new Map<DiffScope, Map<string, Set<string>>>();
+  private rejectedHunks = new Map<ReviewMode, Map<string, Set<string>>>();
   private pendingRangeSelection: RangeSelection | null = null;
-  private scopeCommentStatsCache: { scope: DiffScope; epoch: number; counts: Map<string, number>; stale: Set<string> } | null = null;
-  private rowMarkerCache: { scope: DiffScope; fileKey: string; epoch: number; markers: Map<number, string> } | null = null;
+  private scopeCommentStatsCache: { scope: ReviewMode; epoch: number; counts: Map<string, number>; stale: Set<string> } | null = null;
+  private rowMarkerCache: { scope: ReviewMode; fileKey: string; epoch: number; markers: Map<number, string> } | null = null;
   private diffRowRenderCache: DiffRowRenderCache | null = null;
   private diffViewportCache: DiffViewportCache | null = null;
   private syntaxHighlightCache: {
-    scope: DiffScope;
+    scope: ReviewMode;
     fingerprint: string;
     fileKey: string;
     language: string | undefined;
     highlighted: Map<number, string>;
   } | null = null;
   private perfEnabled = false;
+  private readonly workflows: ReturnType<typeof createAppWorkflows>;
+  private readonly rendering: ReturnType<typeof createAppRendering>;
   private perfStats: { render: PerfBucket; diffRows: PerfBucket; visibleRows: PerfBucket } = {
     render: { count: 0, totalMs: 0, maxMs: 0 },
     diffRows: { count: 0, totalMs: 0, maxMs: 0 },
@@ -116,6 +94,11 @@ export class DiffReviewApp implements Component, Focusable {
   constructor({
     pi,
     repoRoot,
+    repoLabel,
+    scopeKey,
+    allowRepoRootWrites,
+    backendKind,
+    sshHelper,
     sessionId,
     tui,
     theme,
@@ -124,6 +107,11 @@ export class DiffReviewApp implements Component, Focusable {
   }: {
     pi: ExtensionAPI;
     repoRoot: string;
+    repoLabel: string;
+    scopeKey: string;
+    allowRepoRootWrites: boolean;
+    backendKind: DiffReviewBackendKind;
+    sshHelper?: DiffReviewSshHelperClient;
     sessionId: string;
     tui: TUI;
     theme: Theme;
@@ -132,14 +120,131 @@ export class DiffReviewApp implements Component, Focusable {
   }) {
     this.pi = pi;
     this.repoRoot = repoRoot;
+    this.repoLabel = repoLabel;
+    this.scopeKey = scopeKey;
+    this.allowRepoRootWrites = allowRepoRootWrites;
+    this.backendKind = backendKind;
+    this.sshHelper = sshHelper;
     this.sessionId = sessionId;
     this.tui = tui;
     this.theme = theme;
     this.keybindings = keybindings;
     this.callbacks = callbacks;
+    this.workflows = createAppWorkflows({
+      pi: this.pi,
+      tui: this.tui,
+      theme: this.theme,
+      keybindings: this.keybindings,
+      callbacks: this.callbacks,
+      repoRoot: this.repoRoot,
+      scopeKey: this.scopeKey,
+      allowRepoRootWrites: this.allowRepoRootWrites,
+      backendKind: this.backendKind,
+      sessionId: this.sessionId,
+      getScope: () => this.scope,
+      setScope: (scope) => { this.scope = scope; },
+      getScopeState: (scope) => this.scopeStates.get(scope),
+      getCurrentState: () => this.currentState(),
+      getCurrentFiles: () => this.currentFiles(),
+      getCurrentFile: () => this.currentFile(),
+      getCurrentRow: () => this.currentRow(),
+      getFocusMode: () => this.focusMode,
+      setFocusMode: (mode) => { this.focusMode = mode; },
+      getSelectedFileIndex: () => this.selectedFileIndex,
+      setSelectedFileIndex: (index) => { this.selectedFileIndex = index; },
+      getComments: () => this.comments,
+      setComments: (comments) => this.setComments(comments),
+      getOverallComment: (scope) => this.overallComments[scope] || "",
+      setOverallComment: (scope, value) => { this.overallComments[scope] = value; },
+      getPendingRangeSelection: () => this.pendingRangeSelection,
+      setPendingRangeSelection: (selection) => { this.pendingRangeSelection = selection; },
+      clearPendingRangeSelection: (render = true) => this.clearPendingRangeSelection(render),
+      currentRangeSelection: () => this.currentRangeSelection(),
+      visibleComments: (includeAllScopes = false) => this.visibleComments(includeAllScopes),
+      scopedNavigationComments: (fileOnly = false) => this.scopedNavigationComments(fileOnly),
+      unresolvedComments: () => this.unresolvedComments(),
+      fileCommentCount: (fileKey) => this.fileCommentCount(fileKey),
+      fileHasStale: (fileKey) => this.fileHasStale(fileKey),
+      setCursorToRow: (rowIndex) => this.setCursorToRow(rowIndex),
+      resetSyntaxHighlightCache: () => { this.syntaxHighlightCache = null; },
+      requestRender: () => this.tui.requestRender(),
+      getActiveOverlayHandle: () => this.activeOverlayHandle,
+      setActiveOverlayHandle: (handle) => { this.activeOverlayHandle = handle; },
+      applyRejectedHunksBeforeSubmit: (submitMode, submitState) => this.applyRejectedHunksBeforeSubmit(submitMode, submitState),
+      reloadCurrentScope: () => this.reloadCurrentScope(),
+      changeSummary: (state) => this.changeSummary(state),
+      finish: (result) => this.finish(result),
+    });
+    this.rendering = createAppRendering({
+      theme: this.theme,
+      tui: this.tui,
+      repoRoot: this.repoRoot,
+      repoLabel: this.repoLabel,
+      getScope: () => this.scope,
+      getFocusMode: () => this.focusMode,
+      getCurrentState: () => this.currentState(),
+      getCurrentFiles: () => this.currentFiles(),
+      getCurrentFile: () => this.currentFile(),
+      getCurrentRow: () => this.currentRow(),
+      getComments: () => this.comments,
+      getOverallComments: () => this.overallComments,
+      getLastReloadTimestamp: () => this.lastReloadTimestamp,
+      getSelectedFileIndex: () => this.selectedFileIndex,
+      getDiffCursorRow: () => this.diffCursorRow,
+      getFileScroll: () => this.fileScroll,
+      getDiffScroll: () => this.diffScroll,
+      setDiffScroll: (value) => { this.diffScroll = value; },
+      ensureFileVisible: (bodyHeight) => this.ensureFileVisible(bodyHeight),
+      ensureDiffVisible: (bodyHeight) => this.ensureDiffVisible(bodyHeight),
+      fileCommentCount: (fileKey) => this.fileCommentCount(fileKey),
+      fileHasStale: (fileKey) => this.fileHasStale(fileKey),
+      unresolvedComments: () => this.unresolvedComments(),
+      getCommentsEpoch: () => this.commentsEpoch,
+      getHunkSelectionEpoch: () => this.hunkSelectionEpoch,
+      getRowMarkerCache: () => this.rowMarkerCache,
+      setRowMarkerCache: (value) => { this.rowMarkerCache = value; },
+      getSyntaxHighlightCache: () => this.syntaxHighlightCache,
+      setSyntaxHighlightCache: (value) => { this.syntaxHighlightCache = value; },
+      getDiffRowRenderCache: () => this.diffRowRenderCache,
+      setDiffRowRenderCache: (value) => { this.diffRowRenderCache = value; },
+      getDiffViewportCache: () => this.diffViewportCache,
+      setDiffViewportCache: (value) => { this.diffViewportCache = value; },
+      currentFileRejectedHunks: () => this.currentFileRejectedHunks(),
+      getLoadingMessage: () => this.loadingMessage,
+      perfEnabled: () => this.perfEnabled,
+      perfSummary: (width) => this.perfSummary(width),
+      recordPerf: (bucket, value) => this.recordPerf(bucket, value),
+      selectionSummary: () => this.selectionSummary(),
+      sourceSummary: (state) => this.sourceSummary(state),
+      warningSummary: (state) => this.warningSummary(state),
+    });
   }
 
-  async init(scope: DiffScope = "u"): Promise<void> {
+  private repoIdentity(): DiffReviewRepoIdentity {
+    return {
+      backend: this.backendKind,
+      repoRoot: this.repoRoot,
+      scopeKey: this.scopeKey,
+      allowRepoRootWrites: this.allowRepoRootWrites,
+      repoLabel: this.repoLabel,
+      // Do not store a helper instance here; it can go stale across reconnects.
+      // Backend calls should fetch the current shared helper when needed.
+      helper: undefined,
+    };
+  }
+
+  async init(scope: ReviewMode = "a", initialBundle?: DiffBundle): Promise<void> {
+    if (initialBundle) {
+      const loadedAt = new Date().toISOString();
+      this.scopeStates.set(scope, nextScopeState({ scope, bundle: initialBundle, previous: undefined, loadedAt }));
+      this.scope = scope;
+      this.lastReloadTimestamp = loadedAt;
+      this.loadingMessage = "";
+      this.revalidateComments(scope);
+      this.restoreScopeView(scope, true);
+      this.tui.requestRender();
+      return;
+    }
     await this.loadScope(scope, true);
   }
 
@@ -186,7 +291,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.markCommentsChanged();
   }
 
-  private rejectedHunksForScope(scope: DiffScope, create = false): Map<string, Set<string>> {
+  private rejectedHunksForScope(scope: ReviewMode, create = false): Map<string, Set<string>> {
     const existing = this.rejectedHunks.get(scope);
     if (existing || !create) return existing ?? new Map();
     const created = new Map<string, Set<string>>();
@@ -194,7 +299,7 @@ export class DiffReviewApp implements Component, Focusable {
     return created;
   }
 
-  private rejectedHunkSnapshot(scope: DiffScope): Map<string, ReadonlySet<string>> {
+  private rejectedHunkSnapshot(scope: ReviewMode): Map<string, ReadonlySet<string>> {
     const scopeState = this.rejectedHunks.get(scope);
     if (!scopeState?.size) return new Map();
     const snapshot = new Map<string, ReadonlySet<string>>();
@@ -205,13 +310,32 @@ export class DiffReviewApp implements Component, Focusable {
     return snapshot;
   }
 
-  private clearRejectedHunks(scope: DiffScope, render = false): void {
+  private clearRejectedHunks(scope: ReviewMode, render = false): void {
     if (!this.rejectedHunks.delete(scope)) return;
     this.markHunkSelectionChanged();
     if (render) this.tui.requestRender();
   }
 
-  private reconcileRejectedHunks(scope: DiffScope, bundleChanged: boolean): void {
+  private pruneInspectOnlyRejectedHunks(scope: ReviewMode, files: ParsedFilePatch[]): boolean {
+    const scopeState = this.rejectedHunks.get(scope);
+    if (!scopeState?.size) return false;
+
+    const inspectOnlyKeys = new Set(files.filter((file) => commentDisabledReason(file)).map((file) => file.fileKey));
+    if (!inspectOnlyKeys.size) return false;
+
+    let changed = false;
+    for (const fileKey of inspectOnlyKeys) {
+      if (!scopeState.delete(fileKey)) continue;
+      changed = true;
+    }
+    if (!changed) return false;
+
+    if (!scopeState.size) this.rejectedHunks.delete(scope);
+    this.markHunkSelectionChanged();
+    return true;
+  }
+
+  private reconcileRejectedHunks(scope: ReviewMode, bundleChanged: boolean): void {
     const scopeState = this.rejectedHunks.get(scope);
     if (!scopeState?.size) return;
     if (bundleChanged) {
@@ -220,13 +344,19 @@ export class DiffReviewApp implements Component, Focusable {
     }
 
     const files = this.scopeStates.get(scope)?.bundle.files ?? [];
-    const validSelections = new Map(files.map((file) => [file.fileKey, new Set(file.changeBlocks.map((block) => block.id))]));
-    let changed = false;
+    const prunedInspectOnly = this.pruneInspectOnlyRejectedHunks(scope, files);
+    const liveScopeState = this.rejectedHunks.get(scope);
+    if (!liveScopeState?.size) return;
 
-    for (const [fileKey, hunkIds] of scopeState.entries()) {
+    const validSelections = new Map(files
+      .filter((file) => !commentDisabledReason(file))
+      .map((file) => [file.fileKey, new Set(file.changeBlocks.map((block) => block.id))]));
+    let changed = prunedInspectOnly;
+
+    for (const [fileKey, hunkIds] of liveScopeState.entries()) {
       const validIds = validSelections.get(fileKey);
       if (!validIds) {
-        scopeState.delete(fileKey);
+        liveScopeState.delete(fileKey);
         changed = true;
         continue;
       }
@@ -236,12 +366,12 @@ export class DiffReviewApp implements Component, Focusable {
         changed = true;
       }
       if (!hunkIds.size) {
-        scopeState.delete(fileKey);
+        liveScopeState.delete(fileKey);
         changed = true;
       }
     }
 
-    if (!scopeState.size) this.rejectedHunks.delete(scope);
+    if (!liveScopeState.size) this.rejectedHunks.delete(scope);
     if (changed) this.markHunkSelectionChanged();
   }
 
@@ -269,7 +399,7 @@ export class DiffReviewApp implements Component, Focusable {
     return spans.length ? `${file.displayPath} ${spans.join(" / ")}` : file.displayPath;
   }
 
-  private rejectedBlocksToastMessage(scope: DiffScope): string | null {
+  private rejectedBlocksToastMessage(scope: ReviewMode): string | null {
     const snapshot = this.rejectedHunkSnapshot(scope);
     const count = countRejectedHunks(snapshot);
     if (!count) return null;
@@ -317,28 +447,6 @@ export class DiffReviewApp implements Component, Focusable {
     return file.rows[Math.max(0, Math.min(file.rows.length - 1, this.diffCursorRow))] ?? null;
   }
 
-  private currentFileSyntaxRows(): { highlightKey: string; highlightedRows: Map<number, string> | null } {
-    const file = this.currentFile();
-    if (!file) return { highlightKey: "plain", highlightedRows: null };
-
-    const language = getLanguageFromPath(file.editablePath ?? file.newPath ?? file.oldPath ?? file.displayPath);
-    const fingerprint = this.currentState().bundle.fingerprint;
-    if (this.syntaxHighlightCache
-      && this.syntaxHighlightCache.scope === this.scope
-      && this.syntaxHighlightCache.fingerprint === fingerprint
-      && this.syntaxHighlightCache.fileKey === file.fileKey
-      && this.syntaxHighlightCache.language === language) {
-      return {
-        highlightKey: language ?? "plain",
-        highlightedRows: this.syntaxHighlightCache.highlighted.size ? this.syntaxHighlightCache.highlighted : null,
-      };
-    }
-
-    const highlighted = highlightFileRows({ file, language, theme: this.theme });
-    this.syntaxHighlightCache = { scope: this.scope, fingerprint, fileKey: file.fileKey, language, highlighted };
-    return { highlightKey: language ?? "plain", highlightedRows: highlighted.size ? highlighted : null };
-  }
-
   private visibleComments(includeAllScopes = false): ReviewComment[] {
     return commentsForScope(this.comments, this.scope, includeAllScopes).slice().sort(compareCommentsByLocation);
   }
@@ -351,17 +459,6 @@ export class DiffReviewApp implements Component, Focusable {
     return sorted.filter((comment) => comment.fileKey === file.fileKey);
   }
 
-  private currentPanelPreviewComments(): ReviewComment[] {
-    if (this.focusMode !== "diff") return [];
-    const file = this.currentFile();
-    const row = this.currentRow();
-    if (!file || !row) return [];
-    return this.comments
-      .filter((comment) => comment.scope === this.scope && comment.fileKey === file.fileKey)
-      .filter((comment) => mapCommentToRow(file, comment) === row.rowIndex)
-      .sort(compareCommentsByLocation);
-  }
-
   private changeSummary(state: ScopeState): { sinceStart: ChangeSummary; sinceLastReload: ChangeSummary } {
     return {
       sinceStart: summarizeFileHashChanges(state.startFileHashes, state.bundle.fileHashes),
@@ -371,16 +468,25 @@ export class DiffReviewApp implements Component, Focusable {
 
   private sourceSummary(state: ScopeState): string | null {
     if (state.bundle.sourceKind !== "turn") return null;
-    const metadata = state.bundle.turnMetadata;
-    if (!metadata) return "last turn (agent-touched)";
-    const repos = metadata.workspace ? metadata.repos?.map((repo) => repo.repo_key).join(", ") : null;
-    const touched = metadata.touched_paths.length;
-    const suffix = [
-      touched ? `${touched} touched path${touched === 1 ? "" : "s"}` : null,
-      repos ? `repos ${repos}` : null,
-      metadata.note ?? null,
-    ].filter(Boolean).join(" · ");
-    return suffix ? `${metadata.review_source} · ${suffix}` : metadata.review_source;
+    return buildTurnSourceSummary(state.bundle.turnMetadata);
+  }
+
+  private warningSummary(state: ScopeState): string | null {
+    const warnings: string[] = [];
+
+    if (Array.isArray(state.bundle.warnings)) {
+      for (const item of state.bundle.warnings) {
+        if (typeof item === "string" && item.trim()) warnings.push(item.trim());
+      }
+    }
+
+    const omitted = state.bundle.turnMetadata?.omitted_paths;
+    if (omitted && typeof omitted === "object") {
+      const count = Object.keys(omitted).length;
+      if (count > 0) warnings.push(`Turn snapshot omitted content for ${count} path${count === 1 ? "" : "s"}.`);
+    }
+
+    return warnings.length ? warnings.join(" ") : null;
   }
 
   private scopeCommentStats(): { counts: Map<string, number>; stale: Set<string> } {
@@ -404,36 +510,6 @@ export class DiffReviewApp implements Component, Focusable {
 
   private fileHasStale(fileKey: string): boolean {
     return this.scopeCommentStats().stale.has(fileKey);
-  }
-
-  private rowMarkersForCurrentFile(): Map<number, string> {
-    const file = this.currentFile();
-    if (!file) return new Map();
-    if (this.rowMarkerCache && this.rowMarkerCache.scope === this.scope && this.rowMarkerCache.fileKey === file.fileKey && this.rowMarkerCache.epoch === this.commentsEpoch) {
-      return this.rowMarkerCache.markers;
-    }
-
-    const grouped = new Map<number, ReviewComment[]>();
-    for (const comment of this.comments) {
-      if (comment.scope !== this.scope || comment.fileKey !== file.fileKey) continue;
-      const rowIndex = mapCommentToRow(file, comment);
-      if (rowIndex == null) continue;
-      const entries = grouped.get(rowIndex) ?? [];
-      entries.push(comment);
-      grouped.set(rowIndex, entries);
-    }
-
-    const markers = new Map<number, string>();
-    for (const [rowIndex, rowComments] of grouped.entries()) {
-      const stale = rowComments.some((comment) => comment.status === "stale_unresolved");
-      const markerBase = stale ? "◇" : "◆";
-      const suffix = rowComments.length > 1 ? "*" : String(rowComments[0]?.ordinal ?? "");
-      const text = `${markerBase}${suffix}`.slice(0, COMMENT_MARKER_WIDTH).padEnd(COMMENT_MARKER_WIDTH, " ");
-      markers.set(rowIndex, stale ? this.theme.fg("error", text) : this.theme.fg("accent", text));
-    }
-
-    this.rowMarkerCache = { scope: this.scope, fileKey: file.fileKey, epoch: this.commentsEpoch, markers };
-    return markers;
   }
 
   private currentViewState() {
@@ -469,11 +545,21 @@ export class DiffReviewApp implements Component, Focusable {
     return describeRangeSelection(this.pendingRangeSelection);
   }
 
+  private unresolvedComments(): ReviewComment[] {
+    return unresolvedCommentsForScope(this.comments, this.scope);
+  }
+
   private toggleCurrentHunkRejected(): void {
     const file = this.currentFile();
     const row = this.currentRow();
     const changeBlockId = row?.changeBlockId ?? null;
     if (!file || !row || !changeBlockId || (row.kind !== "added" && row.kind !== "removed")) return;
+
+    const disabledReason = commentDisabledReason(file);
+    if (disabledReason) {
+      this.callbacks.notify(disabledReason, "info");
+      return;
+    }
 
     const scopeState = this.rejectedHunksForScope(this.scope, true);
     const fileState = scopeState.get(file.fileKey) ?? new Set<string>();
@@ -492,24 +578,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  private openRejectedHunksErrorOverlay(error: string): void {
-    if (this.activeOverlayHandle) return;
-    const close = () => {
-      this.activeOverlayHandle?.hide();
-      this.activeOverlayHandle = null;
-      this.tui.requestRender();
-    };
-    const overlay = new SimpleOverlay({
-      onClose: close,
-      handleInput: (data) => {
-        if (matchesKey(data, "q") || matchesKey(data, Key.enter)) close();
-      },
-      render: (width) => renderRejectedHunksErrorOverlay({ theme: this.theme, width, error }),
-    });
-    this.activeOverlayHandle = this.tui.showOverlay(overlay, { width: "80%", maxHeight: "80%", anchor: "center" });
-  }
-
-  private moveDraftToScope(from: DiffScope, to: DiffScope): void {
+  private moveDraftToScope(from: ReviewMode, to: ReviewMode): void {
     if (from === to) return;
     const targetState = this.scopeStates.get(to);
     if (!targetState) return;
@@ -521,19 +590,94 @@ export class DiffReviewApp implements Component, Focusable {
   }
 
   private async applyRejectedHunksBeforeSubmit(
-    submitScope: DiffScope,
+    submitMode: ReviewMode,
     submitState: ScopeState,
-  ): Promise<{ ok: true; saveScope: DiffScope; saveState: ScopeState; postSubmitSections: string[] } | { ok: false }> {
-    const rejectedHunksByFile = this.rejectedHunkSnapshot(submitScope);
+  ): Promise<{ ok: true; saveMode: ReviewMode; saveState: ScopeState; postSubmitSections: string[] } | { ok: false }> {
+    this.pruneInspectOnlyRejectedHunks(submitMode, submitState.bundle.files);
+    const rejectedHunksByFile = this.rejectedHunkSnapshot(submitMode);
     const rejectedCount = countRejectedHunks(rejectedHunksByFile);
-    if (!rejectedCount) return { ok: true, saveScope: submitScope, saveState: submitState, postSubmitSections: [] };
+    if (!rejectedCount) return { ok: true, saveMode: submitMode, saveState: submitState, postSubmitSections: [] };
 
-    const rejectedSummary = this.rejectedBlocksToastMessage(submitScope);
+    const rejectedSummary = this.rejectedBlocksToastMessage(submitMode);
     const patchText = buildRejectedHunksPatch({ bundle: submitState.bundle, rejectedHunksByFile });
     if (!patchText.trim()) {
-      this.clearRejectedHunks(submitScope);
+      this.clearRejectedHunks(submitMode);
       this.callbacks.notify("Rejected changed-line selections no longer match the current diff. Reload, reselect, then submit again.", "info");
       return { ok: false };
+    }
+
+    const identity = this.repoIdentity();
+
+    if (this.backendKind === "ssh") {
+      const consent = getSshReverseApplyConsent();
+      if (consent !== true) {
+        if (consent === null) {
+          const ok = await this.callbacks.confirm(
+            "Apply rejected hunks on remote?",
+            [
+              "This will run git apply -R on the REMOTE repository working tree to revert the changed blocks you rejected.",
+              "",
+              "This mutates the remote checkout.",
+              "",
+              "Allow this for the rest of this pi session?",
+            ].join("\n"),
+          );
+          setSshReverseApplyConsent(ok);
+          if (!ok) {
+            this.callbacks.notify("Remote reverse-apply not allowed. No changes were reverted.", "info");
+            return { ok: false };
+          }
+        } else {
+          this.callbacks.notify("Remote reverse-apply is disabled for this session. No changes were reverted.", "info");
+          return { ok: false };
+        }
+      }
+
+      let applyResult: Awaited<ReturnType<typeof reverseApplyPatch>>;
+      try {
+        applyResult = await reverseApplyPatch({
+          applyRemote: async (patch) => applyReversePatchViaBackend(this.pi, identity, patch),
+          repoRoot: this.repoRoot,
+          patchText,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.workflows.openRejectedHunksErrorOverlay(
+          [
+            `Remote reverse-apply failed: ${message}`,
+            "",
+            "If the remote operation partially succeeded, do NOT retry blindly.",
+            "Check `git status` / `git diff` on the remote and then reload diff-review.",
+          ].join("\n"),
+        );
+        return { ok: false };
+      }
+      if (!applyResult.ok) {
+        this.workflows.openRejectedHunksErrorOverlay(applyResult.error);
+        return { ok: false };
+      }
+
+      this.clearRejectedHunks(submitMode);
+      const reloadMode: ReviewMode = "a";
+      await this.loadScope(reloadMode);
+      if (reloadMode !== submitMode) this.moveDraftToScope(submitMode, reloadMode);
+
+      const saveMode = reloadMode !== submitMode ? reloadMode : submitMode;
+      const stale = unresolvedCommentsForScope(this.comments, saveMode).filter((comment) => comment.status === "stale_unresolved");
+      if (stale.length) {
+        this.callbacks.notify("Some comments moved off the accepted diff after reverting rejected changed blocks. Resolve or delete them before submitting.", "info");
+        this.workflows.openStaleResolver(() => {
+          void this.workflows.submit();
+        });
+        return { ok: false };
+      }
+
+      const postSubmitSections = [
+        `Reverted ${rejectedCount} rejected changed block${rejectedCount === 1 ? "" : "s"} in the REMOTE working tree via git apply -R${applyResult.strategy === "3way" ? " -3" : ""}${reloadMode !== submitMode ? ` and switched final submit to ${reviewModeName(reloadMode)}` : ""}.`,
+        rejectedSummary ?? "",
+      ].filter((section) => section.trim().length > 0);
+
+      return { ok: true, saveMode, saveState: this.currentState(), postSubmitSections };
     }
 
     const applyResult = await reverseApplyPatch({
@@ -542,31 +686,31 @@ export class DiffReviewApp implements Component, Focusable {
       patchText,
     });
     if (!applyResult.ok) {
-      this.openRejectedHunksErrorOverlay(applyResult.error);
+      this.workflows.openRejectedHunksErrorOverlay(applyResult.error);
       return { ok: false };
     }
 
-    this.clearRejectedHunks(submitScope);
-    const reloadScope: DiffScope = submitScope === "a" ? "a" : "u";
-    await this.loadScope(reloadScope);
-    if (reloadScope !== submitScope) this.moveDraftToScope(submitScope, reloadScope);
+    this.clearRejectedHunks(submitMode);
+    const reloadMode: ReviewMode = "a";
+    await this.loadScope(reloadMode);
+    if (reloadMode !== submitMode) this.moveDraftToScope(submitMode, reloadMode);
 
-    const saveScope = reloadScope !== submitScope ? reloadScope : submitScope;
-    const stale = unresolvedCommentsForScope(this.comments, saveScope).filter((comment) => comment.status === "stale_unresolved");
+    const saveMode = reloadMode !== submitMode ? reloadMode : submitMode;
+    const stale = unresolvedCommentsForScope(this.comments, saveMode).filter((comment) => comment.status === "stale_unresolved");
     if (stale.length) {
       this.callbacks.notify("Some comments moved off the accepted diff after reverting rejected changed blocks. Resolve or delete them before submitting.", "info");
-      this.openStaleResolver(() => {
-        void this.submit();
+      this.workflows.openStaleResolver(() => {
+        void this.workflows.submit();
       });
       return { ok: false };
     }
 
     const postSubmitSections = [
-      `Reverted ${rejectedCount} rejected changed block${rejectedCount === 1 ? "" : "s"} in the working tree via git apply -R${applyResult.strategy === "3way" ? " -3" : ""}${reloadScope !== submitScope ? ` and switched final submit to ${scopeName(reloadScope)}` : ""}.`,
+      `Reverted ${rejectedCount} rejected changed block${rejectedCount === 1 ? "" : "s"} in the working tree via git apply -R${applyResult.strategy === "3way" ? " -3" : ""}${reloadMode !== submitMode ? ` and switched final submit to ${reviewModeName(reloadMode)}` : ""}.`,
       rejectedSummary ?? "",
     ].filter((section) => section.trim().length > 0);
 
-    return { ok: true, saveScope, saveState: this.currentState(), postSubmitSections };
+    return { ok: true, saveMode, saveState: this.currentState(), postSubmitSections };
   }
 
   private moveDiffCursor(direction: 1 | -1, steps = 1): void {
@@ -601,7 +745,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffCursorRow = nearestNavigableRowIndex(file.rows, rowIndex);
   }
 
-  private restoreScopeView(scope: DiffScope, initialize: boolean): void {
+  private restoreScopeView(scope: ReviewMode, initialize: boolean): void {
     const state = this.scopeStates.get(scope);
     if (!state) return;
     const files = state.bundle.files;
@@ -627,7 +771,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffScroll = restoredDiffScroll({ view, restoredRow });
   }
 
-  private async loadScope(scope: DiffScope, initialize = false): Promise<void> {
+  private async loadScope(scope: ReviewMode, initialize = false): Promise<void> {
     if (!initialize) this.rememberCurrentViewState();
     this.loadingMessage = `Loading ${scope} diff…`;
     this.pendingRangeSelection = null;
@@ -635,8 +779,18 @@ export class DiffReviewApp implements Component, Focusable {
 
     const previous = this.scopeStates.get(scope);
     const previousFingerprint = previous?.bundle.fingerprint ?? null;
-    const bundle = await getDiffBundle(this.pi, this.repoRoot, scope, { sessionId: this.sessionId });
-    if (scope === "t" && !bundle.files.length && !initialize && this.scope !== "t") {
+
+    let bundle: DiffBundle;
+    try {
+      bundle = await getDiffBundle(this.pi, this.repoIdentity(), scope, { sessionId: this.sessionId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.loadingMessage = "";
+      this.callbacks.notify(`Failed to load ${reviewModeName(scope)} diff: ${message}`, "error");
+      this.tui.requestRender();
+      return;
+    }
+    if (scope === "t" && !bundle.files.length && !initialize) {
       this.loadingMessage = "";
       this.callbacks.notify(bundle.turnMetadata?.note || "No last-turn agent-touched diff is available for this session.", "info");
       this.tui.requestRender();
@@ -655,7 +809,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  private revalidateComments(scope: DiffScope): void {
+  private revalidateComments(scope: ReviewMode): void {
     const state = this.scopeStates.get(scope);
     if (!state) return;
     this.setComments(this.comments.map((comment) => {
@@ -666,480 +820,18 @@ export class DiffReviewApp implements Component, Focusable {
 
   private async reloadCurrentScope(): Promise<void> {
     await this.loadScope(this.scope);
-    this.callbacks.notify(`Reloaded ${scopeName(this.scope)} diff.`, "info");
+    this.callbacks.notify(`Reloaded ${reviewModeName(this.scope)} diff.`, "info");
   }
 
-  private async switchScope(scope: DiffScope): Promise<void> {
+  private async switchMode(scope: ReviewMode): Promise<void> {
     if (scope === this.scope) return;
     await this.loadScope(scope);
-  }
-
-  private openHelpOverlay(): void {
-    if (this.activeOverlayHandle) return;
-    const close = () => {
-      this.activeOverlayHandle?.hide();
-      this.activeOverlayHandle = null;
-    };
-    const overlay = new SimpleOverlay({ onClose: close, render: (width) => renderHelpOverlay(this.theme, width) });
-    this.activeOverlayHandle = this.tui.showOverlay(overlay, { width: "80%", maxHeight: "70%", anchor: "center" });
-  }
-
-  private openCommentEditor({
-    title,
-    contextLabel,
-    snippetLines,
-    prefill,
-    emptySubmitHint,
-    onSubmit,
-  }: {
-    title: string;
-    contextLabel?: string;
-    snippetLines?: string[];
-    prefill?: string;
-    emptySubmitHint?: string;
-    onSubmit: (value: string) => void;
-  }): void {
-    if (this.activeOverlayHandle) return;
-    const close = () => {
-      this.activeOverlayHandle?.hide();
-      this.activeOverlayHandle = null;
-    };
-
-    const editor = new CommentEditorOverlay({
-      tui: this.tui,
-      theme: this.theme,
-      keybindings: this.keybindings,
-      title,
-      contextLabel,
-      snippetLines,
-      prefill,
-      emptySubmitHint,
-      onSubmit: (value) => {
-        close();
-        onSubmit(value);
-      },
-      onCancel: close,
-    });
-
-    this.activeOverlayHandle = this.tui.showOverlay(editor, { width: "60%", maxHeight: "75%", anchor: "center" });
-  }
-
-  private openEditCommentOverlay(comment: ReviewComment): void {
-    this.openCommentEditor({
-      title: `Edit comment #${comment.ordinal}`,
-      contextLabel: formatCommentLocation(comment),
-      snippetLines: editorSnippetForExisting(comment),
-      prefill: comment.body,
-      emptySubmitHint: "empty submit deletes this comment",
-      onSubmit: (value) => {
-        this.setComments(updateCommentBody(this.comments, comment.id, value));
-        this.tui.requestRender();
-      },
-    });
-  }
-
-  private createCommentFlow(kind: "line" | "range" | "file", selection?: RangeSelection | null): void {
-    const file = this.currentFile();
-    const row = this.currentRow();
-    if (!file || !row) return;
-    if (kind !== "file" && row.kind === "meta" && !row.hunkId) {
-      return;
-    }
-
-    const existing = findCommentAtTarget({ comments: this.comments, file, row, kind, scope: this.scope, selection });
-    const noun = kind === "line" ? "line" : kind === "range" ? "range" : "file";
-    const title = existing ? `Update ${noun} comment` : `${noun[0].toUpperCase()}${noun.slice(1)} comment`;
-
-    this.openCommentEditor({
-      title,
-      contextLabel: describeCommentTarget(file, row, kind, selection),
-      snippetLines: editorSnippetForDraft({ file, row, kind, selection }),
-      prefill: existing?.body,
-      emptySubmitHint: existing ? "empty submit deletes the existing comment" : "empty submit skips creating a comment",
-      onSubmit: (value) => {
-        const trimmed = value.trim();
-        if (existing) {
-          this.setComments(updateCommentBody(this.comments, existing.id, trimmed));
-          this.tui.requestRender();
-          return;
-        }
-        if (!trimmed) return;
-        const comment = createComment({ comments: this.comments, file, row, kind, scope: this.scope, body: trimmed, selection });
-        this.setComments([...this.comments, comment]);
-        this.pendingRangeSelection = null;
-        this.tui.requestRender();
-      },
-    });
-  }
-
-  private editOverallComment(): void {
-    this.openCommentEditor({
-      title: "Overall comment",
-      contextLabel: `review scope: ${scopeDisplay(this.scope)}`,
-      prefill: this.overallComments[this.scope] || "",
-      emptySubmitHint: "empty submit clears the overall comment",
-      onSubmit: (value) => {
-        this.overallComments[this.scope] = value.trim();
-        this.tui.requestRender();
-      },
-    });
-  }
-
-  private jumpToComment(comment: ReviewComment): void {
-    const state = this.scopeStates.get(comment.scope);
-    if (!state) return;
-    this.scope = comment.scope;
-    const fileIndex = state.bundle.files.findIndex((file) => file.fileKey === comment.fileKey);
-    if (fileIndex < 0) return;
-    this.selectedFileIndex = fileIndex;
-    this.syntaxHighlightCache = null;
-    const file = state.bundle.files[fileIndex];
-    const rowIndex = mapCommentToRow(file, comment);
-    if (rowIndex != null) this.setCursorToRow(rowIndex);
-    this.focusMode = "diff";
-    this.pendingRangeSelection = null;
-    this.tui.requestRender();
-  }
-
-  private openCommentsOverlay(initialComments?: ReviewComment[], title = "comments", locationLabel?: string): void {
-    if (this.activeOverlayHandle) return;
-    let showAllScopes = !initialComments;
-    let index = 0;
-    let scroll = 0;
-    let localComments = initialComments ? [...initialComments] : null;
-
-    const getComments = () => localComments ?? this.visibleComments(showAllScopes);
-    const close = () => {
-      this.activeOverlayHandle?.hide();
-      this.activeOverlayHandle = null;
-      this.tui.requestRender();
-    };
-
-    const overlay = new SimpleOverlay({
-      onClose: close,
-      handleInput: (data) => {
-        const comments = getComments();
-        if (!initialComments && matchesKey(data, "t")) {
-          showAllScopes = !showAllScopes;
-          index = 0;
-          scroll = 0;
-          this.tui.requestRender();
-          return;
-        }
-        if (!comments.length) return;
-        if (matchesKey(data, "j") || matchesKey(data, Key.down)) {
-          index = Math.min(comments.length - 1, index + 1);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "k") || matchesKey(data, Key.up)) {
-          index = Math.max(0, index - 1);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, Key.enter)) {
-          const selected = comments[index];
-          close();
-          this.jumpToComment(selected);
-          return;
-        }
-        if (matchesKey(data, "d")) {
-          const selected = comments[index];
-          if (!selected) return;
-          this.setComments(removeCommentById(this.comments, selected.id));
-          if (localComments) localComments = localComments.filter((comment) => comment.id !== selected.id);
-          index = Math.max(0, Math.min(index, comments.length - 2));
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "e")) {
-          const selected = comments[index];
-          if (!selected) return;
-          close();
-          this.openEditCommentOverlay(selected);
-        }
-      },
-      render: (width) => {
-        const comments = getComments();
-        if (initialComments) {
-          return renderPeekCommentsOverlay({
-            theme: this.theme,
-            width,
-            locationLabel: locationLabel ?? title,
-            comments,
-            index,
-          });
-        }
-        const rendered = renderCommentsOverlay({
-          theme: this.theme,
-          width,
-          terminalRows: this.tui.terminal.rows,
-          scope: this.scope,
-          showAllScopes,
-          comments,
-          index,
-          scroll,
-        });
-        scroll = rendered.scroll;
-        return rendered.lines;
-      },
-    });
-
-    this.activeOverlayHandle = this.tui.showOverlay(overlay, { width: initialComments ? "55%" : "50%", maxHeight: "80%", anchor: "center" });
-  }
-
-  private openPeekCommentsOverlay(): void {
-    const file = this.currentFile();
-    const row = this.currentRow();
-    if (!file || !row) return;
-    const comments = commentsAtLocation({ comments: this.comments, file, row, scope: this.scope });
-    const line = row.kind === "removed" ? row.oldLine : row.newLine;
-    const side = row.kind === "removed" ? "a" : "b";
-    const locationLabel = `${file.displayPath}:${side}${line ?? "?"}`;
-    this.openCommentsOverlay(comments, "comments at cursor", locationLabel);
-  }
-
-  private unresolvedComments(): ReviewComment[] {
-    return unresolvedCommentsForScope(this.comments, this.scope);
-  }
-
-  private openStaleResolver(onResolved: () => void): void {
-    if (this.activeOverlayHandle) return;
-    let staleIndex = 0;
-    const close = () => {
-      this.activeOverlayHandle?.hide();
-      this.activeOverlayHandle = null;
-      this.tui.requestRender();
-    };
-
-    const overlay = new SimpleOverlay({
-      onClose: close,
-      handleInput: (data) => {
-        const stale = this.unresolvedComments();
-        if (!stale.length) {
-          close();
-          onResolved();
-          return;
-        }
-        const current = stale[Math.max(0, Math.min(stale.length - 1, staleIndex))];
-        const key = printableChar(data);
-        if (key && /^[1-9]$/.test(key)) {
-          const nextComments = applyCandidateRemap({ comments: this.comments, comment: current, candidateIndex: Number.parseInt(key, 10) - 1 });
-          if (nextComments) this.setComments(nextComments);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "a")) {
-          const file = this.currentFile();
-          const row = this.currentRow();
-          const nextComments = file && row ? resolveCommentAtCursor({ comments: this.comments, comment: current, file, row, downgrade: "line" }) : null;
-          if (nextComments) this.setComments(nextComments);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "h")) {
-          const file = this.currentFile();
-          const row = this.currentRow();
-          const selection = this.currentRangeSelection() ?? (file && row ? autoChunkSelection(file, row.rowIndex) : null);
-          const nextComments = file && row ? resolveCommentAtCursor({ comments: this.comments, comment: current, file, row, downgrade: "range", selection }) : null;
-          if (nextComments) this.setComments(nextComments);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "f")) {
-          const file = this.currentFile();
-          const row = this.currentRow();
-          const nextComments = file && row ? resolveCommentAtCursor({ comments: this.comments, comment: current, file, row, downgrade: "file" }) : null;
-          if (nextComments) this.setComments(nextComments);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "d")) {
-          this.setComments(removeCommentById(this.comments, current.id));
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "j") || matchesKey(data, Key.down)) {
-          staleIndex = Math.min(stale.length - 1, staleIndex + 1);
-          this.tui.requestRender();
-          return;
-        }
-        if (matchesKey(data, "k") || matchesKey(data, Key.up)) {
-          staleIndex = Math.max(0, staleIndex - 1);
-          this.tui.requestRender();
-        }
-      },
-      render: (width) => {
-        const stale = this.unresolvedComments();
-        const current = stale[Math.max(0, Math.min(stale.length - 1, staleIndex))] ?? null;
-        return renderStaleResolverOverlay({ theme: this.theme, width, current, staleIndex, staleCount: stale.length });
-      },
-    });
-
-    this.activeOverlayHandle = this.tui.showOverlay(overlay, { width: "95%", maxHeight: "95%", anchor: "center" });
-  }
-
-  private async openEditor(lineTargeted: boolean): Promise<void> {
-    const file = this.currentFile();
-    if (!file) return;
-    if (!file.editablePath) {
-      this.callbacks.notify("Deleted files cannot be opened for editing.", "info");
-      return;
-    }
-
-    const result = openExternalEditor({
-      tui: this.tui,
-      repoRoot: this.repoRoot,
-      relativePath: file.editablePath,
-      line: editorLineForRow(this.currentRow(), lineTargeted),
-      lineTargeted,
-    });
-
-    if (result.status != null && result.status !== 0) {
-      this.callbacks.notify(`Editor exited with status ${result.status}.`, "info");
-    }
-
-    await this.reloadCurrentScope();
-  }
-
-  private async submit(): Promise<void> {
-    const submitScope = this.scope;
-    const stale = this.unresolvedComments();
-    if (stale.length) {
-      this.openStaleResolver(() => {
-        void this.submit();
-      });
-      return;
-    }
-
-    const submitState = this.currentState();
-    const applyResult = await this.applyRejectedHunksBeforeSubmit(submitScope, submitState);
-    if (!applyResult.ok) return;
-
-    const state = applyResult.saveState;
-    const saveScope = applyResult.saveScope;
-    const saved = saveScopedReview({
-      repoRoot: this.repoRoot,
-      sessionId: this.sessionId,
-      state,
-      scope: saveScope,
-      overallComment: this.overallComments[saveScope] || "",
-      comments: this.comments,
-      changes: this.changeSummary(state),
-    });
-
-    this.setComments(saved.allComments);
-    const generatedPrompt = shouldGenerateCompactPrompt({
-      overallComment: this.overallComments[saveScope] || "",
-      scopedComments: saved.scopedComments,
-    });
-    if (generatedPrompt) this.callbacks.setEditorText(saved.saved.compactPrompt);
-    const notice = savedReviewMessage(saved.saved, applyResult.postSubmitSections, { generatedPrompt });
-    this.callbacks.notify(notice.message, notice.type);
-    this.finish({ submitted: true, outputPath: saved.saved.outputPath });
   }
 
   private finish(result: { submitted: boolean; outputPath?: string }): void {
     if (this.closing) return;
     this.closing = true;
     this.callbacks.done(result);
-  }
-
-  private toggleRangeSelection(): void {
-    const file = this.currentFile();
-    const row = this.currentRow();
-    if (!file || !row) return;
-    if (row.kind === "meta" && !row.hunkId) {
-      return;
-    }
-
-    const current = this.currentRangeSelection();
-    if (!current) {
-      const side = row.kind === "removed" ? "old" : "new";
-      this.pendingRangeSelection = {
-        fileKey: file.fileKey,
-        displayPath: file.displayPath,
-        side,
-        startRowIndex: row.rowIndex,
-        endRowIndex: row.rowIndex,
-        startLine: side === "old" ? row.oldLine ?? null : row.newLine ?? null,
-        endLine: side === "old" ? row.oldLine ?? null : row.newLine ?? null,
-      };
-      this.callbacks.notify(`Range start set at ${describeRangeSelection(this.pendingRangeSelection) ?? file.displayPath}. Press x again to finish and comment.`, "info");
-      this.tui.requestRender();
-      return;
-    }
-
-    const completed: RangeSelection = {
-      ...current,
-      endRowIndex: row.rowIndex,
-      endLine: current.side === "old" ? row.oldLine ?? current.endLine : row.newLine ?? current.endLine,
-    };
-    this.pendingRangeSelection = completed;
-    this.createCommentFlow("range", completed);
-  }
-
-  private openAutoRangeComment(): void {
-    this.pendingRangeSelection = null;
-    this.createCommentFlow("range");
-  }
-
-  private commentSortPath(comment: ReviewComment): string {
-    return comment.editablePath ?? comment.newPath ?? comment.oldPath ?? comment.displayPath;
-  }
-
-  private commentSortLine(comment: ReviewComment): number {
-    return comment.anchor.applyStartLine ?? comment.anchor.applyLine ?? comment.anchor.startLine ?? comment.anchor.line ?? Number.MAX_SAFE_INTEGER;
-  }
-
-  private jumpAdjacentComment(direction: 1 | -1, fileOnly: boolean): void {
-    const comments = this.scopedNavigationComments(fileOnly);
-    if (!comments.length) {
-      this.callbacks.notify(fileOnly ? "No comments in this file." : "No comments in this scope.", "info");
-      return;
-    }
-
-    const file = this.currentFile();
-    const row = this.currentRow();
-    const currentPath = file ? (file.editablePath ?? file.newPath ?? file.oldPath ?? file.displayPath) : "";
-    const currentLine = row ? (row.newLine ?? row.oldLine ?? 0) : 0;
-    const ahead = comments.filter((comment) => {
-      const path = this.commentSortPath(comment);
-      const line = this.commentSortLine(comment);
-      return direction === 1
-        ? path > currentPath || (path === currentPath && line > currentLine)
-        : path < currentPath || (path === currentPath && line < currentLine);
-    });
-
-    const target = direction === 1
-      ? (ahead[0] ?? comments[0])
-      : (ahead[ahead.length - 1] ?? comments[comments.length - 1]);
-    this.jumpToComment(target);
-  }
-
-  private jumpCommentFile(staleOnly: boolean): void {
-    const files = this.currentFiles();
-    const targetIndex = nextFileIndexMatching({
-      files,
-      selectedFileIndex: this.selectedFileIndex,
-      predicate: (fileKey) => staleOnly ? this.fileHasStale(fileKey) : this.fileCommentCount(fileKey) > 0,
-    });
-    if (targetIndex == null) {
-      this.callbacks.notify(staleOnly ? "No files with stale comments in this scope." : "No files with comments in this scope.", "info");
-      return;
-    }
-    this.selectedFileIndex = targetIndex;
-    this.syntaxHighlightCache = null;
-    const file = files[targetIndex];
-    const firstComment = this.scopedNavigationComments(true).find((comment) => comment.fileKey === file.fileKey) ?? null;
-    if (firstComment) {
-      const rowIndex = mapCommentToRow(file, firstComment);
-      if (rowIndex != null) this.setCursorToRow(rowIndex);
-    } else {
-      this.setCursorToRow(0);
-    }
-    this.focusMode = "diff";
-    this.tui.requestRender();
   }
 
   handleInput(data: string): void {
@@ -1155,7 +847,7 @@ export class DiffReviewApp implements Component, Focusable {
         this.tui.requestRender();
         return;
       case "openHelp":
-        this.openHelpOverlay();
+        this.workflows.openHelpOverlay();
         return;
       case "togglePerf":
         this.perfEnabled = !this.perfEnabled;
@@ -1169,7 +861,7 @@ export class DiffReviewApp implements Component, Focusable {
         return;
       case "createLineComment":
         this.pendingRangeSelection = null;
-        this.createCommentFlow("line");
+        this.workflows.createCommentFlow("line");
         return;
       case "quit":
         if (this.pendingRangeSelection) {
@@ -1179,45 +871,45 @@ export class DiffReviewApp implements Component, Focusable {
         }
         this.finish({ submitted: false });
         return;
-      case "switchScope":
-        void this.switchScope(action.scope);
+      case "switchMode":
+        void this.switchMode(action.mode);
         return;
       case "reloadScope":
         void this.reloadCurrentScope();
         return;
       case "openComments":
-        this.openCommentsOverlay();
+        this.workflows.openCommentsOverlay();
         return;
       case "peekCommentsAtCursor":
-        this.openPeekCommentsOverlay();
+        this.workflows.openPeekCommentsOverlay();
         return;
       case "createRangeComment":
-        this.openAutoRangeComment();
+        this.workflows.openAutoRangeComment();
         return;
       case "toggleRangeSelection":
-        this.toggleRangeSelection();
+        this.workflows.toggleRangeSelection();
         return;
       case "createFileComment":
         this.pendingRangeSelection = null;
-        this.createCommentFlow("file");
+        this.workflows.createCommentFlow("file");
         return;
       case "editOverallComment":
-        this.editOverallComment();
+        this.workflows.editOverallComment();
         return;
       case "openEditor":
-        void this.openEditor(action.lineTargeted);
+        void this.workflows.openEditor(action.lineTargeted);
         return;
       case "submit":
-        void this.submit();
+        void this.workflows.submit();
         return;
       case "toggleHunkRejected":
         this.toggleCurrentHunkRejected();
         return;
       case "jumpComment":
-        this.jumpAdjacentComment(action.direction, action.fileOnly);
+        this.workflows.jumpAdjacentComment(action.direction, action.fileOnly);
         return;
       case "jumpCommentFile":
-        this.jumpCommentFile(action.staleOnly);
+        this.workflows.jumpCommentFile(action.staleOnly);
         return;
       case "moveFile": {
         const nextIndex = Math.max(0, Math.min(this.currentFiles().length - 1, this.selectedFileIndex + action.direction));
@@ -1241,143 +933,7 @@ export class DiffReviewApp implements Component, Focusable {
     }
   }
 
-  private renderFileList(width: number, height: number): string[] {
-    const files = this.currentFiles();
-    this.ensureFileVisible(height);
-    return renderFileList({
-      theme: this.theme,
-      files,
-      width,
-      height,
-      fileScroll: this.fileScroll,
-      selectedFileIndex: this.selectedFileIndex,
-      statusLetter: (status) => statusLetter(this.theme, status),
-      fileCommentCount: (fileKey) => this.fileCommentCount(fileKey),
-      fileHasStale: (fileKey) => this.fileHasStale(fileKey),
-    });
-  }
-
-  private renderCommentPanel(width: number, height: number): string[] {
-    const previewComments = this.currentPanelPreviewComments();
-    if (previewComments.length) {
-      return renderCommentInfoPanel({
-        theme: this.theme,
-        width,
-        height,
-        view: {
-          kind: "preview",
-          scope: this.scope,
-          comments: previewComments,
-        },
-      });
-    }
-
-    if (this.focusMode === "files") {
-      return renderCommentInfoPanel({
-        theme: this.theme,
-        width,
-        height,
-        view: {
-          kind: "session",
-          scope: this.scope,
-          comments: this.comments,
-          overallComments: this.overallComments,
-        },
-      });
-    }
-
-    const file = this.currentFile();
-    return renderCommentInfoPanel({
-      theme: this.theme,
-      width,
-      height,
-      view: {
-        kind: "file",
-        scope: this.scope,
-        file,
-        comments: file ? this.comments.filter((comment) => comment.scope === this.scope && comment.fileKey === file.fileKey) : [],
-      },
-    });
-  }
-
-  private renderDiffRows(width: number, height: number): string[] {
-    const file = this.currentFile();
-    if (!file) {
-      return Array.from({ length: height }, () => padLine(this.theme.fg("muted", "(no diff)"), width));
-    }
-
-    const startedAt = this.perfEnabled ? performance.now() : 0;
-    this.ensureDiffVisible(height);
-    const { highlightKey, highlightedRows } = this.currentFileSyntaxRows();
-    const rendered = renderDiffRows({
-      theme: this.theme,
-      scope: this.scope,
-      fingerprint: this.currentState().bundle.fingerprint,
-      file,
-      width,
-      height,
-      commentsEpoch: this.commentsEpoch,
-      hunkSelectionEpoch: this.hunkSelectionEpoch,
-      highlightKey,
-      diffCursorRow: this.diffCursorRow,
-      diffScroll: this.diffScroll,
-      rowMarkers: this.rowMarkersForCurrentFile(),
-      rejectedHunkIds: this.currentFileRejectedHunks(),
-      highlightedRows,
-      rowCache: this.diffRowRenderCache,
-      viewportCache: this.diffViewportCache,
-    });
-    this.diffRowRenderCache = rendered.rowCache;
-    this.diffViewportCache = rendered.viewportCache;
-    this.diffScroll = rendered.diffScroll;
-    this.recordPerf("visibleRows", Math.max(0, Math.min(height, file.rows.length - this.diffScroll)));
-    this.recordPerf("diffRows", performance.now() - startedAt);
-    return rendered.lines;
-  }
-
   render(width: number): string[] {
-    const startedAt = this.perfEnabled ? performance.now() : 0;
-    if (width < MIN_WIDTH) {
-      const lines = renderStatusShell({
-        theme: this.theme,
-        width,
-        title: "π Diff Review",
-        message: `terminal too narrow for diff review UI (need >= ${MIN_WIDTH} columns)`,
-        messageColor: "error",
-      });
-      this.recordPerf("render", performance.now() - startedAt);
-      return lines;
-    }
-
-    if (this.loadingMessage) {
-      const lines = renderStatusShell({ theme: this.theme, width, title: "π Diff Review", message: this.loadingMessage });
-      this.recordPerf("render", performance.now() - startedAt);
-      return lines;
-    }
-
-    const state = this.currentState();
-    const lines = renderAppShell({
-      theme: this.theme,
-      width,
-      terminalRows: this.tui.terminal.rows,
-      repoRoot: this.repoRoot,
-      scope: this.scope,
-      headLabel: state.startHead ? state.startHead.slice(0, 7) : "(none)",
-      scopedCommentCount: commentsForSubmission(this.comments, this.scope).scopedComments.length,
-      staleCount: this.unresolvedComments().length,
-      lastReload: this.lastReloadTimestamp || state.lastReloadAt,
-      focusMode: this.focusMode,
-      diffTitle: this.currentFile()?.displayPath ?? "Diff",
-      perfEnabled: this.perfEnabled,
-      perfSummary: this.perfSummary(Math.max(20, width - 2)),
-      sourceSummary: this.sourceSummary(state),
-      selectionSummary: this.selectionSummary(),
-      filePanePreferredBodyHeight: Math.max(1, this.currentFiles().length || 1),
-      renderFileList: (paneWidth, bodyHeight) => this.renderFileList(paneWidth, bodyHeight),
-      renderCommentPanel: (paneWidth, bodyHeight) => this.renderCommentPanel(paneWidth, bodyHeight),
-      renderDiffRows: (paneWidth, bodyHeight) => this.renderDiffRows(paneWidth, bodyHeight),
-    });
-    this.recordPerf("render", performance.now() - startedAt);
-    return lines;
+    return this.rendering.render(width);
   }
 }

@@ -3,7 +3,7 @@ name: skill-authoring
 description: |
   Use when: creating a new skill or significantly revising an existing skill (routing text, workflow, templates/scripts/examples).
   Don’t use when: you’re just executing an existing workflow (use that workflow’s skill instead).
-  Outputs: an updated skill folder with routing-grade frontmatter + a short SKILL.md + any needed templates/examples/scripts + at least one verification step.
+  Outputs: an updated skill folder with routing-grade frontmatter, a short SKILL.md, any needed templates/examples/scripts, and at least one verification step.
 ---
 
 # skill-authoring
@@ -34,7 +34,7 @@ Design for progressive disclosure:
 - Write `description` as a routing contract:
   - Use when … *(be elaborate: triggers, phrases Tan might say, scope boundaries, preconditions)*
   - Don’t use when … *(name nearby alternatives and where to route instead)*
-  - Outputs … *(concrete artifacts + success criteria)*
+  - Outputs … *(exactly one sentence covering concrete artifacts + success criteria)*
 - Be explicit enough that another agent can route without guessing. Model it after strong examples like `conductor` and `pi-architecture`.
 
 3) **Body (workflow)**
@@ -46,6 +46,10 @@ Design for progressive disclosure:
 - `templates/`: starting points to copy/paste
 - `examples/`: worked outputs
 - `scripts/`: deterministic helpers + smoke tests
+
+If a helper is reusable across repos or future sessions, put the canonical logic in the owning skill's `scripts/` directory. Repo-local wrappers are fine for convenience, but they should delegate to the skill script instead of duplicating logic.
+
+When a skill defines a naming/layout convention that has a tool-level constraint, say both parts explicitly. Example: for `lat-md`, the canonical root document lives at `lat-md/index.md`; if the current CLI still needs legacy `lat.md` paths, hide that behind helper wrappers instead of checking aliases into the repo.
 
 Avoid dumping extra docs into the skill folder (README/quickref/changelog). Put only what’s needed to execute.
 

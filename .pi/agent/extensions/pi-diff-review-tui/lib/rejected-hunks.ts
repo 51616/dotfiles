@@ -257,15 +257,40 @@ function summarizeApplyFailure(directCheckError: string, threeWayCheckError: str
 
 export async function reverseApplyPatch({
   pi,
+  applyRemote,
   repoRoot,
   patchText,
 }: {
-  pi: Pick<ExtensionAPI, "exec">;
+  pi?: Pick<ExtensionAPI, "exec">;
+  applyRemote?: (patch: string) => Promise<{ ok: boolean; strategyUsed: "direct" | "3way" | null; output: string }>;
   repoRoot: string;
   patchText: string;
 }): Promise<ReverseApplyPatchResult> {
   const patch = patchText.replace(/\r\n/g, "\n").trim();
   if (!patch) return { ok: true, strategy: "direct" };
+
+  if (applyRemote) {
+    const res = await applyRemote(`${patch}\n`);
+    if (res.ok) {
+      return { ok: true, strategy: res.strategyUsed === "3way" ? "3way" : "direct" };
+    }
+    const output = truncateApplyOutput(res.output || "");
+    return {
+      ok: false,
+      error: summarizeApplyFailure(output || "(no remote git diagnostics)", output || "(no remote git diagnostics)"),
+      directCheckError: output || "(no remote git diagnostics)",
+      threeWayCheckError: output || "(no remote git diagnostics)",
+    };
+  }
+
+  if (!pi) {
+    return {
+      ok: false,
+      error: "No apply backend available.",
+      directCheckError: "(missing backend)",
+      threeWayCheckError: "(missing backend)",
+    };
+  }
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-diff-review-apply-"));
   const patchPath = path.join(tempDir, "rejected.patch");

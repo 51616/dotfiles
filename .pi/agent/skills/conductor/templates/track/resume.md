@@ -26,7 +26,7 @@ Track id: `<track_id>`
 - 
 
 ## Accepted behaviors currently in scope
-(List the behaviors / scenarios from `spec.md` that the current session should stay aligned with.)
+(List the behaviors / scenarios from `spec.md` that the current session should stay aligned with. Include the current “scenario → proof” mapping when it helps prevent test/spec drift.)
 - 
 
 ## Decisions / non-goals

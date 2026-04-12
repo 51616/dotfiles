@@ -60,7 +60,8 @@ test("brackets move between contiguous changed chunks in diff focus", () => {
 });
 
 test("phase 11 shortcuts map to range, peek, and comment navigation actions", () => {
-  assert.deepEqual(resolveInputAction({ data: "t", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "switchScope", scope: "t" });
+  assert.deepEqual(resolveInputAction({ data: "t", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "switchMode", mode: "t" });
+  assert.deepEqual(resolveInputAction({ data: "a", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "switchMode", mode: "a" });
   assert.deepEqual(resolveInputAction({ data: "v", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "peekCommentsAtCursor" });
   assert.deepEqual(resolveInputAction({ data: "h", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "createRangeComment" });
   assert.deepEqual(resolveInputAction({ data: "x", focusMode: "diff", hasFile: true, bodyHeight: 10 }), { type: "toggleRangeSelection" });

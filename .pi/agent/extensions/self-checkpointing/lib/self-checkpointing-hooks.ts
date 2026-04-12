@@ -1,6 +1,4 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { hasTrailingCheckpointNowStamp } from "../../lib/autockpt/autockpt-context-stamp.ts";
-import { assistantTextFromContent } from "../../lib/autockpt/autockpt-footer-guards.ts";
 import type { FooterHandledRecord } from "../../lib/autockpt/autockpt-footer-dedupe.ts";
 import {
   clearCheckpointCycleState,
@@ -11,6 +9,7 @@ import type { PendingResumeController } from "./self-checkpointing-pending-resum
 import type { AutotestController } from "./self-checkpointing-autotest.ts";
 import { cleanupStaleCompactionLocksInStateDir } from "./self-checkpointing-lock-sweep.ts";
 import { handleAssistantMessageEnd } from "./self-checkpointing-footer-handler.ts";
+import type { CheckpointProbe } from "./self-checkpointing-checkpoint-probe.ts";
 
 type SessionStoreDeps = {
   cleanupLockOnSessionStart: (ctx: ExtensionContext) => void;
@@ -26,6 +25,7 @@ export type SelfCheckpointingHookDeps = {
   debugWidgetAuto: boolean;
   maxCheckpointAgeMs: number;
   footerDedupeWindowMs: number;
+  checkpointProbe: CheckpointProbe;
 
   autoKick: AutoKickController;
   pendingResume: PendingResumeController;
@@ -54,6 +54,7 @@ export type SelfCheckpointingHookDeps = {
 
   pushDebug: (ctx: ExtensionContext, line: string) => void;
   setStatus: (ctx: ExtensionContext, text?: string) => void;
+  clearCompactionLoader: (ctx: ExtensionContext) => void;
   isDebugEnabled: () => boolean;
 };
 
@@ -81,6 +82,7 @@ export function registerSelfCheckpointingHooks(
 
     deps.sessionStore.cleanupLockOnSessionStart(ctx);
 
+    deps.clearCompactionLoader(ctx);
     clearCheckpointCycleState(ctx);
     deps.setStatus(ctx, undefined);
     deps.pushDebug(ctx, "session_start");
@@ -123,6 +125,7 @@ export function registerSelfCheckpointingHooks(
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    deps.clearCompactionLoader(ctx);
     deps.sessionStore.cleanupLockOnShutdown(ctx);
     clearCheckpointCycleState(ctx);
 
@@ -135,6 +138,7 @@ export function registerSelfCheckpointingHooks(
   });
 
   pi.on("session_compact", (_event, ctx) => {
+    deps.clearCompactionLoader(ctx);
     if (!deps.getPendingCompactionRequested()) return;
 
     deps.pushDebug(ctx, "session_compact observed (autockpt); clearing pending compaction and resuming");
@@ -176,6 +180,10 @@ export function registerSelfCheckpointingHooks(
     deps.updateArmedStatus(ctx);
   });
 
+  pi.on("tool_call", (_event, _ctx) => {
+    deps.autoKick.noteToolCall();
+  });
+
   pi.on("tool_result", (event, ctx) => {
     try {
       if (deps.autoKick.isInFlight()) {
@@ -193,12 +201,8 @@ export function registerSelfCheckpointingHooks(
         const threshold = deps.getThresholdPercent();
         const aboveThreshold = pct !== null && pct !== undefined && pct >= threshold;
 
-        const text = assistantTextFromContent((event as any)?.content);
-        const sawStampMarker = hasTrailingCheckpointNowStamp(text);
-
-        if (sawStampMarker || aboveThreshold) {
-          const reason = sawStampMarker ? "stamp_seen_tool_result" : "threshold_tool_result";
-          deps.autoKick.start(ctx, reason);
+        if (aboveThreshold) {
+          deps.autoKick.start(ctx, "threshold_tool_result");
         }
       }
     } catch {
@@ -221,6 +225,7 @@ export function registerSelfCheckpointingHooks(
         getThresholdPercent: deps.getThresholdPercent,
         maxCheckpointAgeMs: deps.maxCheckpointAgeMs,
         footerDedupeWindowMs: deps.footerDedupeWindowMs,
+        checkpointProbe: deps.checkpointProbe,
         ensureCompactionLock: deps.sessionStore.ensureCompactionLock,
         setCheckpointCycleActive: deps.setCheckpointCycleActive,
         pushDebug: deps.pushDebug,

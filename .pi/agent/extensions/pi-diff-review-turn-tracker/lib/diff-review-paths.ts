@@ -29,18 +29,24 @@ export function safeSessionDirName(cwd: string): string {
 
 export function diffReviewCandidateRoots({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  /** Stable identifier used only for local storage paths. Defaults to repoRoot. */
+  scopeKey?: string;
+  /** Whether repo-local writes (repoRoot/.pi/diff-review) are allowed. */
+  allowRepoRoot?: boolean;
   tmpRoot?: string;
   agentDir?: string;
-}): { tmp: string; home: string; repo: string } {
-  const safe = safeSessionDirName(repoRoot);
+}): { tmp: string; home: string; repo?: string } {
+  const safe = safeSessionDirName(scopeKey ?? repoRoot);
   return {
     tmp: path.join(tmpRoot, "pi", "sessions", safe, "diff-review"),
     home: path.join(agentDir, "sessions", safe, "diff-review"),
-    repo: path.join(repoRoot, ".pi", "diff-review"),
+    ...(allowRepoRoot ? { repo: path.join(repoRoot, ".pi", "diff-review") } : {}),
   };
 }
 
@@ -56,14 +62,18 @@ function tryEnsureWritableDir(dir: string): string | null {
 
 export function resolveDiffReviewRootForWrite({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
   tmpRoot?: string;
   agentDir?: string;
 }): { rootDir: string; outputLocation: "tmp" | "home" | "repo" } {
-  const roots = diffReviewCandidateRoots({ repoRoot, tmpRoot, agentDir });
+  const roots = diffReviewCandidateRoots({ repoRoot, scopeKey, allowRepoRoot, tmpRoot, agentDir });
 
   const tmp = tryEnsureWritableDir(roots.tmp);
   if (tmp) return { rootDir: tmp, outputLocation: "tmp" };
@@ -71,8 +81,11 @@ export function resolveDiffReviewRootForWrite({
   const home = tryEnsureWritableDir(roots.home);
   if (home) return { rootDir: home, outputLocation: "home" };
 
-  const repo = tryEnsureWritableDir(roots.repo);
-  if (repo) return { rootDir: repo, outputLocation: "repo" };
+  if (roots.repo) {
+    const repo = tryEnsureWritableDir(roots.repo);
+    if (repo) return { rootDir: repo, outputLocation: "repo" };
+  }
 
-  throw new Error(`Unable to create a writable diff-review directory in ${roots.tmp}, ${roots.home}, or ${roots.repo}.`);
+  const repoLabel = roots.repo ? `, or ${roots.repo}` : "";
+  throw new Error(`Unable to create a writable diff-review directory in ${roots.tmp}, ${roots.home}${repoLabel}.`);
 }

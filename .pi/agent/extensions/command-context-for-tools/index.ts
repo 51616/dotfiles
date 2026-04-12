@@ -1,3 +1,5 @@
+// @lat: [[command-context-for-tools#Command context for tools]]
+
 import { ExtensionRunner } from "@mariozechner/pi-coding-agent";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 

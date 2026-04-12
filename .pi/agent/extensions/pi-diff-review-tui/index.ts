@@ -1,13 +1,17 @@
+// @lat: [[pi-diff-review-tui#Pi diff review TUI]]
+
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DiffReviewApp } from "./lib/app.ts";
-import { getDiffBundle, getLatestTurnBundle, getRepoRoot } from "./lib/git.ts";
-import type { DiffScope } from "./lib/types.ts";
-
-function noTurnDiffMessage(): string {
-  return "No last-turn agent-touched diff was found for this session; falling back to unstaged scope.";
-}
+import { disposeDiffReviewSshBackend, resolveRepoIdentity } from "./lib/backend.ts";
+import { resolveInitialBundleSelection } from "./lib/review-bundles.ts";
 
 export default function piDiffReviewTui(pi: ExtensionAPI) {
+  if (typeof (pi as unknown as { on?: unknown }).on === "function") {
+    pi.on("session_shutdown", () => {
+      disposeDiffReviewSshBackend();
+    });
+  }
+
   pi.registerCommand("diff-review", {
     description: "Open a pi-native TUI diff review overlay",
     handler: async (_args, ctx) => {
@@ -16,9 +20,9 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
         return;
       }
 
-      let repoRoot = "";
+      let identity;
       try {
-        repoRoot = await getRepoRoot(pi, ctx.cwd);
+        identity = await resolveRepoIdentity(pi, ctx.cwd);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(message, "error");
@@ -26,26 +30,30 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
       }
 
       const sessionId = String(ctx.sessionManager.getSessionId() ?? "").trim();
-      let initialScope: DiffScope = "u";
-      const turnBundle = getLatestTurnBundle(repoRoot, sessionId);
-      if (turnBundle?.files.length) {
-        initialScope = "t";
-      } else if (turnBundle) {
-        ctx.ui.notify(turnBundle.turnMetadata?.note || noTurnDiffMessage(), "info");
+      let initialMode;
+      let initialBundle;
+      let notification;
+      try {
+        ({ initialMode, initialBundle, notification } = await resolveInitialBundleSelection(pi, identity, sessionId));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Failed to build initial diff bundle: ${message}`, "error");
+        return;
       }
-
-      const initial = initialScope === "t"
-        ? turnBundle as NonNullable<typeof turnBundle>
-        : await getDiffBundle(pi, repoRoot, "u", { sessionId });
-      if (!initial.files.length) {
-        ctx.ui.notify(initialScope === "t" ? noTurnDiffMessage() : "No diff to review in unstaged scope.", "info");
+      if (notification) ctx.ui.notify(notification, "info");
+      if (!initialBundle.files.length) {
         return;
       }
 
       await ctx.ui.custom<{ submitted: boolean; outputPath?: string }>(async (tui, theme, keybindings, done) => {
         const app = new DiffReviewApp({
           pi,
-          repoRoot,
+          repoRoot: identity.repoRoot,
+          repoLabel: identity.repoLabel,
+          scopeKey: identity.scopeKey,
+          allowRepoRootWrites: identity.allowRepoRootWrites,
+          backendKind: identity.backend,
+          sshHelper: identity.helper,
           sessionId,
           tui,
           theme,
@@ -53,10 +61,11 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
           callbacks: {
             done,
             notify: (message, type) => ctx.ui.notify(message, type),
+            confirm: (title, body) => ctx.ui.confirm(title, body),
             setEditorText: (text) => ctx.ui.setEditorText(text),
           },
         });
-        await app.init(initialScope);
+        await app.init(initialMode, initialBundle);
         return app;
       }, {
         overlay: true,

@@ -1,8 +1,12 @@
-import { captureFileImage } from "./files.ts";
-import { buildRepoPatch, buildWorkspaceArtifact, writeEmptyLatestArtifact, writeRepoArtifacts } from "./artifacts.ts";
+import path from "node:path";
+
+import { captureFileImage, captureFileImageRemote } from "./files.ts";
+import { buildRepoPatch, writeEmptyLatestArtifact, writeRepoArtifacts } from "./artifacts.ts";
+import { buildPersistedAgentChangeReport, summarizeAgentChangeArtifact } from "./agent-change-report.ts";
 import { snoopedBashPaths } from "./bash-snoop.ts";
 import { findCwdRepoRoot, repoKeyForRoot, resolveRepoPath } from "./repo.ts";
-import type { RepoTurnArtifact, RepoTurnState, TurnState } from "./types.ts";
+import type { AgentChangeReport, RepoTurnArtifact, RepoTurnState, TurnArtifactMetadata, TurnState } from "./types.ts";
+import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
 
 function noteForTurn(hasBashCalls: boolean, touchedPaths: number, patchText: string): string | undefined {
   const notes: string[] = [];
@@ -12,15 +16,93 @@ function noteForTurn(hasBashCalls: boolean, touchedPaths: number, patchText: str
   return notes.length ? notes.join(" ") : undefined;
 }
 
+function logAgentChangeFailure(turnId: string, error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn(`[pi-diff-review-turn-tracker] turn_id=${turnId} agent_change_report=exception: ${detail}`);
+}
+
+type SummarizeArtifact = (input: {
+  metadata: TurnArtifactMetadata;
+  patchText: string;
+}) => Promise<Partial<AgentChangeReport> | null>;
+
+type SshTurnContext = {
+  helper: DiffReviewSshHelperClient;
+  repoRoot: string;
+  scopeKey: string;
+};
+
+function normalizeRemotePath(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+function validateRepoRelPath(value: string): string | null {
+  const v = normalizeRemotePath(value).trim();
+  if (!v) return null;
+  if (v.startsWith("/")) return null;
+  if (v.includes("\u0000")) return null;
+  const parts = v.split("/").filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.some((p) => p === "." || p === "..")) return null;
+  return parts.join("/");
+}
+
+function resolveRemoteAbsolutePath(rawPath: string, cwd: string): string | null {
+  const raw = normalizeRemotePath(String(rawPath ?? "")).trim();
+  if (!raw) return null;
+  const base = normalizeRemotePath(String(cwd ?? "/")).trim() || "/";
+  if (raw.startsWith("/")) return path.posix.normalize(raw);
+  return path.posix.resolve(base, raw);
+}
+
+function remoteRepoRelPath({ repoRoot, cwd, rawPath }: { repoRoot: string; cwd: string; rawPath: string }): { absolutePath: string; repoRelPath: string } | null {
+  const absolutePath = resolveRemoteAbsolutePath(rawPath, cwd);
+  if (!absolutePath) return null;
+
+  const rel = path.posix.relative(normalizeRemotePath(repoRoot), absolutePath);
+  if (!rel || rel === ".") return null;
+  const validated = validateRepoRelPath(rel);
+  if (!validated) return null;
+  if (validated.startsWith("../")) return null;
+  return { absolutePath, repoRelPath: validated };
+}
+
 export class DiffReviewTurnTracker {
   private current: TurnState | null = null;
+  private readonly summarizeArtifact: SummarizeArtifact;
+  private readonly enableAgentChangeReport: boolean;
 
-  startTurn({ sessionId, turnId, cwd }: { sessionId: string; turnId: string; cwd: string }): void {
+  private ssh: SshTurnContext | null = null;
+  private scopeKey: string | undefined;
+  private allowRepoRootWrites = true;
+
+  constructor(options?: { summarizeArtifact?: SummarizeArtifact; enableAgentChangeReport?: boolean }) {
+    this.summarizeArtifact = options?.summarizeArtifact ?? summarizeAgentChangeArtifact;
+    this.enableAgentChangeReport = options?.enableAgentChangeReport ?? true;
+  }
+
+  startTurn({
+    sessionId,
+    turnId,
+    cwd,
+    ssh,
+  }: {
+    sessionId: string;
+    turnId: string;
+    cwd: string;
+    ssh?: SshTurnContext;
+  }): void {
+    this.ssh = ssh ?? null;
+    this.scopeKey = ssh?.scopeKey;
+    this.allowRepoRootWrites = !ssh;
+
+    const cwdRepoRoot = ssh?.repoRoot ?? findCwdRepoRoot(cwd);
+
     this.current = {
       sessionId,
       turnId,
       startedAt: new Date().toISOString(),
-      cwdRepoRoot: findCwdRepoRoot(cwd),
+      cwdRepoRoot,
       hasBashCalls: false,
       repos: new Map(),
     };
@@ -28,6 +110,9 @@ export class DiffReviewTurnTracker {
 
   reset(): void {
     this.current = null;
+    this.ssh = null;
+    this.scopeKey = undefined;
+    this.allowRepoRootWrites = true;
   }
 
   private ensureTurn(cwd: string, sessionId = "", turnId = `turn-${Date.now()}`): TurnState {
@@ -39,6 +124,17 @@ export class DiffReviewTurnTracker {
     const turn = this.current as TurnState;
     const existing = turn.repos.get(repoRoot);
     if (existing) return existing;
+
+    // Enforce single-repo semantics: only allow the cwd repo root.
+    if (turn.cwdRepoRoot && repoRoot !== turn.cwdRepoRoot) {
+      return {
+        repoRoot,
+        repoKey,
+        touchedPaths: new Map(),
+        capturedBytes: 0,
+      };
+    }
+
     const repoState: RepoTurnState = {
       repoRoot,
       repoKey,
@@ -49,11 +145,36 @@ export class DiffReviewTurnTracker {
     return repoState;
   }
 
-  touchPath(rawPath: string, cwd: string): void {
+  async touchPath(rawPath: string, cwd: string): Promise<void> {
     const turn = this.ensureTurn(cwd);
+    if (!turn.cwdRepoRoot) return;
+
+    if (this.ssh) {
+      const resolved = remoteRepoRelPath({ repoRoot: this.ssh.repoRoot, cwd, rawPath });
+      if (!resolved) return;
+      if (turn.cwdRepoRoot !== this.ssh.repoRoot) return;
+
+      const repoKey = repoKeyForRoot(this.ssh.repoRoot);
+      const repo = this.ensureRepo(this.ssh.repoRoot, repoKey);
+      if (!turn.repos.has(this.ssh.repoRoot)) return;
+
+      if (repo.touchedPaths.has(resolved.repoRelPath)) return;
+      const baseline = await captureFileImageRemote(repo, this.ssh.helper, this.ssh.repoRoot, resolved.repoRelPath, "pre");
+      repo.touchedPaths.set(resolved.repoRelPath, {
+        repoRelPath: resolved.repoRelPath,
+        absolutePath: resolved.absolutePath,
+        baseline,
+      });
+      return;
+    }
+
     const resolved = resolveRepoPath(rawPath, cwd);
     if (!resolved) return;
+    if (turn.cwdRepoRoot !== resolved.repoRoot) return;
+
     const repo = this.ensureRepo(resolved.repoRoot, resolved.repoKey);
+    if (!turn.repos.has(resolved.repoRoot)) return;
+
     if (repo.touchedPaths.has(resolved.repoRelPath)) return;
     const baseline = captureFileImage(repo, resolved.absolutePath, "pre");
     repo.touchedPaths.set(resolved.repoRelPath, {
@@ -63,70 +184,125 @@ export class DiffReviewTurnTracker {
     });
   }
 
-  recordBash(command: string, cwd: string): void {
+  async recordBash(command: string, cwd: string): Promise<void> {
     const turn = this.ensureTurn(cwd);
     turn.hasBashCalls = true;
     for (const absolutePath of snoopedBashPaths(command, cwd)) {
-      this.touchPath(absolutePath, "/");
+      await this.touchPath(absolutePath, cwd);
     }
   }
 
-  finalize(cwd: string): void {
+  private async attachAgentChangeReport<T extends TurnArtifactMetadata>(
+    metadata: T,
+    patchText: string,
+  ): Promise<T> {
+    if (!this.enableAgentChangeReport) return metadata;
+    try {
+      const draft = await this.summarizeArtifact({ metadata, patchText });
+      if (!draft) return metadata;
+
+      const generatedAt = typeof draft.generated_at === "string" && draft.generated_at.trim()
+        ? draft.generated_at
+        : new Date().toISOString();
+      const agentChangeReport = buildPersistedAgentChangeReport({
+        draft: {
+          generator: typeof draft.generator === "string" ? draft.generator : "",
+          files: draft.files,
+        },
+        metadata,
+        generatedAt,
+      });
+      if (!agentChangeReport) return metadata;
+      return { ...metadata, agent_change_report: agentChangeReport };
+    } catch (error) {
+      logAgentChangeFailure(metadata.turn_id, error);
+      return metadata;
+    }
+  }
+
+  async finalize(cwd: string): Promise<void> {
     const turn = this.current;
+    const ssh = this.ssh;
     this.current = null;
+    this.ssh = null;
     if (!turn) return;
 
     const repoArtifacts: RepoTurnArtifact[] = [];
     for (const repo of turn.repos.values()) {
+      if (turn.cwdRepoRoot && repo.repoRoot !== turn.cwdRepoRoot) continue;
+
       for (const tracked of repo.touchedPaths.values()) {
-        tracked.final = captureFileImage(repo, tracked.absolutePath, "post");
+        if (ssh) {
+          tracked.final = await captureFileImageRemote(repo, ssh.helper, ssh.repoRoot, tracked.repoRelPath, "post");
+        } else {
+          tracked.final = captureFileImage(repo, tracked.absolutePath, "post");
+        }
       }
+
       const built = buildRepoPatch(repo);
+      const metadata = await this.attachAgentChangeReport({
+        saved_at: new Date().toISOString(),
+        session_id: turn.sessionId,
+        turn_id: turn.turnId,
+        source: "last_turn_agent_touched",
+        review_source: "last turn (agent-touched)",
+        repo_root: repo.repoRoot,
+        repo_key: repo.repoKey,
+        touched_paths: [...repo.touchedPaths.keys()].sort(),
+        observed_changed_paths: built.observedChangedPaths,
+        has_bash_calls: turn.hasBashCalls,
+        note: noteForTurn(turn.hasBashCalls, repo.touchedPaths.size, built.patchText),
+        omitted_paths: built.omittedPaths,
+        workspace: false as const,
+      }, built.patchText);
+
       repoArtifacts.push({
         repoRoot: repo.repoRoot,
         repoKey: repo.repoKey,
         patchText: built.patchText,
-        metadata: {
-          saved_at: new Date().toISOString(),
-          session_id: turn.sessionId,
-          turn_id: turn.turnId,
-          source: "last_turn_agent_touched",
-          review_source: "last turn (agent-touched)",
-          repo_root: repo.repoRoot,
-          repo_key: repo.repoKey,
-          touched_paths: [...repo.touchedPaths.keys()].sort(),
-          has_bash_calls: turn.hasBashCalls,
-          note: noteForTurn(turn.hasBashCalls, repo.touchedPaths.size, built.patchText),
-          omitted_paths: built.omittedPaths,
-          workspace: false,
-        },
+        metadata,
       });
     }
 
-    const workspace = repoArtifacts.length > 1
-      ? buildWorkspaceArtifact({
-        repoArtifacts,
-        savedAt: new Date().toISOString(),
-        sessionId: turn.sessionId,
-        turnId: turn.turnId,
-        hasBashCalls: turn.hasBashCalls,
-      })
-      : null;
-
     for (const artifact of repoArtifacts) {
-      writeRepoArtifacts({ repoArtifact: artifact, workspace });
+      writeRepoArtifacts({
+        repoArtifact: artifact,
+        scopeKey: this.scopeKey,
+        allowRepoRoot: this.allowRepoRootWrites,
+      });
     }
 
     const cwdRepoRoot = turn.cwdRepoRoot ?? findCwdRepoRoot(cwd);
     if (cwdRepoRoot && !turn.repos.has(cwdRepoRoot)) {
+      const emptyMetadata = await this.attachAgentChangeReport({
+        saved_at: new Date().toISOString(),
+        session_id: turn.sessionId,
+        turn_id: turn.turnId,
+        source: "last_turn_agent_touched",
+        review_source: "last turn (agent-touched)",
+        repo_root: cwdRepoRoot,
+        repo_key: repoKeyForRoot(cwdRepoRoot),
+        touched_paths: [],
+        observed_changed_paths: [],
+        has_bash_calls: turn.hasBashCalls,
+        note: noteForTurn(turn.hasBashCalls, 0, ""),
+        workspace: false as const,
+      }, "");
+
       writeEmptyLatestArtifact({
         repoRoot: cwdRepoRoot,
         repoKey: repoKeyForRoot(cwdRepoRoot),
         sessionId: turn.sessionId,
         turnId: turn.turnId,
-        note: noteForTurn(turn.hasBashCalls, 0, ""),
+        note: emptyMetadata.note,
         hasBashCalls: turn.hasBashCalls,
+        agentChangeReport: emptyMetadata.agent_change_report,
+        scopeKey: this.scopeKey,
+        allowRepoRoot: this.allowRepoRootWrites,
       });
     }
+
+    this.scopeKey = undefined;
+    this.allowRepoRootWrites = true;
   }
 }

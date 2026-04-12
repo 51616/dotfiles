@@ -18,7 +18,7 @@ function sampleInput(repoRoot) {
     repoRoot,
     sessionId: "session-1",
     headAtStart: "abc1234",
-    scope: "u",
+    scope: "a",
     overallComment: "Please tighten this patch.",
     comments: [
       {
@@ -30,7 +30,7 @@ function sampleInput(repoRoot) {
         newPath: "src/a.ts",
         editablePath: "src/a.ts",
         displayPath: "src/a.ts",
-        scope: "u",
+        scope: "a",
         originalAnchor: {
           kind: "line",
           origin: null,
@@ -89,7 +89,7 @@ test("saveReviewToFile writes markdown and compact prompt", () => {
   assert.match(saved, /# π Diff Review/);
   assert.match(saved, /Use a named helper/);
   assert.match(result.compactPrompt, /Saved full review:/);
-  assert.match(result.compactPrompt, /Reviewed scope: unstaged \[u\]/);
+  assert.match(result.compactPrompt, /Reviewed mode: workspace vs HEAD \[a\]/);
   assert.match(result.compactPrompt, /Legend: a\/ = pre-change context, b\/ = current code; make edits in b\//);
   assert.match(result.compactPrompt, /1\. b\/src\/a\.ts @ b:L12 \(anchor b:L12\)/);
   assert.doesNotMatch(result.compactPrompt, /2\. b\/src\/a\.ts @ b:L12 \(anchor b:L12\)/);
@@ -135,8 +135,16 @@ test("phase 14: saveReviewToFile records last-turn source metadata", () => {
       repo_root: repoRoot,
       repo_key: "repo-demo",
       touched_paths: ["src/a.ts", "src/b.ts"],
+      observed_changed_paths: ["src/a.ts"],
       has_bash_calls: true,
       note: "bash calls occurred; non-edit/write file changes may not be fully attributed.",
+      agent_change_report: {
+        generated_at: new Date().toISOString(),
+        generator: "codex/gpt-5.3-codex",
+        files: [{ path: "src/a.ts", summary: "Adjusted the implementation." }],
+        missing_from_observed: [],
+        missing_from_agent_report: [],
+      },
       workspace: false,
     },
   });
@@ -144,8 +152,12 @@ test("phase 14: saveReviewToFile records last-turn source metadata", () => {
   assert.match(saved, /- review_source: last turn \(agent-touched\)/);
   assert.match(saved, /- source_turn_id: turn-14/);
   assert.match(saved, /- touched_paths: src\/a.ts, src\/b.ts/);
+  assert.match(saved, /- observed_changed_paths: src\/a.ts/);
+  assert.match(saved, /- agent_report_generator: codex\/gpt-5.3-codex/);
   assert.match(result.compactPrompt, /Review source: last turn \(agent-touched\)/);
   assert.match(result.compactPrompt, /Touched paths: src\/a.ts, src\/b.ts/);
+  assert.match(result.compactPrompt, /Observed changed paths: src\/a.ts/);
+  assert.match(result.compactPrompt, /Agent report: 1 file\(s\), reported-only=0, missing-agent=0/);
 });
 
 test("resolveReviewOutputDir prefers /tmp before home or repo", () => {

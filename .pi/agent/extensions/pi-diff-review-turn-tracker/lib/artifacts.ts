@@ -4,13 +4,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { chooseOmittedInfo } from "./files.ts";
 import { resolveDiffReviewRootForWrite } from "./diff-review-paths.ts";
+import { observedChangedPathsFromPatch } from "./observed-changed-paths.ts";
 import type {
   FileImage,
   RepoTurnArtifact,
   RepoTurnArtifactMetadata,
   RepoTurnState,
   TurnArtifactMetadata,
-  WorkspaceTurnArtifactMetadata,
 } from "./types.ts";
 
 function ensureParent(filePath: string): void {
@@ -69,7 +69,7 @@ function syntheticPatch(repoRelPath: string, pre: FileImage, post: FileImage): s
   return lines.join("\n");
 }
 
-export function buildRepoPatch(repo: RepoTurnState): { patchText: string; omittedPaths?: Record<string, { reason: string; size_bytes?: number }> } {
+export function buildRepoPatch(repo: RepoTurnState): { patchText: string; observedChangedPaths: string[]; omittedPaths?: Record<string, { reason: string; size_bytes?: number }> } {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-turn-"));
   const preTree = path.join(tmpRoot, "pre");
   const postTree = path.join(tmpRoot, "post");
@@ -103,62 +103,15 @@ export function buildRepoPatch(repo: RepoTurnState): { patchText: string; omitte
     }
 
     const joined = [patch, ...syntheticSections].filter(Boolean).join("\n\n").trim();
+    const patchText = joined ? `${joined}\n` : "";
     return {
-      patchText: joined ? `${joined}\n` : "",
+      patchText,
+      observedChangedPaths: observedChangedPathsFromPatch(patchText),
       omittedPaths: Object.keys(omittedPaths).length ? omittedPaths : undefined,
     };
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
-}
-
-function prefixPatchPaths(patchText: string, repoKey: string): string {
-  return patchText
-    .replace(/^diff --git a\/(.+) b\/(.+)$/gm, (_m, oldPath, newPath) => `diff --git a/${repoKey}/${oldPath} b/${repoKey}/${newPath}`)
-    .replace(/^--- a\/(.+)$/gm, (_m, filePath) => `--- a/${repoKey}/${filePath}`)
-    .replace(/^\+\+\+ b\/(.+)$/gm, (_m, filePath) => `+++ b/${repoKey}/${filePath}`)
-    .replace(/^rename from (.+)$/gm, (_m, filePath) => `rename from ${repoKey}/${filePath}`)
-    .replace(/^rename to (.+)$/gm, (_m, filePath) => `rename to ${repoKey}/${filePath}`)
-    .replace(/^Binary files a\/(.+) and b\/(.+) differ$/gm, (_m, oldPath, newPath) => `Binary files a/${repoKey}/${oldPath} and b/${repoKey}/${newPath} differ`);
-}
-
-export function buildWorkspaceArtifact({
-  repoArtifacts,
-  savedAt,
-  sessionId,
-  turnId,
-  hasBashCalls,
-}: {
-  repoArtifacts: RepoTurnArtifact[];
-  savedAt: string;
-  sessionId: string;
-  turnId: string;
-  hasBashCalls: boolean;
-}): { patchText: string; metadata: WorkspaceTurnArtifactMetadata } {
-  const patchText = repoArtifacts.map((artifact) => prefixPatchPaths(artifact.patchText.trim(), artifact.repoKey)).filter(Boolean).join("\n\n").trim();
-  const note = hasBashCalls ? "bash calls occurred; non-edit/write file changes may not be fully attributed." : undefined;
-  return {
-    patchText: patchText ? `${patchText}\n` : "",
-    metadata: {
-      saved_at: savedAt,
-      session_id: sessionId,
-      turn_id: turnId,
-      source: "last_turn_agent_touched",
-      review_source: "last turn (agent-touched)",
-      repo_root: "workspace",
-      repo_key: "workspace",
-      touched_paths: repoArtifacts.flatMap((artifact) => artifact.metadata.touched_paths.map((filePath) => `${artifact.repoKey}/${filePath}`)),
-      has_bash_calls: hasBashCalls,
-      note,
-      workspace: true,
-      repos: repoArtifacts.map((artifact) => ({
-        repo_key: artifact.repoKey,
-        repo_root: artifact.repoRoot,
-        touched_paths: artifact.metadata.touched_paths,
-        omitted_paths: artifact.metadata.omitted_paths,
-      })),
-    },
-  };
 }
 
 function writeJson(filePath: string, value: TurnArtifactMetadata): void {
@@ -186,31 +139,24 @@ function writeLatestReviewableArtifact(root: string, patchText: string, metadata
 
 export function writeRepoArtifacts({
   repoArtifact,
-  workspace,
+  scopeKey,
+  allowRepoRoot,
 }: {
   repoArtifact: RepoTurnArtifact;
-  workspace?: { patchText: string; metadata: WorkspaceTurnArtifactMetadata } | null;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
 }): void {
-  const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot: repoArtifact.repoRoot });
+  const { rootDir } = resolveDiffReviewRootForWrite({
+    repoRoot: repoArtifact.repoRoot,
+    scopeKey,
+    allowRepoRoot,
+  });
   const turnsRoot = path.join(rootDir, "turns");
   const sessionRoot = path.join(turnsRoot, "sessions", repoArtifact.metadata.session_id);
   const repoRoot = path.join(sessionRoot, repoArtifact.repoKey);
 
   writeLatestArtifact(repoRoot, repoArtifact.patchText, repoArtifact.metadata);
   if (repoArtifact.patchText.trim()) writeLatestReviewableArtifact(repoRoot, repoArtifact.patchText, repoArtifact.metadata);
-
-  if (workspace) {
-    const workspaceRoot = path.join(sessionRoot, "workspace");
-    writeLatestArtifact(workspaceRoot, workspace.patchText, workspace.metadata);
-    writeLatestArtifact(sessionRoot, workspace.patchText, workspace.metadata);
-    writeLatestArtifact(turnsRoot, workspace.patchText, workspace.metadata);
-    if (workspace.patchText.trim()) {
-      writeLatestReviewableArtifact(workspaceRoot, workspace.patchText, workspace.metadata);
-      writeLatestReviewableArtifact(sessionRoot, workspace.patchText, workspace.metadata);
-      writeLatestReviewableArtifact(turnsRoot, workspace.patchText, workspace.metadata);
-    }
-    return;
-  }
 
   writeLatestArtifact(sessionRoot, repoArtifact.patchText, repoArtifact.metadata);
   writeLatestArtifact(turnsRoot, repoArtifact.patchText, repoArtifact.metadata);
@@ -227,6 +173,9 @@ export function writeEmptyLatestArtifact({
   turnId,
   note,
   hasBashCalls,
+  agentChangeReport,
+  scopeKey,
+  allowRepoRoot,
 }: {
   repoRoot: string;
   repoKey: string;
@@ -234,6 +183,9 @@ export function writeEmptyLatestArtifact({
   turnId: string;
   note?: string;
   hasBashCalls: boolean;
+  agentChangeReport?: RepoTurnArtifactMetadata["agent_change_report"];
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
 }): void {
   const savedAt = new Date().toISOString();
   const metadata: RepoTurnArtifactMetadata = {
@@ -245,11 +197,13 @@ export function writeEmptyLatestArtifact({
     repo_root: repoRoot,
     repo_key: repoKey,
     touched_paths: [],
+    observed_changed_paths: [],
     has_bash_calls: hasBashCalls,
     note,
+    agent_change_report: agentChangeReport,
     workspace: false,
   };
-  const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot });
+  const { rootDir } = resolveDiffReviewRootForWrite({ repoRoot, scopeKey, allowRepoRoot });
   const turnsRoot = path.join(rootDir, "turns");
   const sessionRoot = path.join(turnsRoot, "sessions", sessionId);
   const repoSessionRoot = path.join(sessionRoot, repoKey);

@@ -1,5 +1,5 @@
 import { Key, matchesKey } from "@mariozechner/pi-tui";
-import type { FocusMode } from "./types.ts";
+import type { FocusMode, ReviewMode } from "./types.ts";
 
 export type AppInputAction =
   | { type: "none" }
@@ -9,7 +9,7 @@ export type AppInputAction =
   | { type: "focusDiff" }
   | { type: "createLineComment" }
   | { type: "quit" }
-  | { type: "switchScope"; scope: "t" | "u" | "s" | "a" }
+  | { type: "switchMode"; mode: ReviewMode }
   | { type: "reloadScope" }
   | { type: "openComments" }
   | { type: "peekCommentsAtCursor" }
@@ -48,10 +48,8 @@ export function resolveInputAction({
   }
 
   if (matchesKey(data, "q") || matchesKey(data, Key.escape)) return { type: "quit" };
-  if (matchesKey(data, "t")) return { type: "switchScope", scope: "t" };
-  if (matchesKey(data, "u")) return { type: "switchScope", scope: "u" };
-  if (matchesKey(data, "i")) return { type: "switchScope", scope: "s" };
-  if (matchesKey(data, "a")) return { type: "switchScope", scope: "a" };
+  if (matchesKey(data, "t")) return { type: "switchMode", mode: "t" };
+  if (matchesKey(data, "a")) return { type: "switchMode", mode: "a" };
   if (matchesKey(data, "r")) return { type: "reloadScope" };
   if (matchesKey(data, "m")) return { type: "openComments" };
   if (matchesKey(data, "v")) return { type: "peekCommentsAtCursor" };

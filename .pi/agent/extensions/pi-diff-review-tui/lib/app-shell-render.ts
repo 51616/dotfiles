@@ -1,17 +1,18 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { scopeDisplay, scopeLegend } from "./scope.ts";
-import type { FocusMode } from "./types.ts";
+import { reviewModeDisplay, reviewModeLegend } from "./review-mode.ts";
+import type { FocusMode, ParsedFilePatch, ReviewMode } from "./types.ts";
 import { bottomBorder, boxLine, formatHintColumns, padLine, topBorder } from "./ui-helpers.ts";
 
 function paneBorderColor(focused: boolean): "accent" | "muted" {
   return focused ? "accent" : "muted";
 }
 
-export function statusLetter(theme: Theme, status: string): string {
-  if (status === "A") return theme.fg("success", status);
-  if (status === "D") return theme.fg("error", status);
-  if (status === "R") return theme.fg("accent", status);
-  return theme.fg("warning", status);
+export function statusLetter(theme: Theme, file: ParsedFilePatch): string {
+  if (file.reviewProvenance === "reported_only") return theme.fg("warning", "?");
+  if (file.status === "A") return theme.fg("success", file.status);
+  if (file.status === "D") return theme.fg("error", file.status);
+  if (file.status === "R") return theme.fg("accent", file.status);
+  return theme.fg("warning", file.status);
 }
 
 export function renderPane(theme: Theme, title: string, focused: boolean, width: number, bodyLines: string[]): string[] {
@@ -27,7 +28,7 @@ export function renderPane(theme: Theme, title: string, focused: boolean, width:
 export function footerHints(width: number): [string, string] {
   return [
     formatHintColumns(width, ["j/k/↑↓ move", "[/] chunk", "n/b scope cmts", " ,/. file cmts"], 4),
-    formatHintColumns(width, ["w comments file", "z stale file", "v peek · x range", "t/u/i/a · r · s"], 4),
+    formatHintColumns(width, ["w comments file", "z stale file", "v peek · x range", "t/a · r · s"], 4),
   ];
 }
 
@@ -53,7 +54,7 @@ export function renderAppShell({
   theme,
   width,
   terminalRows,
-  repoRoot,
+  repoLabel,
   scope,
   headLabel,
   scopedCommentCount,
@@ -64,6 +65,7 @@ export function renderAppShell({
   perfEnabled,
   perfSummary,
   sourceSummary,
+  warningSummary,
   selectionSummary,
   filePanePreferredBodyHeight,
   renderFileList,
@@ -73,8 +75,8 @@ export function renderAppShell({
   theme: Theme;
   width: number;
   terminalRows: number;
-  repoRoot: string;
-  scope: "t" | "u" | "s" | "a";
+  repoLabel: string;
+  scope: ReviewMode;
   headLabel: string;
   scopedCommentCount: number;
   staleCount: number;
@@ -82,6 +84,7 @@ export function renderAppShell({
   focusMode: FocusMode;
   diffTitle: string;
   sourceSummary?: string | null;
+  warningSummary?: string | null;
   perfEnabled: boolean;
   perfSummary: string;
   selectionSummary?: string | null;
@@ -103,9 +106,10 @@ export function renderAppShell({
   const lines: string[] = [];
   const [hint1, hint2] = footerHints(innerWidth);
   lines.push(topBorder(theme, "π Diff Review", innerWidth, "borderAccent"));
-  lines.push(boxLine(theme, "│", `${theme.fg("muted", "repo")} ${repoRoot}`, innerWidth, "│", "borderAccent"));
-  lines.push(boxLine(theme, "│", `${theme.fg("muted", "scope")} [${scopeLegend()}] ${scopeDisplay(scope)}   ${theme.fg("muted", "HEAD")} ${headLabel}   ${theme.fg("accent", "comments")} ${theme.fg("accent", String(scopedCommentCount))}   ${theme.fg(staleCount ? "warning" : "muted", `stale ${staleCount}`)}`, innerWidth, "│", "borderAccent"));
+  lines.push(boxLine(theme, "│", `${theme.fg("muted", "repo")} ${repoLabel}`, innerWidth, "│", "borderAccent"));
+  lines.push(boxLine(theme, "│", `${theme.fg("muted", "mode")} [${reviewModeLegend()}] ${reviewModeDisplay(scope)}   ${theme.fg("muted", "HEAD")} ${headLabel}   ${theme.fg("accent", "comments")} ${theme.fg("accent", String(scopedCommentCount))}   ${theme.fg(staleCount ? "warning" : "muted", `stale ${staleCount}`)}`, innerWidth, "│", "borderAccent"));
   lines.push(boxLine(theme, "│", sourceSummary ? `${theme.fg("muted", "source")} ${sourceSummary}` : "", innerWidth, "│", "borderAccent"));
+  lines.push(boxLine(theme, "│", warningSummary ? `${theme.fg("warning", "warn")} ${theme.fg("warning", warningSummary)}` : "", innerWidth, "│", "borderAccent"));
   if (selectionSummary) {
     lines.push(boxLine(theme, "│", `${theme.fg("muted", "range")} ${theme.fg("accent", selectionSummary)}`, innerWidth, "│", "borderAccent"));
   } else {

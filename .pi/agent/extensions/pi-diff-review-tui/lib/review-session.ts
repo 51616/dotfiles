@@ -1,13 +1,13 @@
 import { renumberComments } from "./comments.ts";
 import { saveReviewToFile } from "./persist.ts";
-import type { ChangeSummary, DiffScope, ParsedDiffRow, ReviewComment, SavedReviewResult, ScopeState } from "./types.ts";
+import type { ChangeSummary, ParsedDiffRow, ReviewComment, ReviewMode, SavedReviewResult, ScopeState } from "./types.ts";
 
 export function editorLineForRow(row: ParsedDiffRow | null, lineTargeted: boolean): number | null | undefined {
   if (!lineTargeted || !row) return undefined;
   return row.newLine ?? row.oldLine ?? null;
 }
 
-export function commentsForSubmission(comments: ReviewComment[], scope: DiffScope): { allComments: ReviewComment[]; scopedComments: ReviewComment[] } {
+export function commentsForSubmission(comments: ReviewComment[], scope: ReviewMode): { allComments: ReviewComment[]; scopedComments: ReviewComment[] } {
   const allComments = renumberComments(comments);
   const scopedComments = allComments.filter((comment) => comment.scope === scope).sort((a, b) => a.ordinal - b.ordinal);
   return { allComments, scopedComments };
@@ -25,6 +25,8 @@ export function shouldGenerateCompactPrompt({
 
 export function saveScopedReview({
   repoRoot,
+  scopeKey,
+  allowRepoRoot,
   sessionId,
   state,
   scope,
@@ -33,9 +35,11 @@ export function saveScopedReview({
   changes,
 }: {
   repoRoot: string;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
   sessionId?: string;
   state: ScopeState;
-  scope: DiffScope;
+  scope: ReviewMode;
   overallComment: string;
   comments: ReviewComment[];
   changes: { sinceStart: ChangeSummary; sinceLastReload: ChangeSummary };
@@ -43,6 +47,8 @@ export function saveScopedReview({
   const prepared = commentsForSubmission(comments, scope);
   const saved = saveReviewToFile({
     repoRoot,
+    scopeKey,
+    allowRepoRoot,
     sessionId,
     headAtStart: state.startHead,
     scope,

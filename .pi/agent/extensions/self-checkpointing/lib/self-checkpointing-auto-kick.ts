@@ -9,7 +9,7 @@ export type AutoKickControllerDeps = {
   customType: string;
 
   maxAgeMs: number;
-  minIntervalMs: number;
+  minToolCallsBetweenAttempts: number;
   attemptLimit: number;
 
   buildDirectiveMessage: () => any;
@@ -32,6 +32,7 @@ export type AutoKickController = {
 
   resetForSessionStart: () => void;
   markFooterMatched: () => void;
+  noteToolCall: () => void;
 
   bumpActivity: () => void;
 
@@ -46,7 +47,8 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
   let startedAtMs: number | undefined;
   let lastActivityAtMs: number | undefined;
   let attempts = 0;
-  let lastKickAtMs = 0;
+  let toolCallCount = 0;
+  let lastKickToolCallCount = Number.NEGATIVE_INFINITY;
 
   const isInFlight = () => inFlight;
 
@@ -55,7 +57,8 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     startedAtMs = undefined;
     lastActivityAtMs = undefined;
     attempts = 0;
-    lastKickAtMs = 0;
+    toolCallCount = 0;
+    lastKickToolCallCount = Number.NEGATIVE_INFINITY;
   };
 
   // When we see a valid footer, the current cycle is complete.
@@ -65,6 +68,10 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     startedAtMs = undefined;
     lastActivityAtMs = undefined;
     attempts = 0;
+  };
+
+  const noteToolCall = () => {
+    toolCallCount += 1;
   };
 
   const bumpActivity = () => {
@@ -136,9 +143,10 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     if (deps.getHandledThisTurn()) return false;
     if (deps.getPendingCompactionRequested()) return false;
 
-    const now = Date.now();
-    if (now - lastKickAtMs < deps.minIntervalMs) return false;
+    if (toolCallCount - lastKickToolCallCount < deps.minToolCallsBetweenAttempts) return false;
     if (inFlight) return false;
+
+    const now = Date.now();
 
     if (attempts >= deps.attemptLimit) {
       deps.setStatus(ctx, "| Checkpoint: auto-kick failed (needs manual) 🔴");
@@ -160,7 +168,7 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     startedAtMs = now;
     lastActivityAtMs = now;
     attempts += 1;
-    lastKickAtMs = now;
+    lastKickToolCallCount = toolCallCount;
 
     deps.setCheckpointCycleActive(ctx, true);
     deps.setArmed(false);
@@ -197,6 +205,7 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     isInFlight,
     resetForSessionStart,
     markFooterMatched,
+    noteToolCall,
     bumpActivity,
     clearInFlight,
     maybeClearStale,

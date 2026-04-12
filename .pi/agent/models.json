@@ -1,0 +1,19 @@
+{
+  "providers": {
+    "sakana": {
+      "baseUrl": "https://api.torafugu.app/v1",
+      "api": "openai-completions",
+      "apiKey": "fish_227221e3992512fe907ae88345b64371143195a0a34ed0ba8a456cadf045e7af",
+      "models": [
+        {
+          "id": "fugu-mini",
+          "contextWindow": 272000
+        },
+        {
+          "id": "fugu-ultra",
+          "contextWindow": 272000
+        }
+      ]
+    }
+  }
+}

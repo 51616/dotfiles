@@ -5,9 +5,11 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Optional
 
-MODEL = "gpt-5.3-codex"
+MODEL = "gpt-5.3-codex-spark"
+DEFAULT_TIMEOUT_SECONDS = 300
 
 EXTRACT_TEMPLATE = (
     "Extract the text of the main content from {url} and format it nicely as a markdown file. "
@@ -32,7 +34,7 @@ def _require_codex_on_path() -> None:
         raise SystemExit(127)
 
 
-def _last_agent_message_from_codex_jsonl(cmd: list[str]) -> str:
+def _last_agent_message_from_codex_jsonl(cmd: list[str], timeout_seconds: int) -> str:
     # We intentionally do not forward codex JSONL to stdout; we only return the last agent message.
     # stderr is forwarded so failures are debuggable.
     proc = subprocess.Popen(
@@ -45,29 +47,46 @@ def _last_agent_message_from_codex_jsonl(cmd: list[str]) -> str:
 
     last_msg: Optional[str] = None
 
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            # Shouldn't happen with --json, but don't hard-fail on a stray line.
-            continue
+    def _read_stdout() -> None:
+        nonlocal last_msg
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                # Shouldn't happen with --json, but don't hard-fail on a stray line.
+                continue
 
-        if ev.get("type") != "item.completed":
-            continue
-        item = ev.get("item")
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "agent_message":
-            continue
-        text = item.get("text")
-        if isinstance(text, str):
-            last_msg = text
+            if ev.get("type") != "item.completed":
+                continue
+            item = ev.get("item")
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "agent_message":
+                continue
+            text = item.get("text")
+            if isinstance(text, str):
+                last_msg = text
 
-    rc = proc.wait()
+    reader = threading.Thread(target=_read_stdout, daemon=True)
+    reader.start()
+
+    try:
+        rc = proc.wait(timeout=None if timeout_seconds <= 0 else timeout_seconds)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        print(
+            f"Error: codex-browser timed out after {timeout_seconds} seconds.",
+            file=sys.stderr,
+        )
+        raise SystemExit(124)
+
+    reader.join()
+
     if rc != 0:
         raise SystemExit(rc)
     if not last_msg:
@@ -83,6 +102,7 @@ def main() -> None:
         add_help=True,
         description=(
             "Codex-backed internet helper for pi.\n\n"
+            f"Default timer: {DEFAULT_TIMEOUT_SECONDS} seconds (5 minutes). Use --timeout-seconds to override.\n\n"
             "Modes:\n"
             "  codex-browser --extract-content <url>   Extract main content to markdown under /tmp (per fixed prompt).\n"
             "                                      Prints the last agent response (expected to include the /tmp path).\n"
@@ -107,6 +127,12 @@ def main() -> None:
         "--extract-content",
         metavar="URL",
         help="Extract main content from URL and save markdown under /tmp (prints last agent response).",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="Max runtime for the underlying codex exec call in seconds (default: 300; use 0 to disable).",
     )
     parser.add_argument(
         "prompt",
@@ -139,7 +165,7 @@ def main() -> None:
         prompt,
     ]
 
-    msg = _last_agent_message_from_codex_jsonl(cmd)
+    msg = _last_agent_message_from_codex_jsonl(cmd, args.timeout_seconds)
     # Print exactly the agent response (nothing else).
     sys.stdout.write(msg)
     if not msg.endswith("\n"):

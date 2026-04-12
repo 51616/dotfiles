@@ -27,6 +27,14 @@
 (Plain-language examples that make the behaviors concrete. Add the happy path, key validation failures, important edge cases, and ambiguity checks where needed.)
 - 
 
+## Evidence plan (scenario → proof)
+(For each scenario you care about, state how you’ll prove it. Prefer tests when feasible. Do not add tests that don’t prove an approved scenario.)
+
+If the repo uses `lat.md/`, prefer writing the test-spec in `lat.md/` (see the `lat-md` skill) and linking tests to it via `@lat:` comments.
+
+- Scenario:
+  - Proof:
+
 ## Constraints / assumptions
 - 
 

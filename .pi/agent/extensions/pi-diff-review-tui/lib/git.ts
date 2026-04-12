@@ -1,10 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { buildFileKey, parsePatchPaths, parseSingleFilePatch, sha256, splitPatchIntoFileSections } from "./diff-parser.ts";
-import type { DiffBundle, DiffScope, FileStatus, ParsedFilePatch, TurnSourceMetadata } from "./types.ts";
-import { resolveTurnLatestCandidates } from "./diff-review-paths.ts";
+import type { ChangeSummary, DiffBundle, FileStatus, ParsedFilePatch, TurnSourceMetadata } from "./types.ts";
 
 interface NameStatusEntry {
   status: FileStatus;
@@ -16,7 +13,7 @@ function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-async function runGit(pi: ExtensionAPI, repoRoot: string, args: string[], allowFailure = false): Promise<string> {
+export async function runGit(pi: ExtensionAPI, repoRoot: string, args: string[], allowFailure = false): Promise<string> {
   const result = await pi.exec("git", args, { cwd: repoRoot });
   if (result.code !== 0) {
     if (allowFailure) return "";
@@ -59,80 +56,12 @@ function parseNameStatusLine(line: string): NameStatusEntry | null {
   return { status: "M", oldPath: parts[1] ?? null, newPath: parts[1] ?? null };
 }
 
-function parseNameStatus(output: string): NameStatusEntry[] {
+export function parseNameStatus(output: string): NameStatusEntry[] {
   return output
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => parseNameStatusLine(line))
     .filter((entry): entry is NameStatusEntry => Boolean(entry));
-}
-
-async function getUntrackedPaths(pi: ExtensionAPI, repoRoot: string): Promise<string[]> {
-  const output = await runGit(pi, repoRoot, ["ls-files", "--others", "--exclude-standard"], true);
-  return output
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-async function getNoIndexPatch(pi: ExtensionAPI, repoRoot: string, filePath: string): Promise<string> {
-  const result = await pi.exec("git", ["diff", "--no-index", "--no-color", "--binary", "--", "/dev/null", filePath], { cwd: repoRoot });
-  return result.stdout.replace(/\r\n/g, "\n").trim();
-}
-
-async function getPatchText(pi: ExtensionAPI, repoRoot: string, scope: Exclude<DiffScope, "t">, head: string | null): Promise<string> {
-  if (scope === "u") {
-    const tracked = await runGit(pi, repoRoot, ["diff", "--no-color", "--find-renames", "-M", "--binary", "--"], true);
-    const untrackedPaths = await getUntrackedPaths(pi, repoRoot);
-    const untrackedPatches = await Promise.all(untrackedPaths.map((filePath) => getNoIndexPatch(pi, repoRoot, filePath)));
-    return [tracked.trim(), ...untrackedPatches.map((text) => text.trim()).filter(Boolean)].filter(Boolean).join("\n");
-  }
-
-  if (scope === "s") {
-    const args = ["diff", "--cached", "--no-color", "--find-renames", "-M", "--binary"];
-    if (!head) args.push("--root");
-    args.push("--");
-    return runGit(pi, repoRoot, args, true);
-  }
-
-  if (head) {
-    const tracked = await runGit(pi, repoRoot, ["diff", "--no-color", "--find-renames", "-M", "--binary", head, "--"], true);
-    const untrackedPaths = await getUntrackedPaths(pi, repoRoot);
-    const untrackedPatches = await Promise.all(untrackedPaths.map((filePath) => getNoIndexPatch(pi, repoRoot, filePath)));
-    return [tracked.trim(), ...untrackedPatches.map((text) => text.trim()).filter(Boolean)].filter(Boolean).join("\n");
-  }
-
-  const staged = await getPatchText(pi, repoRoot, "s", head);
-  const unstaged = await getPatchText(pi, repoRoot, "u", head);
-  return [staged.trim(), unstaged.trim()].filter(Boolean).join("\n");
-}
-
-async function getNameStatusText(pi: ExtensionAPI, repoRoot: string, scope: Exclude<DiffScope, "t">, head: string | null): Promise<string> {
-  if (scope === "u") {
-    const tracked = await runGit(pi, repoRoot, ["diff", "--name-status", "--find-renames", "-M", "--"], true);
-    const untrackedPaths = await getUntrackedPaths(pi, repoRoot);
-    const untrackedLines = untrackedPaths.map((filePath) => `A\t${filePath}`).join("\n");
-    return [tracked.trim(), untrackedLines].filter(Boolean).join("\n");
-  }
-
-  if (scope === "s") {
-    const args = ["diff", "--cached", "--name-status", "--find-renames", "-M"];
-    if (!head) args.push("--root");
-    args.push("--");
-    return runGit(pi, repoRoot, args, true);
-  }
-
-  if (head) {
-    const tracked = await runGit(pi, repoRoot, ["diff", "--name-status", "--find-renames", "-M", head, "--"], true);
-    const untrackedPaths = await getUntrackedPaths(pi, repoRoot);
-    const untrackedLines = untrackedPaths.map((filePath) => `A\t${filePath}`).join("\n");
-    return [tracked.trim(), untrackedLines].filter(Boolean).join("\n");
-  }
-
-  const staged = await getNameStatusText(pi, repoRoot, "s", head);
-  const unstaged = await getNameStatusText(pi, repoRoot, "u", head);
-  return [staged.trim(), unstaged.trim()].filter(Boolean).join("\n");
 }
 
 function matchNameStatus(
@@ -183,7 +112,8 @@ function mergeDuplicateFiles(files: ParsedFilePatch[]): ParsedFilePatch[] {
   return Array.from(byKey.values()).sort((a, b) => a.displayPath.localeCompare(b.displayPath));
 }
 
-function shouldHideFromReview(file: ParsedFilePatch): boolean {
+function shouldHideFromReview(file: ParsedFilePatch, sourceKind: "git" | "turn"): boolean {
+  if (sourceKind !== "git") return false;
   if (file.status !== "A" || file.isBinary) return false;
   if (file.hunks.length > 0 || file.changeBlocks.length > 0) return false;
   return file.rows.every((row) => row.kind === "meta");
@@ -200,12 +130,7 @@ function humanizeFileKey(key: string): string {
   return newPath || oldPath || body;
 }
 
-export function summarizeFileHashChanges(before: Map<string, string>, after: Map<string, string>): {
-  changed: string[];
-  added: string[];
-  removed: string[];
-  unchanged: string[];
-} {
+export function summarizeFileHashChanges(before: Map<string, string>, after: Map<string, string>): ChangeSummary {
   const keys = new Set([...before.keys(), ...after.keys()]);
   const changed: string[] = [];
   const added: string[] = [];
@@ -231,7 +156,20 @@ export function summarizeFileHashChanges(before: Map<string, string>, after: Map
   return { changed, added, removed, unchanged };
 }
 
-function buildBundleFromPatchText({
+export function observedChangedPathsFromPatchText(patchText: string): string[] {
+  const seen = new Set<string>();
+  const observed: string[] = [];
+  for (const section of splitPatchIntoFileSections(patchText)) {
+    const { oldPath, newPath } = parsePatchPaths(section);
+    const observedPath = newPath ?? oldPath;
+    if (!observedPath || seen.has(observedPath)) continue;
+    seen.add(observedPath);
+    observed.push(observedPath);
+  }
+  return observed;
+}
+
+export function buildBundleFromPatchText({
   scope,
   repoRoot,
   head,
@@ -240,7 +178,7 @@ function buildBundleFromPatchText({
   sourceKind,
   turnMetadata,
 }: {
-  scope: DiffScope;
+  scope: DiffBundle["scope"];
   repoRoot: string;
   head: string | null;
   patchTextRaw: string;
@@ -283,7 +221,7 @@ function buildBundleFromPatchText({
   }
 
   const mergedFiles = mergeDuplicateFiles(files);
-  const visibleFiles = mergedFiles.filter((file) => !shouldHideFromReview(file));
+  const visibleFiles = mergedFiles.filter((file) => !shouldHideFromReview(file, sourceKind));
   const fileHashes = new Map<string, string>(visibleFiles.map((file) => [file.fileKey, hashText(file.rawPatch)]));
   const fingerprint = sha256(JSON.stringify({ scope, sourceKind, files: [...fileHashes.entries()], turnId: turnMetadata?.turn_id ?? null }));
 
@@ -300,74 +238,4 @@ function buildBundleFromPatchText({
     sourceLabel: sourceKind === "turn" ? "last turn (agent-touched)" : undefined,
     turnMetadata: turnMetadata ?? null,
   };
-}
-
-function latestTurnCandidates(repoRoot: string, sessionId: string): Array<{ patchPath: string; jsonPath: string }> {
-  return resolveTurnLatestCandidates({ repoRoot, sessionId });
-}
-
-export function readLatestTurnArtifact(repoRoot: string, sessionId: string): { patchText: string; metadata: TurnSourceMetadata } | null {
-  if (!sessionId.trim()) return null;
-  for (const { patchPath, jsonPath } of latestTurnCandidates(repoRoot, sessionId)) {
-    if (!fs.existsSync(jsonPath)) continue;
-
-    try {
-      const metadata = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as TurnSourceMetadata;
-      if (metadata.session_id != sessionId) continue;
-      const patchText = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
-      return { patchText, metadata };
-    } catch {
-      // ignore and continue
-    }
-  }
-
-  return null;
-}
-
-export function getLatestTurnBundle(repoRoot: string, sessionId: string): DiffBundle | null {
-  const artifact = readLatestTurnArtifact(repoRoot, sessionId);
-  if (!artifact) return null;
-  return buildBundleFromPatchText({
-    scope: "t",
-    repoRoot,
-    head: null,
-    patchTextRaw: artifact.patchText,
-    sourceKind: "turn",
-    turnMetadata: artifact.metadata,
-  });
-}
-
-export async function getDiffBundle(
-  pi: ExtensionAPI,
-  repoRoot: string,
-  scope: DiffScope,
-  options?: { sessionId?: string },
-): Promise<DiffBundle> {
-  if (scope === "t") {
-    const bundle = getLatestTurnBundle(repoRoot, options?.sessionId ?? "");
-    if (bundle) return bundle;
-    return buildBundleFromPatchText({
-      scope: "t",
-      repoRoot,
-      head: null,
-      patchTextRaw: "",
-      sourceKind: "turn",
-      turnMetadata: null,
-    });
-  }
-
-  const head = await getHeadHash(pi, repoRoot);
-  const [patchTextRaw, nameStatusRaw] = await Promise.all([
-    getPatchText(pi, repoRoot, scope, head),
-    getNameStatusText(pi, repoRoot, scope, head),
-  ]);
-
-  return buildBundleFromPatchText({
-    scope,
-    repoRoot,
-    head,
-    patchTextRaw,
-    nameStatusEntries: parseNameStatus(nameStatusRaw),
-    sourceKind: "git",
-  });
 }

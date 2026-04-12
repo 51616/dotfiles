@@ -118,7 +118,7 @@ test("renderDiffRows hides raw diff metadata rows", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/example.ts", newPath: "src/example.ts" });
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -147,7 +147,7 @@ test("renderDiffRows keeps early cursor rows at the top until mid-viewport is re
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -175,7 +175,7 @@ test("renderDiffRows centers the cursor once enough content exists above it", ()
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -200,7 +200,7 @@ test("renderDiffRows inserts a spacer line between hunks", () => {
   const file = parseSingleFilePatch({ rawPatch: MULTI_HUNK_PATCH, status: "M", oldPath: "src/example.ts", newPath: "src/example.ts" });
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -232,7 +232,7 @@ test("renderDiffRows wraps long diff rows and keeps syntax highlight on wrapped 
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 50,
@@ -265,7 +265,7 @@ test("selected context rows still use selectedBg while changed rows keep diff ti
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -295,7 +295,7 @@ test("renderDiffRows keeps the join marker compact and left-flushes unmarked dif
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -322,7 +322,7 @@ test("renderDiffRows shows the current line marker in the gutter across wrapped 
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 42,
@@ -350,7 +350,7 @@ test("renderDiffRows places comment markers in the gutter instead of the content
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 60,
@@ -380,7 +380,7 @@ test("renderDiffRows keeps the selected row visible when wrapped rows above cons
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 25,
@@ -406,7 +406,7 @@ test("renderDiffRows emphasizes changed tokens for confidently paired rows", () 
   const highlightedRows = highlightFileRows({ file, language: "typescript", theme });
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 80,
@@ -437,7 +437,7 @@ test("renderDiffRows keeps brighter token chips on selected changed rows", () =>
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 80,
@@ -464,7 +464,7 @@ test("renderDiffRows falls back cleanly for ambiguous rewrites and unmatched row
 
   const ambiguousRendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "ambiguous",
     file: ambiguousFile,
     width: 80,
@@ -482,7 +482,7 @@ test("renderDiffRows falls back cleanly for ambiguous rewrites and unmatched row
 
   const partialRendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "partial",
     file: partialFile,
     width: 80,
@@ -511,7 +511,7 @@ test("renderDiffRows shows bold color-coded accepted and rejected markers only o
 
   const rendered = renderDiffRows({
     theme,
-    scope: "u",
+    scope: "a",
     fingerprint: "fingerprint",
     file,
     width: 80,

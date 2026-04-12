@@ -22,6 +22,8 @@ export type CompactThenResumeDeps = {
 
   pushDebug: (ctx: ExtensionContext, line: string) => void;
   setStatus: (ctx: ExtensionContext, text?: string) => void;
+  showCompactionLoader: (ctx: ExtensionContext, label?: string) => void;
+  clearCompactionLoader: (ctx: ExtensionContext) => void;
 
   cleanupAutotest: (ctx: ExtensionContext, reason: string) => void;
   getDebugEnabled: () => boolean;
@@ -62,13 +64,15 @@ export function compactThenResume(
     ctx,
     `compaction start path=${checkpointPath}${extra ? ` instrChars=${extra.length}` : ""}`,
   );
-  deps.setStatus(ctx, "| Checkpoint: compacting… 🟡");
+  deps.setStatus(ctx, undefined);
+  deps.showCompactionLoader(ctx);
 
   // NOTE: ctx.compact() aborts the agent operation.
   try {
     ctx.compact({
       customInstructions,
       onComplete: async () => {
+        deps.clearCompactionLoader(ctx);
         deps.pushDebug(ctx, "compaction complete");
         if (deps.getDebugEnabled() && ctx.hasUI) {
           deps.notify(ctx, "autockpt: compaction complete; sending resume ping…", "info");
@@ -96,6 +100,7 @@ export function compactThenResume(
         deps.updateArmedStatus(ctx);
       },
       onError: async (err) => {
+        deps.clearCompactionLoader(ctx);
         deps.pushDebug(ctx, `compaction error: ${err.message}`);
         if (deps.getDebugEnabled() && ctx.hasUI) {
           deps.notify(ctx, `autockpt: compaction failed (${err.message})`, "error");
@@ -123,6 +128,7 @@ export function compactThenResume(
       },
     });
   } catch (err: any) {
+    deps.clearCompactionLoader(ctx);
     const msg = String(err?.message || err || "unknown error");
     deps.pushDebug(ctx, `compaction threw: ${msg}`);
     if (deps.getDebugEnabled() && ctx.hasUI) {

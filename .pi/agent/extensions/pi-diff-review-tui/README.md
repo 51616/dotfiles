@@ -8,9 +8,9 @@ The diff pane uses pi-style `cli-highlight` syntax highlighting for code rows, w
 
 This extension is loaded automatically by the vault `./pi` wrapper because it lives under `.pi/extensions/`.
 
-This repo also ships `.pi/settings.json` so a globally installed legacy `badlogic/pi-diff-review` package does not steal or suffix `/diff-review` during local verification.
+When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` opens in `t` mode by default and shows the most recent reviewable agent-touched patch for this session before falling back explicitly to `a` (`workspace vs HEAD`).
 
-When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` now opens in `t` scope by default and shows the most recent reviewable agent-touched patch for this session before falling back to the git-backed scopes.
+When the tracker metadata also carries an advisory `agent_change_report`, `t` mode keeps runtime-observed rows canonical and may append repo-contained reported-only rows. Those reported-only rows are labeled explicitly, stay inspect-only in v1, and may either show a derived current repo diff or an explicit no-current-diff advisory placeholder.
 
 ## Keybindings
 
@@ -21,22 +21,22 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 - `tab`: switch files/diff focus
 - `→`: files → diff focus
 - `←`: diff → files focus
-- `t` / `u` / `i` / `a`: switch diff source or scope (most recent reviewable agent-made turn / unstaged / staged / all, with `a` including untracked files too)
+- `t` / `a`: switch review mode (`t` = last turn, `a` = workspace vs HEAD across all current repo changes, including untracked files)
 - `c`: line comment at cursor
 - `h`: auto-range comment (uses the nearest contiguous changed block, not the whole git hunk)
 - `space`: toggle the current contiguous changed block accepted/rejected (`✓` accepted by default, `×` rejected)
 - `x`: start/finish an explicit range selection for a range comment
 - `f`: file comment
 - `o`: overall comment
-- `m`: comments list (`t` toggles current/all scopes inside the overlay)
+- `m`: comments list (`t` toggles current/all review modes inside the overlay)
 - `v`: peek comments covering the current cursor location
-- `n` / `b`: next / previous comment in the current scope
+- `n` / `b`: next / previous comment in the current review mode
 - `.` / `,`: next / previous comment in the current file
 - `w` / `z`: next file with comments / next file with stale comments
 - `[` / `]`: previous / next contiguous changed chunk
 - `e`: edit at cursor in `$VISUAL` / `$EDITOR` / `nvim`
 - `g`: edit file
-- `r`: reload current scope
+- `r`: reload current review mode
 - `?`: help
 - `s`: submit
 - `q` or `esc`: cancel (`esc` clears an active range selection before quitting)
@@ -47,9 +47,9 @@ Submit writes a full-fidelity Markdown review file to the first writable locatio
 
 The directory naming follows pi's session convention (`~/.pi/agent/sessions/--<cwd>--/`). For a given git repo root, the safe-path is computed from that root.
 
-- `/tmp/pi/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
-- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
-- `<repoRoot>/.pi/diff-review/reviews/sessions/<sessionId>/<timestamp>_<scope>.md`
+- `/tmp/pi/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
+- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
+- `<repoRoot>/.pi/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
 
 If `/tmp` is not writable, the UI warns when it falls back to `~/.pi/agent/sessions/...` or the repo-local `.pi` directory.
 
@@ -59,6 +59,6 @@ Saved reviews use PR-style `a:` / `b:` anchors, actionable `edit_path` / `apply_
 
 Changed blocks are accepted by default. If you press `space` on changed diff lines, `/diff-review` marks that contiguous changed block as rejected and `s` will try to revert only those rejected blocks from the working tree via `git apply -R --check`, with `git apply -R -3 --check` as the fallback. If both checks fail, nothing is mutated and the UI shows the git diagnostics plus recovery steps.
 
-Manual edits within or near a rejected block can make reverse-apply fail because `git apply -R` is context-sensitive. The intended recovery path is: `r` reload the current scope, reselect the rejected blocks, then submit again.
+Manual edits within or near a rejected block can make reverse-apply fail because `git apply -R` is context-sensitive. The intended recovery path is: `r` reload the current review mode, reselect the rejected blocks, then submit again.
 
-When the review source is `t`, the saved markdown and compact prompt also record that the review came from the last turn's agent-touched patch, along with the touched paths (and repo keys when the artifact is a combined multi-repo workspace patch).
+When the review source is `t`, the saved markdown and compact prompt also record that the review came from the last turn's agent-touched patch, along with the touched paths, canonical `observed_changed_paths`, and agent-report mismatch counts (and repo keys when the artifact is a combined multi-repo workspace patch).

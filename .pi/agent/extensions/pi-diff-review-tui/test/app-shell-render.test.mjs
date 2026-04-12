@@ -32,7 +32,7 @@ test("renderAppShell stacks a comments panel under files", () => {
     width: 110,
     terminalRows: 30,
     repoRoot: "/repo",
-    scope: "u",
+    scope: "a",
     headLabel: "abcdef0",
     scopedCommentCount: 3,
     staleCount: 1,

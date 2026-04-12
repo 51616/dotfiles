@@ -1,3 +1,5 @@
+// @lat: [[tests#Diff-review TUI renders canonical-vs-reported-only file provenance honestly]]
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -41,7 +43,7 @@ test("renderFileList shows a comment badge with count", () => {
     height: 10,
     fileScroll: 0,
     selectedFileIndex: 0,
-    statusLetter: (status) => status,
+    statusLetter: (entry) => entry.status,
     fileCommentCount: () => 3,
     fileHasStale: () => false,
   });
@@ -61,11 +63,40 @@ test("renderFileList uses a stale badge when file has unresolved stale comments"
     height: 10,
     fileScroll: 0,
     selectedFileIndex: 0,
-    statusLetter: (status) => status,
+    statusLetter: (entry) => entry.status,
     fileCommentCount: () => 12,
     fileHasStale: () => true,
   });
 
   const plain = stripAnsi(out[0] ?? "");
   assert.match(plain, /◇12/);
+});
+
+test("renderFileList marks reported-only and missing-agent files explicitly", () => {
+  const theme = createTheme();
+  const observed = {
+    ...parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/example.ts", newPath: "src/example.ts" }),
+    agentMismatch: "missing_from_agent_report",
+  };
+  const reportedOnly = {
+    ...parseSingleFilePatch({ rawPatch: PATCH.replaceAll("src/example.ts", "docs/notes.md"), status: "M", oldPath: "docs/notes.md", newPath: "docs/notes.md" }),
+    displayPath: "docs/notes.md",
+    reviewProvenance: "reported_only",
+  };
+
+  const out = renderFileList({
+    theme,
+    files: [observed, reportedOnly],
+    width: 48,
+    height: 10,
+    fileScroll: 0,
+    selectedFileIndex: 1,
+    statusLetter: (entry) => entry.reviewProvenance === "reported_only" ? "?" : entry.status,
+    fileCommentCount: () => 0,
+    fileHasStale: () => false,
+  });
+
+  const plain = stripAnsi(out.join("\n"));
+  assert.match(plain, /src\/example\.ts\s+∅/);
+  assert.match(plain, /\? docs\/notes\.md\s+\?/);
 });

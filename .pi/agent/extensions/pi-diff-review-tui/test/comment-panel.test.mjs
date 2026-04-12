@@ -1,3 +1,5 @@
+// @lat: [[tests#Diff-review TUI renders canonical-vs-reported-only file provenance honestly]]
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -26,7 +28,7 @@ function stripAnsi(text) {
 
 function makeComment({
   ordinal,
-  scope = "u",
+  scope = "a",
   kind = "line",
   status = "ok",
   body = "Example body",
@@ -97,13 +99,13 @@ test("renderCommentPanel shows session-wide counts when files pane is active", (
     height: 8,
     view: {
       kind: "session",
-      scope: "u",
+      scope: "a",
       comments: [
-        makeComment({ ordinal: 1, scope: "u", kind: "line", status: "ok" }),
-        makeComment({ ordinal: 2, scope: "s", kind: "range", status: "moved", line: 22, originalLine: 20 }),
+        makeComment({ ordinal: 1, scope: "a", kind: "line", status: "ok" }),
+        makeComment({ ordinal: 2, scope: "t", kind: "range", status: "moved", line: 22, originalLine: 20 }),
         makeComment({ ordinal: 3, scope: "a", kind: "file", status: "stale_unresolved", line: null, originalLine: null }),
       ],
-      overallComments: { u: "Overall note", s: "", a: "Another note" },
+      overallComments: { t: "Overall note", a: "Another note" },
     },
   });
 
@@ -112,7 +114,7 @@ test("renderCommentPanel shows session-wide counts when files pane is active", (
   assert.match(plain, /total 3/);
   assert.match(plain, /kinds l1 r1 f1/);
   assert.match(plain, /status ok1 mv1 st1/);
-  assert.match(plain, /scopes u1 i1 a1/);
+  assert.match(plain, /modes t1 a2/);
   assert.match(plain, /overall notes 2/);
 });
 
@@ -124,7 +126,7 @@ test("renderCommentPanel shows the hovered comment preview and extra-count hint"
     height: 8,
     view: {
       kind: "preview",
-      scope: "u",
+      scope: "a",
       comments: [
         makeComment({ ordinal: 1, body: "First line\nSecond line", line: 14, originalLine: 10, status: "moved" }),
         makeComment({ ordinal: 2, body: "Another comment", line: 14 }),
@@ -139,4 +141,40 @@ test("renderCommentPanel shows the hovered comment preview and extra-count hint"
   assert.match(plain, /original src\/example.ts:10 \(new\)/);
   assert.match(plain, /First line/);
   assert.match(plain, /\+1 more here · v list/);
+});
+
+test("renderCommentPanel shows reported-only advisory metadata and agent summaries", () => {
+  const theme = createTheme();
+  const rendered = renderCommentPanel({
+    theme,
+    width: 48,
+    height: 12,
+    view: {
+      kind: "file",
+      scope: "t",
+      file: {
+        fileKey: "M:docs/notes.md->docs/notes.md",
+        status: "M",
+        oldPath: "docs/notes.md",
+        newPath: "docs/notes.md",
+        displayPath: "docs/notes.md",
+        editablePath: "docs/notes.md",
+        rawPatch: "",
+        rows: [],
+        hunks: [],
+        changeBlocks: [],
+        isBinary: false,
+        reviewProvenance: "reported_only",
+        reportedOnlyDiffState: "no_current_repo_diff",
+        agentSummary: "The agent said it updated the notes, but the runtime did not observe a canonical diff.",
+      },
+      comments: [],
+    },
+  });
+
+  const plain = stripAnsi(rendered.join("\n"));
+  assert.match(plain, /reported-only advisory/);
+  assert.match(plain, /no current repo diff exists/);
+  assert.match(plain, /agent summary/);
+  assert.match(plain, /runtime did not observe a canonical diff/);
 });

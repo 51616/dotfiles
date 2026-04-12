@@ -1,3 +1,5 @@
+// @lat: [[self-checkpointing#Self-checkpointing]]
+
 import os from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -21,6 +23,7 @@ import { compactThenResume } from "./lib/self-checkpointing-compaction.ts";
 import { createAutotestController, type AutotestController } from "./lib/self-checkpointing-autotest.ts";
 import { createSelfCheckpointingUiRuntime } from "./lib/self-checkpointing-ui-runtime.ts";
 import { registerSelfCheckpointingHooks } from "./lib/self-checkpointing-hooks.ts";
+import { createCheckpointProbe } from "./lib/self-checkpointing-checkpoint-probe.ts";
 
 /**
  * Self-checkpointing (orchestrator)
@@ -90,12 +93,14 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     "PI_SELF_CHECKPOINT_AUTO_KICK_MAX_AGE_MS",
     120000,
   );
-  const AUTO_KICK_MIN_INTERVAL_MS = parseNonNegativeIntEnv(
-    "PI_SELF_CHECKPOINT_AUTO_KICK_MIN_INTERVAL_MS",
-    10000,
+  const AUTO_KICK_MIN_TOOL_CALLS = parseNonNegativeIntEnv(
+    "PI_SELF_CHECKPOINT_AUTO_KICK_MIN_TOOL_CALLS",
+    10,
   );
 
   const debugWidgetAuto = (process.env.PI_SELF_CHECKPOINT_DEBUG_WIDGET_AUTO ?? "0") === "1";
+  const checkpointProbe = createCheckpointProbe(pi);
+
   const uiRuntime = createSelfCheckpointingUiRuntime(pi, {
     statusKey: STATUS_KEY,
     debugWidgetKey: "autockpt-debug",
@@ -112,6 +117,8 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
   const getDebugLog = uiRuntime.getDebugLog;
   const clearDebugLog = uiRuntime.clearDebugLog;
   const sendFollowUpUserMessage = uiRuntime.sendFollowUpUserMessage;
+  const showCompactionLoader = uiRuntime.showCompactionLoader;
+  const clearCompactionLoader = uiRuntime.clearCompactionLoader;
 
   const sessionStore = createSelfCheckpointingSessionStore({
     pendingDir: PENDING_DIR,
@@ -129,7 +136,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
 
     if (pendingCompactionRequested) {
       armed = false;
-      setStatus(ctx, "| Checkpoint: compacting… 🟡");
+      setStatus(ctx, undefined);
       return;
     }
 
@@ -159,7 +166,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     pid: process.pid,
     customType: "pi-self-checkpointing",
     maxAgeMs: AUTO_KICK_MAX_AGE_MS,
-    minIntervalMs: AUTO_KICK_MIN_INTERVAL_MS,
+    minToolCallsBetweenAttempts: AUTO_KICK_MIN_TOOL_CALLS,
     attemptLimit: 3,
     buildDirectiveMessage: buildAutockptDirectiveMessage,
     getHandledThisTurn: () => handledThisTurn,
@@ -240,6 +247,8 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
         trySendPendingResume: (ctx2, reason) => pendingResume.trySend(ctx2, reason),
         pushDebug,
         setStatus,
+        showCompactionLoader,
+        clearCompactionLoader,
         cleanupAutotest: (ctx2, reason) => autotest.cleanup(ctx2, reason),
         getDebugEnabled: isDebugEnabled,
         notify: (ctx2, msg, level) => ctx2.ui.notify(msg, level),
@@ -277,6 +286,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     debugWidgetAuto,
     maxCheckpointAgeMs: MAX_CHECKPOINT_AGE_MS,
     footerDedupeWindowMs: FOOTER_DEDUPE_WINDOW_MS,
+    checkpointProbe,
     autoKick,
     pendingResume,
     autotest,
@@ -306,6 +316,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     startCompaction,
     pushDebug,
     setStatus,
+    clearCompactionLoader,
     isDebugEnabled,
   });
 }

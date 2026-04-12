@@ -1,22 +1,16 @@
-import { readdirSync, statSync } from "node:fs";
-import path from "node:path";
-
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   AUTOCHECKPOINT_DONE_MARKER,
   COMPACTION_INSTR_BEGIN,
 } from "../../lib/autockpt/autockpt-markers.ts";
-import {
-  assistantTextFromContent,
-  isFreshCheckpointFile,
-  parseCheckpointFooter,
-} from "../../lib/autockpt/autockpt-footer-guards.ts";
+import { assistantTextFromContent, parseCheckpointFooter } from "../../lib/autockpt/autockpt-footer-guards.ts";
 import {
   markFooterHandled,
   shouldSkipDuplicateFooter,
   type FooterHandledRecord,
 } from "../../lib/autockpt/autockpt-footer-dedupe.ts";
 import type { AutoKickController } from "./self-checkpointing-auto-kick.ts";
+import type { CheckpointProbe } from "./self-checkpointing-checkpoint-probe.ts";
 
 export type FooterHandlerDeps = {
   autoKick: AutoKickController;
@@ -34,6 +28,7 @@ export type FooterHandlerDeps = {
 
   maxCheckpointAgeMs: number;
   footerDedupeWindowMs: number;
+  checkpointProbe: CheckpointProbe;
 
   ensureCompactionLock: (ctx: ExtensionContext, checkpointPath: string) => boolean;
 
@@ -52,43 +47,6 @@ export type FooterHandlerDeps = {
     compactionInstructions?: string,
   ) => void;
 };
-
-function inferLatestCheckpointPath(maxAgeMs: number): string | null {
-  const dir = path.join("work", "log", "checkpoints");
-
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return null;
-  }
-
-  const nowMs = Date.now();
-
-  let bestPath: string | null = null;
-  let bestMtimeMs = -1;
-
-  for (const name of entries) {
-    if (!name.endsWith(".md")) continue;
-
-    const p = path.join(dir, name);
-
-    try {
-      const st = statSync(p);
-      const ageMs = nowMs - st.mtimeMs;
-      if (maxAgeMs > 0 && ageMs > maxAgeMs) continue;
-
-      if (st.mtimeMs > bestMtimeMs) {
-        bestMtimeMs = st.mtimeMs;
-        bestPath = p;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return bestPath;
-}
 
 export function handleAssistantMessageEnd(
   deps: FooterHandlerDeps,
@@ -128,7 +86,7 @@ export function handleAssistantMessageEnd(
   const compactionInstructions = parsed?.compactionInstructions ?? "";
 
   if (!checkpointPath && sawDoneMarker) {
-    const inferred = inferLatestCheckpointPath(deps.maxCheckpointAgeMs);
+    const inferred = deps.checkpointProbe.inferLatestCheckpointPath(deps.maxCheckpointAgeMs);
     if (inferred) {
       checkpointPath = inferred;
       deps.pushDebug(ctx, `message_end: footer missing path; inferred checkpointPath=${checkpointPath}`);
@@ -157,7 +115,7 @@ export function handleAssistantMessageEnd(
     return;
   }
 
-  if (!isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs)) {
+  if (!deps.checkpointProbe.isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs)) {
     if (deps.isDebugEnabled()) {
       deps.pushDebug(ctx, `message_end: checkpoint invalid/stale path=${checkpointPath}`);
     }
@@ -205,8 +163,8 @@ export function handleAssistantMessageEnd(
   deps.setArmed(false);
   deps.autoKick.markFooterMatched();
 
-  // As soon as we see a valid footer, mute stamp emission so the user doesn't get
-  // another __PI_CHECKPOINT_NOW__ line while compaction is spinning up.
+  // As soon as we see a valid footer, mark the checkpoint cycle active so auto-kick
+  // stays muted while compaction is spinning up.
   deps.setCheckpointCycleActive(ctx, true);
 
   // Defer to next tick so we don't start compaction inside the event handler stack.

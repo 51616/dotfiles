@@ -43,6 +43,7 @@ Default (Option A): capture only key checkpoints:
 ## Phase 2: Behavior-driven implementation
 - [ ] Task: Identify the next behavior slice from the approved scenarios
 - [ ] Task: Write failing tests first when feasible for the current behavior slice (only tests that prove an approved behavior; no testing for its own sake)
+- [ ] Task: Link each new/changed test to an approved behavior/scenario (record mapping in Change evidence; when `lat.md/` exists, prefer `@lat:` refs to a test-spec section per the `lat-md` skill)
 - [ ] Task: Implement the minimum change needed to satisfy the approved behavior
 - [ ] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
 - [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
@@ -67,6 +68,7 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 5: Completion sync
 - [ ] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
+- [ ] Task (when `lat.md/` exists): Append/update test specs in `lat.md/tests.md` (or the relevant module’s `lat.md/tests.md`) and ensure each new/changed test has a corresponding `@lat:` reference (follow the `lat-md` skill)
 - [ ] Task: Best-effort sync project docs (`project.md`, `tech-stack.md`, `workflow.md`) if the track changed them
 - [ ] Task: Mark track complete in `conductor/tracks.md`
 

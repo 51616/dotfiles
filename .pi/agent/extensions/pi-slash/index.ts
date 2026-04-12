@@ -1,13 +1,33 @@
+// @lat: [[pi-slash#Pi slash]]
+
 import { SessionManager } from "@mariozechner/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+  BranchSummaryEntry,
+  CompactionEntry,
+  CustomEntry,
+  CustomMessageEntry,
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  ModelChangeEntry,
+  SessionEntry,
+  SessionInfoEntry,
+  SessionMessageEntry,
+  ThinkingLevelChangeEntry,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { asString } from "../lib/shared/pi-string.ts";
+
+type TreeNavigateOptions = {
+  summarize?: boolean;
+};
 
 type PendingSessionOp =
   | { kind: "reload" }
   | { kind: "new" }
   | { kind: "resume"; sessionPath: string }
-  | { kind: "compact"; customInstructions?: string };
+  | { kind: "compact"; customInstructions?: string }
+  | { kind: "tree"; targetId: string; options?: TreeNavigateOptions };
 
 let pendingSessionOp: PendingSessionOp | null = null;
 
@@ -25,6 +45,17 @@ type ModelRegistryLike = {
   find?: (provider: string, id: string) => unknown;
   refresh?: () => void;
 };
+
+type SessionTreeNodeLike = {
+  entry: SessionEntry;
+  children: SessionTreeNodeLike[];
+  label?: string;
+};
+
+type TreeCommand =
+  | { mode: "show" }
+  | { mode: "navigate"; targetId: string; summarize: boolean }
+  | { mode: "error"; text: string };
 
 function normalizeThinkingLevel(value: unknown): ThinkingLevel {
   const raw = asString(value).trim().toLowerCase();
@@ -67,7 +98,149 @@ function parseSlash(command: string): { name: string; args: string } | null {
   return { name, args };
 }
 
-async function runSlash(command: string, ctx: ExtensionContext): Promise<{ ok: boolean; text: string }> {
+function parseTreeArgs(rawArgs: string): TreeCommand {
+  const args = rawArgs.trim();
+  if (!args) return { mode: "show" };
+
+  const tokens = args.split(/\s+/).filter(Boolean);
+  let targetId = "";
+  let summarize = false;
+
+  for (const token of tokens) {
+    if (token === "--summary") {
+      summarize = true;
+      continue;
+    }
+
+    if (!targetId) {
+      targetId = token;
+      continue;
+    }
+
+    return { mode: "error", text: "Usage: /tree [<entryId>] [--summary]" };
+  }
+
+  if (!targetId) {
+    return { mode: "error", text: "Usage: /tree [<entryId>] [--summary]" };
+  }
+
+  return { mode: "navigate", targetId, summarize };
+}
+
+function shorten(text: string, max = 80): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function previewContent(content: unknown): string {
+  if (typeof content === "string") {
+    return shorten(content);
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+
+    const maybeText = (block as { text?: unknown }).text;
+    if (typeof maybeText === "string" && maybeText.trim()) {
+      parts.push(maybeText.trim());
+      continue;
+    }
+
+    const maybeType = asString((block as { type?: unknown }).type);
+    if (maybeType) {
+      parts.push(`[${maybeType}]`);
+    }
+  }
+
+  return shorten(parts.join(" "));
+}
+
+function summarizeSessionMessage(entry: SessionMessageEntry): string {
+  const role = asString((entry.message as { role?: unknown }).role) || "message";
+  const content = previewContent((entry.message as { content?: unknown }).content);
+  return content ? `${role}: ${content}` : role;
+}
+
+function summarizeCustomMessage(entry: CustomMessageEntry): string {
+  const content = previewContent(entry.content);
+  return content ? `${entry.customType}: ${content}` : entry.customType;
+}
+
+function summarizeEntry(entry: SessionEntry): string {
+  switch (entry.type) {
+    case "message":
+      return summarizeSessionMessage(entry);
+    case "custom_message":
+      return summarizeCustomMessage(entry);
+    case "thinking_level_change":
+      return `thinking: ${(entry as ThinkingLevelChangeEntry).thinkingLevel}`;
+    case "model_change":
+      return `model: ${(entry as ModelChangeEntry).provider}/${(entry as ModelChangeEntry).modelId}`;
+    case "compaction": {
+      const compaction = entry as CompactionEntry;
+      const tokensBefore = Number.isFinite(compaction.tokensBefore) ? ` (${compaction.tokensBefore} tokens)` : "";
+      return `compaction${tokensBefore}: ${shorten(compaction.summary, 60)}`;
+    }
+    case "branch_summary": {
+      const summary = entry as BranchSummaryEntry;
+      return `branch_summary from ${summary.fromId}: ${shorten(summary.summary, 60)}`;
+    }
+    case "custom":
+      return `custom: ${(entry as CustomEntry).customType}`;
+    case "label": {
+      const labelEntry = entry as { targetId: string; label?: string };
+      return `label ${labelEntry.targetId}: ${labelEntry.label || "(cleared)"}`;
+    }
+    case "session_info": {
+      const sessionInfo = entry as SessionInfoEntry;
+      return `session_info${sessionInfo.name ? `: ${sessionInfo.name}` : ""}`;
+    }
+    default:
+      return "unknown";
+  }
+}
+
+function renderSessionTree(ctx: ExtensionContext): string {
+  const tree = ctx.sessionManager.getTree() as SessionTreeNodeLike[];
+  const activeId = ctx.sessionManager.getLeafId();
+
+  if (tree.length === 0) {
+    return "Session tree is empty.";
+  }
+
+  const lines = [
+    "Session Tree",
+    `- active: ${activeId ?? "(none)"}`,
+    "- navigate with: /tree <entryId> [--summary]",
+    "",
+  ];
+
+  const walk = (nodes: SessionTreeNodeLike[], prefix: string) => {
+    nodes.forEach((node, index) => {
+      const isLast = index === nodes.length - 1;
+      const connector = isLast ? "└─" : "├─";
+      const label = node.label ? ` [${node.label}]` : "";
+      const active = node.entry.id === activeId ? " ← active" : "";
+      lines.push(`${prefix}${connector} ${node.entry.id} · ${summarizeEntry(node.entry)}${label}${active}`);
+      walk(node.children, `${prefix}${isLast ? "   " : "│  "}`);
+    });
+  };
+
+  walk(tree, "");
+  return lines.join("\n");
+}
+
+async function runSlash(
+  command: string,
+  ctx: ExtensionContext,
+  pi: Pick<ExtensionAPI, "getCommands">
+): Promise<{ ok: boolean; text: string }> {
   const parsed = parseSlash(command);
   if (!parsed) return { ok: false, text: "Invalid slash command." };
 
@@ -98,7 +271,7 @@ async function runSlash(command: string, ctx: ExtensionContext): Promise<{ ok: b
       await reload();
 
       const commands = pi.getCommands();
-      const hasSelf = commands.some((c) => c.name === "pi-slash-commands");
+      const hasSelf = commands.some((c: { name: string }) => c.name === "pi-slash-commands");
 
       return {
         ok: true,
@@ -223,6 +396,39 @@ async function runSlash(command: string, ctx: ExtensionContext): Promise<{ ok: b
         : { ok: true, text: `OK: resumed session: ${sessionPath}` };
     }
 
+    case "tree": {
+      const treeCommand = parseTreeArgs(parsed.args);
+      if (treeCommand.mode === "error") {
+        return { ok: false, text: treeCommand.text };
+      }
+
+      if (treeCommand.mode === "show") {
+        return { ok: true, text: renderSessionTree(ctx) };
+      }
+
+      const navigateTree = (ctx as unknown as Partial<ExtensionCommandContext>).navigateTree;
+      if (!navigateTree) {
+        return { ok: false, text: "Tree navigation not available in this context." };
+      }
+
+      const options = treeCommand.summarize ? { summarize: true } : undefined;
+      if (!ctx.isIdle()) {
+        pendingSessionOp = { kind: "tree", targetId: treeCommand.targetId, options };
+        return {
+          ok: true,
+          text: `Scheduled: /tree after the current response finishes: ${treeCommand.targetId}`,
+        };
+      }
+
+      const result = await navigateTree(treeCommand.targetId, options);
+      return result.cancelled
+        ? { ok: false, text: "Cancelled." }
+        : {
+            ok: true,
+            text: `OK: navigated to tree node: ${treeCommand.targetId}${treeCommand.summarize ? " (with summary)." : "."}`,
+          };
+    }
+
     case "quit": {
       ctx.shutdown();
       return {
@@ -281,6 +487,11 @@ export default function piSlash(pi: ExtensionAPI) {
             onError: reject,
           });
         });
+      } else if (op.kind === "tree") {
+        const navigateTree = (ctx as unknown as Partial<ExtensionCommandContext>).navigateTree;
+        if (navigateTree) {
+          await navigateTree(op.targetId, op.options);
+        }
       }
     } catch {
       // Swallow: reload/new/resume are best-effort when scheduled from a tool call.
@@ -297,6 +508,7 @@ export default function piSlash(pi: ExtensionAPI) {
         "",
         "Notes:",
         "- /model is interactive; the assistant uses pi.setModel() instead.",
+        "- /tree in tool mode lists the session tree; use /tree <entryId> to jump directly.",
         "- Confirmation is required for /compact, /new, /resume.",
       ].join("\n");
 
@@ -312,7 +524,7 @@ export default function piSlash(pi: ExtensionAPI) {
     pi.registerCommand(name, {
       description: `Alias for ${target}`,
       handler: async (_args, ctx) => {
-        const result = await runSlash(`/${name}`, ctx);
+        const result = await runSlash(`/${name}`, ctx, pi);
         if (!result.ok) {
           ctx.ui.notify(result.text, "warning");
         }
@@ -439,7 +651,7 @@ export default function piSlash(pi: ExtensionAPI) {
           }
         }
 
-        const result = await runSlash(command, ctx);
+        const result = await runSlash(command, ctx, pi);
         return {
           content: [{ type: "text", text: result.text }],
           details: { ok: result.ok, command },

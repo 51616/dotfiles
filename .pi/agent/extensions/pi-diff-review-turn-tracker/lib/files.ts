@@ -9,6 +9,7 @@ import {
   type OmitReason,
   type RepoTurnState,
 } from "./types.ts";
+import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -79,6 +80,85 @@ export function captureFileImage(repoState: RepoTurnState, absolutePath: string,
     text,
     sizeBytes: bytes.length,
     mtimeMs: stat.mtimeMs,
+    sha256: sha256(bytes),
+  };
+}
+
+export async function captureFileImageRemote(
+  repoState: RepoTurnState,
+  helper: DiffReviewSshHelperClient,
+  repoRoot: string,
+  repoRelPath: string,
+  phase: "pre" | "post",
+): Promise<FileImage> {
+  const readErrorReason: OmitReason = phase === "pre" ? "read_error_pre" : "read_error_post";
+
+  let st: { exists: boolean; isFile: boolean; sizeBytes?: number; mtimeMs?: number };
+  try {
+    st = await helper.stat({ repoRoot, repoRelPath });
+  } catch {
+    return omitted(readErrorReason);
+  }
+
+  if (!st.exists) return { kind: "missing", exists: false };
+  if (!st.isFile) return omitted(readErrorReason);
+
+  const size = typeof st.sizeBytes === "number" ? st.sizeBytes : undefined;
+  if (typeof size === "number" && size > MAX_FILE_BYTES_FOR_CONTENT) {
+    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs };
+  }
+  if (repoState.touchedPaths.size > MAX_TOUCHED_PATHS_PER_REPO) {
+    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs };
+  }
+  if (typeof size === "number" && repoState.capturedBytes + size > MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO) {
+    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs };
+  }
+
+  let read: { exists: boolean; bytes: Buffer; truncated: boolean };
+  try {
+    read = await helper.read({ repoRoot, repoRelPath, maxBytes: MAX_FILE_BYTES_FOR_CONTENT });
+  } catch {
+    return { kind: "omitted", exists: true, reason: readErrorReason, sizeBytes: size, mtimeMs: st.mtimeMs };
+  }
+
+  if (!read.exists) return { kind: "missing", exists: false };
+  if (read.truncated) {
+    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs };
+  }
+
+  const bytes = read.bytes;
+  if (bytes.subarray(0, Math.min(bytes.length, 1024)).includes(0)) {
+    return {
+      kind: "omitted",
+      exists: true,
+      reason: "binary",
+      sizeBytes: bytes.length,
+      mtimeMs: st.mtimeMs,
+      sha256: sha256(bytes),
+    };
+  }
+
+  let text = "";
+  try {
+    text = utf8Decoder.decode(bytes);
+  } catch {
+    return {
+      kind: "omitted",
+      exists: true,
+      reason: "binary",
+      sizeBytes: bytes.length,
+      mtimeMs: st.mtimeMs,
+      sha256: sha256(bytes),
+    };
+  }
+
+  repoState.capturedBytes += bytes.length;
+  return {
+    kind: "content",
+    exists: true,
+    text,
+    sizeBytes: bytes.length,
+    mtimeMs: typeof st.mtimeMs === "number" ? st.mtimeMs : Date.now(),
     sha256: sha256(bytes),
   };
 }

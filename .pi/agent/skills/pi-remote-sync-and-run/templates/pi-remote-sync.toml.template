@@ -1,0 +1,59 @@
+default_host = "gcp_slurm_sakana_eu-pi-agent"
+mirrored_root = "~/research"
+
+[sync]
+# Keep this empty to sync all git-tracked files (plus optional untracked files).
+# Set it when the repo tracks files that should never go to the remote host.
+include = [
+  "src/**",
+  "examples/**",
+  "scripts/**",
+  "tests/**",
+  "configs/**",
+  "analysis/**",
+  "apps/**",
+  "docs/**",
+  "pyproject.toml",
+  "uv.lock",
+  "README.md",
+  ".gitignore",
+  "*.py",
+  "*.toml",
+  "*.yaml",
+  "*.yml",
+  "*.md",
+  "*.sh",
+]
+
+exclude = [
+  ".git/**",
+  ".venv/**",
+  "venv/**",
+  "__pycache__/**",
+  ".pytest_cache/**",
+  ".mypy_cache/**",
+  ".ruff_cache/**",
+  "node_modules/**",
+  ".pi/**",
+  ".pi-remote-sync/**",
+  "*.log",
+]
+
+# Remote-owned paths inside the repo root. The sync tool will never prune them.
+protect = [
+  "results/**",
+  "output/**",
+  "outputs/**",
+  "data/**",
+  "datasets/**",
+  "artifacts/**",
+  "runs/**",
+  "checkpoints/**",
+  "logs/**",
+  "wandb/**",
+  "mlruns/**",
+]
+
+# Keep false unless you intentionally want to ship local untracked files too.
+include_untracked = false
+extra_untracked = []

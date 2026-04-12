@@ -28,11 +28,11 @@ test("editorLineForRow returns the targeted line only when requested", () => {
 
 test("commentsForSubmission renumbers all comments and returns sorted scoped comments", () => {
   const file = parseSingleFilePatch({ rawPatch: PATCH, status: "M", oldPath: "src/foo.ts", newPath: "src/foo.ts" });
-  const u1 = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "u", body: "u1" });
-  const s1 = createComment({ comments: [u1], file, row: file.rows[7], kind: "line", scope: "s", body: "s1" });
-  const u2 = { ...createComment({ comments: [u1, s1], file, row: file.rows[7], kind: "line", scope: "u", body: "u2" }), ordinal: 9 };
+  const u1 = createComment({ comments: [], file, row: file.rows[6], kind: "line", scope: "a", body: "u1" });
+  const s1 = createComment({ comments: [u1], file, row: file.rows[7], kind: "line", scope: "t", body: "s1" });
+  const u2 = { ...createComment({ comments: [u1, s1], file, row: file.rows[7], kind: "line", scope: "a", body: "u2" }), ordinal: 9 };
 
-  const next = commentsForSubmission([u1, s1, u2], "u");
+  const next = commentsForSubmission([u1, s1, u2], "a");
   assert.deepEqual(next.scopedComments.map((comment) => comment.body), ["u1", "u2"]);
   assert.deepEqual(next.scopedComments.map((comment) => comment.ordinal), [1, 2]);
   assert.equal(next.allComments.find((comment) => comment.body === "s1")?.ordinal, 1);

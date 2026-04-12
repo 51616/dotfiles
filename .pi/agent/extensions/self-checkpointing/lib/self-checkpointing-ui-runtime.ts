@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { BorderedLoader, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 export type SelfCheckpointingUiRuntime = {
   debugWidgetKey: string;
@@ -10,6 +10,8 @@ export type SelfCheckpointingUiRuntime = {
   pushDebug: (ctx: ExtensionContext, line: string) => void;
   renderDebugWidget: (ctx: ExtensionContext) => void;
   sendFollowUpUserMessage: (text: string) => void;
+  showCompactionLoader: (ctx: ExtensionContext, label?: string) => void;
+  clearCompactionLoader: (ctx: ExtensionContext) => void;
 };
 
 export function createSelfCheckpointingUiRuntime(
@@ -23,6 +25,8 @@ export function createSelfCheckpointingUiRuntime(
 ): SelfCheckpointingUiRuntime {
   const debugLog: string[] = [];
   let debugEnabled = options.debugEnabled;
+  let closeCompactionLoader: (() => void) | undefined;
+  let compactionLoaderVisible = false;
 
   const setStatus = (ctx: ExtensionContext, text?: string) =>
     ctx.ui.setStatus(options.statusKey, text && text.trim() ? text : undefined);
@@ -46,6 +50,42 @@ export function createSelfCheckpointingUiRuntime(
       debugLog.length ? debugLog.slice(-20) : ["(autockpt debug log empty)"],
       { placement: "aboveEditor" },
     );
+  };
+
+  const clearCompactionLoader = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI || !compactionLoaderVisible) return;
+    closeCompactionLoader?.();
+  };
+
+  const showCompactionLoader = (
+    ctx: ExtensionContext,
+    label = "Auto-checkpoint: compacting context…",
+  ) => {
+    if (!ctx.hasUI || compactionLoaderVisible) return;
+
+    compactionLoaderVisible = true;
+
+    try {
+      void ctx.ui.custom((tui, theme, _keybindings, done) => {
+        const close = () => {
+          if (!compactionLoaderVisible) return;
+          compactionLoaderVisible = false;
+          closeCompactionLoader = undefined;
+          done(null);
+        };
+
+        const loader = new BorderedLoader(tui, theme, label);
+        loader.onAbort = () => {
+          close();
+          ctx.abort();
+        };
+        closeCompactionLoader = close;
+        return loader;
+      });
+    } catch {
+      compactionLoaderVisible = false;
+      closeCompactionLoader = undefined;
+    }
   };
 
   const sendFollowUpUserMessage = (text: string) => {
@@ -74,5 +114,7 @@ export function createSelfCheckpointingUiRuntime(
     pushDebug,
     renderDebugWidget,
     sendFollowUpUserMessage,
+    showCompactionLoader,
+    clearCompactionLoader,
   };
 }

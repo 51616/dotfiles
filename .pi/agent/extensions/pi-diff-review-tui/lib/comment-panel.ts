@@ -1,26 +1,26 @@
 import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { formatCommentLocation, formatOriginalCommentLocation, summarizeCommentStatus } from "./comments.ts";
-import { scopeDisplay } from "./scope.ts";
-import type { CommentStatus, DiffScope, FileStatus, ParsedFilePatch, ReviewComment } from "./types.ts";
+import { reviewModeDisplay } from "./review-mode.ts";
+import type { CommentStatus, FileStatus, ParsedFilePatch, ReviewComment, ReviewMode } from "./types.ts";
 import { padLine, statusColor } from "./ui-helpers.ts";
 
 type CommentPanelView =
   | {
     kind: "session";
-    scope: DiffScope;
+    scope: ReviewMode;
     comments: ReviewComment[];
-    overallComments: Record<DiffScope, string>;
+    overallComments: Record<ReviewMode, string>;
   }
   | {
     kind: "file";
-    scope: DiffScope;
+    scope: ReviewMode;
     file: ParsedFilePatch | null;
     comments: ReviewComment[];
   }
   | {
     kind: "preview";
-    scope: DiffScope;
+    scope: ReviewMode;
     comments: ReviewComment[];
   };
 
@@ -28,7 +28,7 @@ type CountSummary = {
   total: number;
   byKind: Record<"line" | "range" | "file", number>;
   byStatus: Record<CommentStatus, number>;
-  byScope: Record<DiffScope, number>;
+  byScope: Record<ReviewMode, number>;
 };
 
 function countComments(comments: ReviewComment[]): CountSummary {
@@ -42,7 +42,7 @@ function countComments(comments: ReviewComment[]): CountSummary {
     total: 0,
     byKind: { line: 0, range: 0, file: 0 },
     byStatus: { ok: 0, moved: 0, stale_unresolved: 0 },
-    byScope: { u: 0, s: 0, a: 0 },
+    byScope: { t: 0, a: 0 },
   });
 }
 
@@ -94,11 +94,11 @@ function renderSessionView(theme: Theme, width: number, height: number, view: Ex
   const overallNotes = Object.values(view.overallComments).filter((value) => value.trim()).length;
   const lines = [
     theme.fg("muted", "session comments"),
-    `${theme.fg("muted", "active")} ${scopeDisplay(view.scope)}`,
+    `${theme.fg("muted", "active")} ${reviewModeDisplay(view.scope)}`,
     `${theme.fg("accent", "total")} ${counts.total}   ${theme.fg(counts.byStatus.stale_unresolved ? "warning" : "muted", `stale ${counts.byStatus.stale_unresolved}`)}`,
     `${theme.fg("muted", "kinds")} l${counts.byKind.line} r${counts.byKind.range} f${counts.byKind.file}`,
     `${theme.fg("muted", "status")} ok${counts.byStatus.ok} mv${counts.byStatus.moved} st${counts.byStatus.stale_unresolved}`,
-    `${theme.fg("muted", "scopes")} u${counts.byScope.u} i${counts.byScope.s} a${counts.byScope.a}`,
+    `${theme.fg("muted", "modes")} t${counts.byScope.t} a${counts.byScope.a}`,
     `${theme.fg("muted", "overall notes")} ${overallNotes}`,
   ];
 
@@ -121,14 +121,28 @@ function renderFileView(theme: Theme, width: number, height: number, view: Extra
   const lines = [
     theme.fg("muted", "file comments"),
     theme.bold(view.file.displayPath),
-    `${theme.fg("muted", "scope")} ${scopeDisplay(view.scope)}   ${theme.fg("muted", "git")} ${fileStatusLabel(view.file.status)}`,
+    `${theme.fg("muted", "mode")} ${reviewModeDisplay(view.scope)}   ${theme.fg("muted", "git")} ${fileStatusLabel(view.file.status)}`,
+    `${theme.fg("muted", "source")} ${view.file.reviewProvenance === "reported_only" ? "reported-only advisory" : "canonical observed"}`,
     `${theme.fg("accent", "total")} ${counts.total}   ${theme.fg(counts.byStatus.stale_unresolved ? "warning" : "muted", `stale ${counts.byStatus.stale_unresolved}`)}`,
     `${theme.fg("muted", "kinds")} l${counts.byKind.line} r${counts.byKind.range} f${counts.byKind.file}`,
     `${theme.fg("muted", "status")} ok${counts.byStatus.ok} mv${counts.byStatus.moved} st${counts.byStatus.stale_unresolved}`,
   ];
 
+  if (view.file.reviewProvenance === "reported_only") {
+    lines.push(theme.fg("warning", view.file.reportedOnlyDiffState === "derived_current_repo_diff"
+      ? "Advisory diff: derived from the current repo state, not the canonical last-turn artifact."
+      : "Advisory diff: no current repo diff exists for this reported-only path."));
+  } else if (view.file.agentMismatch === "missing_from_agent_report") {
+    lines.push(theme.fg("warning", "Agent report missed this canonical observed file."));
+  }
+
+  if (view.file.agentSummary) {
+    lines.push(theme.fg("muted", "agent summary"));
+    lines.push(...wrapBodyText(theme.fg("dim", view.file.agentSummary), width, 3));
+  }
+
   if (!counts.total) {
-    lines.push(theme.fg("muted", `No comments for this file in ${scopeDisplay(view.scope)}.`));
+    lines.push(theme.fg("muted", `No comments for this file in ${reviewModeDisplay(view.scope)}.`));
   }
 
   return fillBody(lines, width, height);
@@ -145,7 +159,7 @@ function renderPreviewView(theme: Theme, width: number, height: number, view: Ex
 
   const lines = [
     theme.fg("muted", "comment at cursor"),
-    `${theme.fg("accent", `#${selected.ordinal}`)} ${statusLine(theme, selected.status)} ${theme.fg("muted", `· ${scopeDisplay(selected.scope)}`)}`,
+    `${theme.fg("accent", `#${selected.ordinal}`)} ${statusLine(theme, selected.status)} ${theme.fg("muted", `· ${reviewModeDisplay(selected.scope)}`)}`,
     truncateToWidth(formatCommentLocation(selected), Math.max(1, width), "…", true),
   ];
 

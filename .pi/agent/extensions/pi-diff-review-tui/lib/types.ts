@@ -1,8 +1,12 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import type { Component, OverlayHandle, TUI } from "@mariozechner/pi-tui";
 
-export type DiffScope = "t" | "u" | "s" | "a";
+export type ReviewMode = "t" | "a";
+export type DiffScope = ReviewMode;
 export type FileStatus = "M" | "A" | "D" | "R" | "B";
+export type ReviewProvenance = "observed" | "reported_only";
+export type AgentMismatchKind = "missing_from_observed" | "missing_from_agent_report";
+export type ReportedOnlyDiffState = "derived_current_repo_diff" | "no_current_repo_diff";
 export type CommentStatus = "ok" | "moved" | "stale_unresolved";
 export type CommentSide = "old" | "new" | "file";
 export type CommentKind = "line" | "range" | "file";
@@ -52,12 +56,33 @@ export interface ParsedFilePatch {
   hunks: ParsedHunk[];
   changeBlocks: ParsedChangeBlock[];
   isBinary: boolean;
+  reviewProvenance?: ReviewProvenance;
+  agentMismatch?: AgentMismatchKind | null;
+  agentSummary?: string | null;
+  observedChangedPath?: string | null;
+  reportedOnlyDiffState?: ReportedOnlyDiffState | null;
+  resolvedRepoRoot?: string | null;
+  resolvedEditablePath?: string | null;
+}
+
+export interface AgentReportFile {
+  path: string;
+  summary?: string;
+}
+
+export interface AgentChangeReport {
+  generated_at: string;
+  generator: string;
+  files: AgentReportFile[];
+  missing_from_observed: string[];
+  missing_from_agent_report: string[];
 }
 
 export interface TurnSourceRepoSummary {
   repo_key: string;
   repo_root: string;
   touched_paths: string[];
+  observed_changed_paths: string[];
   omitted_paths?: Record<string, { reason: string; size_bytes?: number }>;
 }
 
@@ -70,9 +95,11 @@ export interface TurnSourceMetadata {
   repo_root: string;
   repo_key: string;
   touched_paths: string[];
+  observed_changed_paths: string[];
   has_bash_calls: boolean;
   note?: string;
   omitted_paths?: Record<string, { reason: string; size_bytes?: number }>;
+  agent_change_report?: AgentChangeReport;
   workspace?: boolean;
   repos?: TurnSourceRepoSummary[];
 }
@@ -89,6 +116,10 @@ export interface DiffBundle {
   sourceKind?: "git" | "turn";
   sourceLabel?: string;
   turnMetadata?: TurnSourceMetadata | null;
+  /**
+   * Non-fatal warnings for the UI to surface (e.g. diff omitted due to size caps).
+   */
+  warnings?: string[];
 }
 
 export interface CandidateRemap {
@@ -263,6 +294,7 @@ export interface RangeSelection {
 export interface AppCallbacks {
   done: (result: { submitted: boolean; outputPath?: string }) => void;
   notify: (message: string, type?: "info" | "warning" | "error") => void;
+  confirm: (title: string, body: string) => Promise<boolean>;
   setEditorText: (text: string) => void;
 }
 

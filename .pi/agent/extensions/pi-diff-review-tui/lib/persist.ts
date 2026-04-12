@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ChangeSummary, DiffScope, FileStatus, ReviewComment, ReviewOutputLocation, SavedReviewResult, TurnSourceMetadata } from "./types.ts";
+import type { ChangeSummary, FileStatus, ReviewComment, ReviewOutputLocation, ReviewMode, SavedReviewResult, TurnSourceMetadata } from "./types.ts";
 import { anchorLocationEqual, compareCommentsByLocation } from "./comments.ts";
-import { scopeDisplay, scopeName } from "./scope.ts";
+import { reviewModeDisplay, reviewModeName } from "./review-mode.ts";
 import { resolveAgentDir, resolveDiffReviewRootForWrite } from "./diff-review-paths.ts";
 
 function safeTimestamp(date = new Date()): string {
@@ -39,16 +39,20 @@ function normalizeSessionId(sessionId: string | undefined): string {
 
 export function resolveReviewOutputDir({
   repoRoot,
+  scopeKey,
+  allowRepoRoot = true,
   sessionId,
   tmpRoot = os.tmpdir(),
   agentDir = resolveAgentDir(),
 }: {
   repoRoot: string;
+  scopeKey?: string;
+  allowRepoRoot?: boolean;
   sessionId?: string;
   tmpRoot?: string;
   agentDir?: string;
 }): { dir: string; outputLocation: ReviewOutputLocation } {
-  const { rootDir, outputLocation } = resolveDiffReviewRootForWrite({ repoRoot, tmpRoot, agentDir });
+  const { rootDir, outputLocation } = resolveDiffReviewRootForWrite({ repoRoot, scopeKey, allowRepoRoot, tmpRoot, agentDir });
   const sessionKey = normalizeSessionId(sessionId);
   const dir = tryEnsureWritableDir(path.join(rootDir, "reviews", "sessions", sessionKey));
   if (!dir) {
@@ -139,8 +143,15 @@ function sourceSummaryLines({
     lines.push(`- source_session_id: ${turnMetadata.session_id}`);
     lines.push(`- source_turn_id: ${turnMetadata.turn_id}`);
     lines.push(`- touched_paths: ${turnMetadata.touched_paths.length ? turnMetadata.touched_paths.join(", ") : "(none)"}`);
+    lines.push(`- observed_changed_paths: ${turnMetadata.observed_changed_paths.length ? turnMetadata.observed_changed_paths.join(", ") : "(none)"}`);
     if (turnMetadata.workspace && turnMetadata.repos?.length) {
       lines.push(`- repos: ${turnMetadata.repos.map((repo) => repo.repo_key).join(", ")}`);
+    }
+    if (turnMetadata.agent_change_report) {
+      lines.push(`- agent_report_generator: ${turnMetadata.agent_change_report.generator}`);
+      lines.push(`- agent_report_files: ${turnMetadata.agent_change_report.files.length}`);
+      lines.push(`- agent_report_missing_from_observed: ${turnMetadata.agent_change_report.missing_from_observed.length ? turnMetadata.agent_change_report.missing_from_observed.join(", ") : "(none)"}`);
+      lines.push(`- agent_report_missing_from_agent_report: ${turnMetadata.agent_change_report.missing_from_agent_report.length ? turnMetadata.agent_change_report.missing_from_agent_report.join(", ") : "(none)"}`);
     }
     if (turnMetadata.note) lines.push(`- source_note: ${turnMetadata.note}`);
   }
@@ -171,7 +182,7 @@ export function buildSavedReviewMarkdown({
   repoRoot: string;
   sessionId?: string;
   headAtStart: string | null;
-  scope: DiffScope;
+  scope: ReviewMode;
   outputPath: string;
   savedAt: string;
   sourceKind?: "git" | "turn";
@@ -188,7 +199,7 @@ export function buildSavedReviewMarkdown({
   lines.push("");
   lines.push(`- repo_root: ${repoRoot}`);
   lines.push(`- head_at_start: ${headAtStart ?? "(none)"}`);
-  lines.push(`- scope: ${scopeName(scope)}`);
+  lines.push(`- scope: ${reviewModeName(scope)}`);
   lines.push(`- scope_key: ${scope}`);
   lines.push(`- saved_at: ${savedAt}`);
   lines.push(`- output_path: ${outputPath}`);
@@ -236,7 +247,7 @@ export function buildSavedReviewMarkdown({
       if (original.kind !== "file") lines.push(`- original_apply_to: ${outputApplyToAnchor(original) ?? "null"}`);
     }
 
-    lines.push(`- scope: ${scopeDisplay(comment.scope)}`);
+    lines.push(`- scope: ${reviewModeDisplay(comment.scope)}`);
     lines.push(`- status: ${comment.status}`);
     if (comment.anchor.hunkHeader) lines.push(`- hunk_header: ${comment.anchor.hunkHeader}`);
     if (comment.anchor.searchText) lines.push(`- search: ${comment.anchor.searchText}`);
@@ -271,7 +282,7 @@ export function buildCompactPrompt({
   changesSinceLastReload,
 }: {
   outputPath: string;
-  scope: DiffScope;
+  scope: ReviewMode;
   headAtStart: string | null;
   sourceKind?: "git" | "turn";
   sourceLabel?: string;
@@ -286,15 +297,19 @@ export function buildCompactPrompt({
   lines.push("Please address the following diff review feedback.");
   lines.push("");
   lines.push(`Saved full review: ${outputPath}`);
-  lines.push(`Reviewed scope: ${scopeDisplay(scope)}`);
+  lines.push(`Reviewed mode: ${reviewModeDisplay(scope)}`);
   lines.push(`HEAD at review start: ${headAtStart ?? "(none)"}`);
   lines.push(compactLegend());
   if (sourceKind === "turn") {
     lines.push(`Review source: ${sourceLabel ?? turnMetadata?.review_source ?? "last turn (agent-touched)"}`);
     if (turnMetadata) {
       lines.push(`Touched paths: ${turnMetadata.touched_paths.length ? turnMetadata.touched_paths.join(", ") : "(none)"}`);
+      lines.push(`Observed changed paths: ${turnMetadata.observed_changed_paths.length ? turnMetadata.observed_changed_paths.join(", ") : "(none)"}`);
       if (turnMetadata.workspace && turnMetadata.repos?.length) {
         lines.push(`Repos: ${turnMetadata.repos.map((repo) => repo.repo_key).join(", ")}`);
+      }
+      if (turnMetadata.agent_change_report) {
+        lines.push(`Agent report: ${turnMetadata.agent_change_report.files.length} file(s), reported-only=${turnMetadata.agent_change_report.missing_from_observed.length}, missing-agent=${turnMetadata.agent_change_report.missing_from_agent_report.length}`);
       }
       if (turnMetadata.note) lines.push(`Source note: ${turnMetadata.note}`);
     }
@@ -341,6 +356,8 @@ export function buildCompactPrompt({
 
 export function saveReviewToFile({
   repoRoot,
+  scopeKey,
+  allowRepoRoot,
   sessionId,
   headAtStart,
   scope,
@@ -353,9 +370,19 @@ export function saveReviewToFile({
   changesSinceLastReload,
 }: {
   repoRoot: string;
+  /**
+   * Stable identifier used only for local storage paths.
+   * In SSH mode this should include the remote host.
+   */
+  scopeKey?: string;
+  /**
+   * Whether repo-local writes (repoRoot/.pi/diff-review) are allowed.
+   * In SSH mode this should be false.
+   */
+  allowRepoRoot?: boolean;
   sessionId?: string;
   headAtStart: string | null;
-  scope: DiffScope;
+  scope: ReviewMode;
   sourceKind?: "git" | "turn";
   sourceLabel?: string;
   turnMetadata?: TurnSourceMetadata | null;
@@ -364,7 +391,7 @@ export function saveReviewToFile({
   changesSinceStart: ChangeSummary;
   changesSinceLastReload: ChangeSummary;
 }): SavedReviewResult {
-  const { dir, outputLocation } = resolveReviewOutputDir({ repoRoot, sessionId });
+  const { dir, outputLocation } = resolveReviewOutputDir({ repoRoot, scopeKey, allowRepoRoot, sessionId });
   const filename = `${safeTimestamp()}_${scope}.md`;
   const outputPath = path.join(dir, filename);
   const savedAt = new Date().toISOString();

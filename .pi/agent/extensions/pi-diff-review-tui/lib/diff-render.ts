@@ -42,7 +42,7 @@ export function renderFileList({
   height: number;
   fileScroll: number;
   selectedFileIndex: number;
-  statusLetter: (status: string) => string;
+  statusLetter: (file: ParsedFilePatch) => string;
   fileCommentCount: (fileKey: string) => number;
   fileHasStale: (fileKey: string) => boolean;
 }): string[] {
@@ -56,13 +56,19 @@ export function renderFileList({
     const selected = absoluteIndex === selectedFileIndex;
     const prefix = selected ? theme.fg("accent", "▸ ") : "  ";
     const commentCount = fileCommentCount(file.fileKey);
-    const badge = commentCount > 0
+    const commentBadge = commentCount > 0
       ? fileHasStale(file.fileKey)
         ? theme.fg("warning", ` ◇${commentCount}`)
         : theme.fg("accent", ` ◆${commentCount}`)
       : "";
-    const path = truncateToWidth(file.displayPath, Math.max(8, width - visibleWidth(prefix) - visibleWidth(badge) - 2), "…", true);
-    return padLine(`${prefix}${statusLetter(file.status)} ${path}${badge}`, width);
+    const advisoryBadge = file.reviewProvenance === "reported_only"
+      ? theme.fg("warning", " ?")
+      : file.agentMismatch === "missing_from_agent_report"
+        ? theme.fg("warning", " ∅")
+        : "";
+    const suffix = `${advisoryBadge}${commentBadge}`;
+    const path = truncateToWidth(file.displayPath, Math.max(8, width - visibleWidth(prefix) - visibleWidth(suffix) - 2), "…", true);
+    return padLine(`${prefix}${statusLetter(file)} ${path}${suffix}`, width);
   });
 }
 

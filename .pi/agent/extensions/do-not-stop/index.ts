@@ -1,5 +1,13 @@
+// @lat: [[do-not-stop#Do not stop]]
+
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import {
+  isTuiBrokerInstalled,
+  registerTuiBrokerEditorBadgeProvider,
+  registerTuiBrokerEditorBorderStyleProvider,
+  requestTuiBrokerEditorReinstall,
+} from "../tui-broker/lib/runtime.ts";
 import { parseBool } from "../lib/shared/pi-bool.ts";
 import {
   brightRed,
@@ -90,6 +98,28 @@ export default function doNotStop(pi: ExtensionAPI) {
   let editorOverrideActive = false;
   let activeSessionId = "";
 
+  registerTuiBrokerEditorBadgeProvider("do-not-stop", () => {
+    if (!enabled) return null;
+    return {
+      text: buildDoNotStopBorderLabel({ step: completedRepeats, total: repeatTarget }),
+      priority: 200,
+    };
+  });
+  registerTuiBrokerEditorBorderStyleProvider("do-not-stop", () => {
+    if (!enabled) return null;
+    return {
+      colorize: brightRed,
+      priority: 200,
+      debugLabel: `repeat ${completedRepeats}/${repeatTarget}`,
+    };
+  });
+
+  const refreshTuiBrokerEditor = () => {
+    if (isTuiBrokerInstalled()) {
+      requestTuiBrokerEditorReinstall();
+    }
+  };
+
   const applySnapshot = (snapshot: {
     enabled: boolean;
     repeatTarget: number;
@@ -109,6 +139,11 @@ export default function doNotStop(pi: ExtensionAPI) {
 
   const applyEditorOverride = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
+
+    if (isTuiBrokerInstalled()) {
+      editorOverrideActive = false;
+      return;
+    }
 
     if (enabled && !editorOverrideActive) {
       ctx.ui.setEditorComponent(
@@ -160,6 +195,7 @@ export default function doNotStop(pi: ExtensionAPI) {
       applySnapshot(sessionSnapshot);
       dispatchScheduled = false;
       applyEditorOverride(ctx);
+      refreshTuiBrokerEditor();
       return;
     }
 
@@ -167,6 +203,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     completedRepeats = 0;
     dispatchScheduled = false;
     applyEditorOverride(ctx);
+    refreshTuiBrokerEditor();
     persistSnapshot(ctx);
   };
 
@@ -182,18 +219,21 @@ export default function doNotStop(pi: ExtensionAPI) {
       resetCycle();
     }
     applyEditorOverride(ctx);
+    refreshTuiBrokerEditor();
     persistSnapshot(ctx);
   };
 
   const setRepeats = (ctx: ExtensionContext, repeats: number) => {
     repeatTarget = normalizeDoNotStopRepeats(repeats, repeatTarget);
     resetCycle();
+    refreshTuiBrokerEditor();
     persistSnapshot(ctx);
   };
 
   const startCycleFromUserPrompt = (ctx: ExtensionContext) => {
     pendingRepeats = repeatTarget;
     completedRepeats = 0;
+    refreshTuiBrokerEditor();
     persistSnapshot(ctx);
   };
 
@@ -240,11 +280,9 @@ export default function doNotStop(pi: ExtensionAPI) {
     },
   });
 
+  // session_start covers startup, reload, new, resume, and fork in pi-mono v0.65.0+
+  // so the old session_switch hook is unnecessary and blocks type-clean upgrades.
   pi.on("session_start", (_event, ctx) => {
-    restoreSnapshotForSession(ctx);
-  });
-
-  pi.on("session_switch", (_event, ctx) => {
     restoreSnapshotForSession(ctx);
   });
 
@@ -284,6 +322,7 @@ export default function doNotStop(pi: ExtensionAPI) {
 
       pendingRepeats -= 1;
       completedRepeats += 1;
+      refreshTuiBrokerEditor();
       persistSnapshot(ctx);
 
       try {
@@ -292,6 +331,7 @@ export default function doNotStop(pi: ExtensionAPI) {
         // restore counters on failure
         pendingRepeats += 1;
         completedRepeats = Math.max(0, completedRepeats - 1);
+        refreshTuiBrokerEditor();
         persistSnapshot(ctx);
 
         if (ctx.hasUI) {

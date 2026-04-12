@@ -8,6 +8,7 @@ Practical tip: use a YAML block scalar (`description: |`) so colons don’t brea
 
 Use when: <concrete trigger>
 Don’t use when: <common confusion> (use <other-skill> instead)
+Outputs: <one sentence describing the concrete artifacts and success criteria>
 
 ### With negative examples
 
@@ -19,7 +20,10 @@ Don’t use when:
 - <confusable case 1> → use <other-skill>
 - <confusable case 2> → do <alternative>
 
+Outputs: <one sentence describing the concrete artifacts and success criteria>
+
 ### Example (good)
 
 Use when: creating standardized incident debrief notes from raw logs.
 Don’t use when: you just need a quick summary in chat (answer directly).
+Outputs: a filled incident note is written to the expected location and includes the required timeline, root cause, and follow-up sections.

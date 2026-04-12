@@ -24,11 +24,11 @@ test("commentsAtCursor includes line, range, and file comments covering the curr
   const secondRow = file.rows.find((entry) => entry.kind === "added" && entry.text === "line3.5");
   const fileRow = file.rows.find((entry) => entry.kind === "context" && entry.text === "line1");
 
-  const lineComment = createComment({ comments: [], file, row: lineRow, kind: "line", scope: "u", body: "line" });
-  const rangeComment = createComment({ comments: [lineComment], file, row: lineRow, kind: "range", scope: "u", body: "range" });
-  const fileComment = createComment({ comments: [lineComment, rangeComment], file, row: fileRow, kind: "file", scope: "u", body: "file" });
+  const lineComment = createComment({ comments: [], file, row: lineRow, kind: "line", scope: "a", body: "line" });
+  const rangeComment = createComment({ comments: [lineComment], file, row: lineRow, kind: "range", scope: "a", body: "range" });
+  const fileComment = createComment({ comments: [lineComment, rangeComment], file, row: fileRow, kind: "file", scope: "a", body: "file" });
 
-  const found = commentsAtCursor({ comments: [lineComment, rangeComment, fileComment], scope: "u", file, row: secondRow });
+  const found = commentsAtCursor({ comments: [lineComment, rangeComment, fileComment], scope: "a", file, row: secondRow });
   assert.deepEqual(found.map((comment) => comment.body).sort(), ["file", "range"]);
 });
 
@@ -43,11 +43,11 @@ test("commentsSortedForNavigation uses PR-like file/apply ordering", () => {
   const fooRow = foo.rows.find((entry) => entry.kind === "added" && entry.text === "line3.5");
   const barRow = bar.rows.find((entry) => entry.kind === "added" && entry.text === "line2 changed");
   const comments = [
-    createComment({ comments: [], file: foo, row: fooRow, kind: "line", scope: "u", body: "foo" }),
-    createComment({ comments: [], file: bar, row: barRow, kind: "line", scope: "u", body: "bar" }),
+    createComment({ comments: [], file: foo, row: fooRow, kind: "line", scope: "a", body: "foo" }),
+    createComment({ comments: [], file: bar, row: barRow, kind: "line", scope: "a", body: "bar" }),
   ];
 
-  const sorted = commentsSortedForNavigation(comments, "u");
+  const sorted = commentsSortedForNavigation(comments, "a");
   assert.equal(sorted[0].displayPath, "src/bar.ts");
   assert.equal(sorted[1].displayPath, "src/foo.ts");
 });
