@@ -24,8 +24,8 @@ export const REGRESSION_MATRIX = {
     "test/command-palette-overlay.test.mjs",
   ],
   "do-not-stop": [
-    "test/runtime-entrypoint-imports.test.mjs",
-    "test/do-not-stop-runtime.test.mjs",
+    "test/do-not-stop.test.mjs",
+    "test/do-not-stop-follow-up.test.mjs",
   ],
   "pi-diff-review-tui": [
     "pi-diff-review-tui/test/app.test.mjs",
@@ -41,6 +41,7 @@ export const REGRESSION_MATRIX = {
   ],
   "pi-slash": [
     "test/pi-slash-aliases.test.mjs",
+    "test/pi-slash-ops.test.mjs",
   ],
   "pi-ssh": [
     "test/runtime-entrypoint-imports.test.mjs",
