@@ -1570,6 +1570,17 @@ export default function piSshExtension(pi: ExtensionAPI): void {
         transport,
       };
     },
+    getConnectionInfo: () => {
+      if (!connection || !transport) {
+        return null;
+      }
+      return {
+        kind: "ssh" as const,
+        remote: connection.remote,
+        port: connection.port,
+        remoteCwd: connection.remoteCwd,
+      };
+    },
   });
 
   const installRemoteFooter = (ctx: ExtensionContext, conn: SshConnection): void => {

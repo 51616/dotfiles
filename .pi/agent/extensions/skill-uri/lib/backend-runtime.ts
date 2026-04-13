@@ -13,6 +13,13 @@ export interface SkillUriBackendRemoteContext {
   transport: SkillStageTransport;
 }
 
+export type SkillUriBackendConnectionInfo = {
+  kind: "ssh";
+  remote: string;
+  port: number;
+  remoteCwd: string;
+};
+
 export interface SkillUriBackendProvider {
   key: string;
   isActive(): boolean;
@@ -21,6 +28,7 @@ export interface SkillUriBackendProvider {
   createEditOps(signal?: AbortSignal): EditOperations;
   createBashOps(): BashOperations;
   getRemoteContext(signal?: AbortSignal): SkillUriBackendRemoteContext | null;
+  getConnectionInfo(): SkillUriBackendConnectionInfo | null;
 }
 
 function getGlobalState(): GlobalState {

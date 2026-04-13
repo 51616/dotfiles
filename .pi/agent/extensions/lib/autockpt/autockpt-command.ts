@@ -26,6 +26,7 @@ export type AutockptCommandDeps = {
   getPendingCompactionRequested: () => boolean;
   getAutotestInProgress: () => boolean;
   getCompactionLock?: (ctx: ExtensionContext) => CompactionLockInfo;
+  getDebugLogPath?: (ctx: ExtensionContext) => string | null;
   isDebugEnabled: () => boolean;
   setDebugEnabled: (next: boolean) => void;
   getDebugLog: () => string[];
@@ -70,6 +71,7 @@ function buildStatusLines(
   const win = usage?.contextWindow;
   const threshold = deps.getThresholdPercent();
   const lock = deps.getCompactionLock ? deps.getCompactionLock(ctx) : null;
+  const debugLogPath = deps.getDebugLogPath ? deps.getDebugLogPath(ctx) : null;
 
   return {
     threshold,
@@ -78,7 +80,7 @@ function buildStatusLines(
       `armed=${deps.getArmed()} pendingCompactionRequested=${deps.getPendingCompactionRequested()} autotestInProgress=${deps.getAutotestInProgress()}`,
       buildLockLine(lock),
       `usage: tokens=${tokens ?? "?"} pct=${pct ?? "?"} window=${win ?? "?"}`,
-      `debugEnabled=${deps.isDebugEnabled()} (set env PI_SELF_CHECKPOINT_DEBUG=1 for auto-widget)`,
+      `debugEnabled=${deps.isDebugEnabled()} debugLogPath=${debugLogPath ?? "(disabled)"}`,
     ],
   };
 }

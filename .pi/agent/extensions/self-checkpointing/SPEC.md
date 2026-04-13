@@ -128,7 +128,8 @@ Environment variables (defaults in parentheses):
 - `PI_SELF_CHECKPOINT_ENABLE` (`1`)
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT` (`65`)
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME` (unset)
-- `PI_SELF_CHECKPOINT_DEBUG` (`0`) — when `1`, keep a live debug widget updated
+- `PI_SELF_CHECKPOINT_DEBUG` (`0`) — when `1`, keep a live debug widget updated and write debug JSONL logs
+- `PI_SELF_CHECKPOINT_DEBUG_LOG_PATH` (unset) — override the debug JSONL log path; default is `<STATE_DIR>/debug.<sessionHash>.jsonl`
 - `PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS` (`600000`) — reject stale checkpoint paths
 - `PI_SELF_CHECKPOINT_FOOTER_DEDUPE_MS` (`15000`) — ignore duplicate footer for the same checkpoint path within this window
 - `PI_SELF_CHECKPOINT_AUTO_KICK_MAX_AGE_MS` (`120000`) — auto-kick watchdog timeout for “writing checkpoint…” state
@@ -184,6 +185,7 @@ Purpose: enable hands-off E2E testing without needing to type extension commands
 - Status bar entry:
   - `autockpt: idle|armed|compacting|compaction failed (...)`
 - Debug widget (when enabled): recent event log + current settings.
+- Debug JSONL file (when enabled): one record per debug line with timestamp, pid, session id, cwd, and message text.
 
 ## Acceptance tests
 

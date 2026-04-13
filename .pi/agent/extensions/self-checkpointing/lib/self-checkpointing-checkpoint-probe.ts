@@ -2,15 +2,17 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isLikelyCheckpointPath } from "../../lib/autockpt/autockpt-footer-guards.ts";
+import {
+  getActiveSkillUriBackend,
+  type SkillUriBackendConnectionInfo,
+  type SkillUriBackendProvider,
+} from "../../skill-uri/lib/backend-runtime.ts";
 
 export type CheckpointProbe = {
   isFreshCheckpointFile: (checkpointPath: string, maxCheckpointAgeMs: number) => boolean;
   inferLatestCheckpointPath: (maxCheckpointAgeMs: number) => string | null;
 };
-
-type FlagReader = Partial<Pick<ExtensionAPI, "getFlag">>;
 
 type SshCheckpointConfig = {
   remote: string;
@@ -33,6 +35,7 @@ type SshExecResult = {
 type CreateCheckpointProbeOptions = {
   sshExec?: (request: SshExecRequest) => SshExecResult;
   sshProbeTimeoutMs?: number;
+  getActiveBackend?: () => Pick<SkillUriBackendProvider, "getConnectionInfo"> | null;
 };
 
 type ProbeValidationResult = {
@@ -106,67 +109,22 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-function findRemotePathSeparator(value: string): number {
-  const schemeIndex = value.indexOf("://");
-  const searchStart = schemeIndex === -1 ? 0 : schemeIndex + 3;
-  const colonIndex = value.indexOf(":", searchStart);
-  if (colonIndex === -1) {
-    return -1;
-  }
-
-  if (value.indexOf(":") === colonIndex) {
-    return colonIndex;
-  }
-
-  return -1;
-}
-
-export function parseSshFlag(raw: string): SshCheckpointConfig {
-  const value = raw.trim();
-  if (!value) {
-    throw new Error("--ssh requires a value like user@host or user@host:/remote/path");
-  }
-
-  const colonIndex = findRemotePathSeparator(value);
-  if (colonIndex === -1) {
-    return { remote: value, port: 22 };
-  }
-
-  const remote = value.slice(0, colonIndex).trim();
-  const remotePath = value.slice(colonIndex + 1).trim();
-  if (!remote) {
-    throw new Error("Invalid --ssh value: missing remote host");
-  }
-  if (!remotePath) {
-    throw new Error("Invalid --ssh value: empty remote path");
-  }
-  return { remote, remotePath, port: 22 };
-}
-
-export function parseSshPort(raw: string | undefined): number {
-  const value = (raw ?? "22").trim();
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-    throw new Error(`Invalid SSH port: ${value}`);
-  }
-  return parsed;
-}
-
-export function resolveSshCheckpointConfig(flags: FlagReader): SshCheckpointConfig | null {
-  const getFlag = typeof flags.getFlag === "function" ? flags.getFlag.bind(flags) : () => undefined;
-  const sshRaw = getFlag("ssh");
-  const ssh = typeof sshRaw === "string" ? sshRaw.trim() : "";
-  if (!ssh) {
+export function resolveCheckpointBackendConfig(
+  connectionInfo: SkillUriBackendConnectionInfo | null | undefined,
+): SshCheckpointConfig | null {
+  if (!connectionInfo || connectionInfo.kind !== "ssh") {
     return null;
   }
 
-  const portRaw = getFlag("p") ?? getFlag("ssh-port");
-  const port = parseSshPort(typeof portRaw === "string" ? portRaw : undefined);
-  const parsed = parseSshFlag(ssh);
+  const remote = connectionInfo.remote.trim();
+  if (!remote) {
+    return null;
+  }
+
   return {
-    remote: parsed.remote,
-    remotePath: parsed.remotePath,
-    port,
+    remote,
+    remotePath: connectionInfo.remoteCwd,
+    port: connectionInfo.port,
   };
 }
 
@@ -254,8 +212,8 @@ function runRemoteProbe<T extends object>(
     `  "$PI_PY" -c ${shellQuote(REMOTE_PROBE_SCRIPT)} ${pythonArgs.map(shellQuote).join(" ")}`,
     "fi",
     `printf '%s\\n' ${shellQuote(REMOTE_PROBE_END_MARKER)}`,
-  ];
-  const remoteCommand = commandParts.join("; ");
+  ].filter(Boolean);
+  const remoteCommand = commandParts.join("\n");
   const result = sshExec({
     remote: config.remote,
     port: config.port,
@@ -408,18 +366,20 @@ export function createSshCheckpointProbe(
   };
 }
 
-export function createCheckpointProbe(
-  flags: FlagReader,
-  options: CreateCheckpointProbeOptions = {},
-): CheckpointProbe {
+export function createCheckpointProbe(options: CreateCheckpointProbeOptions = {}): CheckpointProbe {
   const localProbe = createLocalCheckpointProbe();
+  const getActiveBackend = options.getActiveBackend ?? getActiveSkillUriBackend;
+  let lastSshConfig: SshCheckpointConfig | null = null;
 
   const resolveProbe = (): CheckpointProbe => {
-    const sshConfig = resolveSshCheckpointConfig(flags);
-    if (!sshConfig) {
+    const sshConfig = resolveCheckpointBackendConfig(getActiveBackend()?.getConnectionInfo());
+    if (sshConfig) {
+      lastSshConfig = sshConfig;
+    }
+    if (!lastSshConfig) {
       return localProbe;
     }
-    return createSshCheckpointProbe(sshConfig, options);
+    return createSshCheckpointProbe(lastSshConfig, options);
   };
 
   return {

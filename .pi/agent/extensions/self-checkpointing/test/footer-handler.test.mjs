@@ -65,7 +65,9 @@ test("handleAssistantMessageEnd starts compaction when footer uses an absolute c
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(events.map(([name]) => name), [
+    "pushDebug",
     "isFreshCheckpointFile",
+    "pushDebug",
     "ensureCompactionLock",
     "setLastHandledFooter",
     "pushDebug",
@@ -75,6 +77,6 @@ test("handleAssistantMessageEnd starts compaction when footer uses an absolute c
     "setCheckpointCycleActive",
     "startCompaction",
   ]);
-  assert.equal(events[0][1], "/remote/home/repo/work/log/checkpoints/demo.md");
-  assert.equal(events[8][1], "/remote/home/repo/work/log/checkpoints/demo.md");
+  assert.equal(events[1][1], "/remote/home/repo/work/log/checkpoints/demo.md");
+  assert.equal(events[10][1], "/remote/home/repo/work/log/checkpoints/demo.md");
 });

@@ -24,6 +24,7 @@ import { createAutotestController, type AutotestController } from "./lib/self-ch
 import { createSelfCheckpointingUiRuntime } from "./lib/self-checkpointing-ui-runtime.ts";
 import { registerSelfCheckpointingHooks } from "./lib/self-checkpointing-hooks.ts";
 import { createCheckpointProbe } from "./lib/self-checkpointing-checkpoint-probe.ts";
+import { createSelfCheckpointingDebugFile } from "./lib/self-checkpointing-debug-file.ts";
 
 /**
  * Self-checkpointing (orchestrator)
@@ -99,18 +100,29 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
   );
 
   const debugWidgetAuto = (process.env.PI_SELF_CHECKPOINT_DEBUG_WIDGET_AUTO ?? "0") === "1";
-  const checkpointProbe = createCheckpointProbe(pi);
+  const debugLogPathOverride = String(process.env.PI_SELF_CHECKPOINT_DEBUG_LOG_PATH ?? "").trim();
+  const initialDebugEnabled =
+    (process.env.PI_SELF_CHECKPOINT_DEBUG ?? "0") === "1" || debugLogPathOverride.length > 0;
 
   const uiRuntime = createSelfCheckpointingUiRuntime(pi, {
     statusKey: STATUS_KEY,
     debugWidgetKey: "autockpt-debug",
-    debugEnabled: (process.env.PI_SELF_CHECKPOINT_DEBUG ?? "0") === "1",
+    debugEnabled: initialDebugEnabled,
     debugWidgetAuto,
+  });
+  const debugFile = createSelfCheckpointingDebugFile({
+    pendingDir: PENDING_DIR,
+    pathOverride: debugLogPathOverride,
+    isEnabled: uiRuntime.isDebugEnabled,
+    pid: process.pid,
   });
   const getUsage = (ctx: ExtensionContext) => ctx.getContextUsage();
   const debugWidgetKey = uiRuntime.debugWidgetKey;
   const setStatus = uiRuntime.setStatus;
-  const pushDebug = uiRuntime.pushDebug;
+  const pushDebug = (ctx: ExtensionContext, line: string) => {
+    uiRuntime.pushDebug(ctx, line);
+    debugFile.append(ctx, line);
+  };
   const renderDebugWidget = uiRuntime.renderDebugWidget;
   const setDebugEnabled = uiRuntime.setDebugEnabled;
   const isDebugEnabled = uiRuntime.isDebugEnabled;
@@ -119,6 +131,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
   const sendFollowUpUserMessage = uiRuntime.sendFollowUpUserMessage;
   const showCompactionLoader = uiRuntime.showCompactionLoader;
   const clearCompactionLoader = uiRuntime.clearCompactionLoader;
+  const checkpointProbe = createCheckpointProbe();
 
   const sessionStore = createSelfCheckpointingSessionStore({
     pendingDir: PENDING_DIR,
@@ -277,6 +290,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     renderDebugWidget,
     updateArmedStatus: (ctx) => updateArmedStatus(ctx, autoKick),
     pushDebug,
+    getDebugLogPath: (ctx) => debugFile.logPathFor(ctx),
     startAutotestFromCommand: (ctx, threshold) => autotest.startFromCommand(ctx, threshold),
   });
 

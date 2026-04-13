@@ -44,6 +44,7 @@ test("last registered active backend wins", () => {
       throw new Error("unused");
     },
     getRemoteContext: () => null,
+    getConnectionInfo: () => null,
   });
   registerSkillUriBackendProvider({
     key: "two",
@@ -61,6 +62,7 @@ test("last registered active backend wins", () => {
       throw new Error("unused");
     },
     getRemoteContext: () => null,
+    getConnectionInfo: () => null,
   });
 
   assert.equal(getActiveSkillUriBackend()?.key, "two");
@@ -92,6 +94,7 @@ test("read delegates non-skill paths to the active backend", async () => {
         writeFile: async () => {},
       },
     }),
+    getConnectionInfo: () => null,
   });
 
   const fake = createFakePi();

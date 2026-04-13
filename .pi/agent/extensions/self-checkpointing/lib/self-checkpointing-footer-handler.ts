@@ -115,11 +115,11 @@ export function handleAssistantMessageEnd(
     return;
   }
 
-  if (!deps.checkpointProbe.isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs)) {
-    if (deps.isDebugEnabled()) {
-      deps.pushDebug(ctx, `message_end: checkpoint invalid/stale path=${checkpointPath}`);
-    }
+  deps.pushDebug(ctx, `message_end: validating checkpoint path=${checkpointPath}`);
+  const checkpointFresh = deps.checkpointProbe.isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs);
+  deps.pushDebug(ctx, `message_end: checkpoint probe fresh=${checkpointFresh} path=${checkpointPath}`);
 
+  if (!checkpointFresh) {
     if (deps.autoKick.isInFlight()) {
       deps.autoKick.clearInFlight(ctx, `checkpoint_invalid:${checkpointPath}`);
       deps.updateArmedStatus(ctx);
