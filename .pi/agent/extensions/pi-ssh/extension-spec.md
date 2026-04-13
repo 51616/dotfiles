@@ -178,6 +178,20 @@ If path is omitted, remote cwd is detected with `pwd`.
 - the backend also supplies remote bash execution plus remote staging context for `run_skill_script`
 - this keeps skill URI behavior consistent between local and SSH sessions without modifying pi core
 
+### forced-command logger contract
+
+If a `*-pi-agent` SSH key uses a forced command such as `~/bin/pi-ssh-logger`, that wrapper must preserve noninteractive command semantics.
+
+Required invariants:
+- stdout from `SSH_ORIGINAL_COMMAND` stays on stdout
+- stderr from `SSH_ORIGINAL_COMMAND` stays on stderr
+- the wrapper exits with the real child exit code
+
+Do not wrap noninteractive commands with `script(1)` in a way that collapses stderr into stdout or turns missing-file exits into success. `pi-ssh` uses one-shot SSH reads for exact file bytes, and `skill-uri` depends on those probes returning real exit status.
+
+The repo-owned repair helper is:
+- `scripts/pi-ssh-logger-setup.sh`
+
 ### ls/find/grep
 
 - optional read-only helpers delegated to remote shell tooling
@@ -187,6 +201,8 @@ If path is omitted, remote cwd is detected with `pwd`.
 - explicit errors on SSH failure
 - fallback to local mode only when `--ssh` is not configured
 - invalid SSH target causes startup error notification
+- env-gated debugging is available through `PI_SSH_DEBUG=1`
+- stage-path reads and writes under `~/.cache/pi/skill-stage/...` are logged when debugging is enabled so cross-extension staging failures can be traced precisely
 
 ## Packaging and publishing
 

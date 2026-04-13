@@ -48,3 +48,25 @@ Examples:
 - `skill://my-skill/bin/run`
 
 Relative paths like `scripts/demo.sh` are rejected. Use the full `skill://...` URI.
+
+## Debugging remote staging
+
+Set `PI_SKILL_URI_DEBUG=1` to emit staging traces to stderr.
+
+Key events:
+- `resolve-run-skill-script-request`
+- `stage-local-skill-root-to-remote.begin`
+- `stage-local-skill-root-to-remote.cache-hit`
+- `stage-local-skill-root-to-remote.cache-miss`
+- `stage-local-skill-root-to-remote.staged`
+- `prepare-run-skill-script.remote`
+
+When debugging with `pi-ssh`, pair it with `PI_SSH_DEBUG=1` so you can see the remote file probes and writes that back the stage logic.
+
+If `skill-uri` says a remote stage is a cache hit but the later remote `bash` call says the staged script is missing, do not assume permissions first. Check the remote SSH wrapper semantics first. A broken forced-command logger can make missing-file probes look successful by mangling stdout, stderr, or exit codes.
+
+For a fresh remote re-stage during debugging, remove the relevant cache subtree and retry:
+
+```bash
+ssh user@host-pi-agent 'rm -rf ~/.cache/pi/skill-stage/<skill-name>'
+```

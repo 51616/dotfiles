@@ -28,6 +28,7 @@ Provide one canonical skill resource interface for pi sessions without modifying
 - allows any file under the skill root, not only `scripts/`
 - no longer accepts an explicit `target`; execution follows the active backend automatically
 - uses local execution by default, and stages the local skill root to `~/.cache/pi/skill-stage/...` before execution when a remote backend is active
+- reuses a cached remote stage only after both the stage marker and the requested staged script path probe successfully
 - skips obvious local-only or sensitive paths during staging
 - rejects staged payloads above 10 MiB
 
@@ -41,6 +42,8 @@ A provider supplies:
 - remote staging context (`remoteHome` + `transport`) for `run_skill_script`
 
 In this vault, `pi-ssh` provides that backend.
+
+When debugging, `PI_SKILL_URI_DEBUG=1` emits stage decision logs and should usually be paired with `PI_SSH_DEBUG=1` so the remote file probes behind each cache-hit or cache-miss are visible too.
 
 ## Non-goals
 

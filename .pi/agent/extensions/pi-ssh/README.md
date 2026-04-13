@@ -94,6 +94,26 @@ SSH user@my-vm:/home/user/chromium/src (port 22)
 3. All tool operations run remotely
 4. Keep local model switching, auth, and limits as usual
 
+## Logger setup
+
+Some hosts use a dedicated `*-pi-agent` SSH key that forces a remote logger wrapper through `authorized_keys`.
+
+That wrapper must preserve three things for noninteractive commands:
+- stdout stays on stdout
+- stderr stays on stderr
+- the real command exit status is returned unchanged
+
+If it breaks those semantics, `pi-ssh` one-shot reads and writes can mis-detect missing files as successful reads. That in turn can confuse `skill-uri` remote staging.
+
+Use the setup helper in this extension to install or repair the wrapper:
+
+```bash
+bash ~/.pi/agent/extensions/pi-ssh/scripts/pi-ssh-logger-setup.sh \
+  --host user@host-pi-agent
+```
+
+The helper uploads `scripts/pi-ssh-logger.remote.sh`, backs up the existing remote wrapper, installs the new one, and verifies the SSH alias semantics.
+
 ## Notes
 
 - Absolute paths are strongly recommended for the remote path.
@@ -136,6 +156,64 @@ Very large writes fall back to one-shot SSH streaming for reliability.
 If pi-ssh force-resets the persistent shell after an interrupt or timeout, shell-local state from that shell session is lost. Normal non-interrupted commands still preserve shell state across calls.
 
 Remote `read`/`write`/`edit` one-shot SSH operations honor the tool abort signal too, so cancelling a turn can stop those calls instead of waiting for SSH to exit on its own.
+
+### `skill-uri` staging says files exist, then `bash` says they do not
+
+This is the main cross-extension failure mode to check first.
+
+Run pi with both debug flags enabled:
+
+```bash
+PI_SSH_DEBUG=1 PI_SKILL_URI_DEBUG=1 \
+pi -ne \
+  -e ~/.pi/agent/extensions/pi-ssh/index.ts \
+  -e ~/.pi/agent/extensions/skill-uri/index.ts \
+  --ssh user@host-pi-agent:/remote/worktree \
+  -p "YOUR_TEST_PROMPT_GOES_HERE"
+```
+
+What to look for:
+- `pi-ssh` prints `resolve-ssh-connection` with the exact `remoteHome` and `remoteCwd`
+- `skill-uri` prints `stage-local-skill-root-to-remote.begin`
+- `pi-ssh` prints `transport.read-file.*` and `transport.write-file.*` for paths under `~/.cache/pi/skill-stage/...`
+- `skill-uri` prints `cache-hit`, `cache-miss`, or `staged`
+
+If `transport.read-file.ok` claims a staged file exists but a later remote `bash` says the same path is missing, suspect the remote forced-command wrapper, not permissions.
+
+Check the SSH alias directly:
+
+```bash
+ssh user@host-pi-agent "printf %s ok"
+ssh user@host-pi-agent "ls /definitely-missing"
+```
+
+Healthy behavior:
+- the `printf` command exits `0` and prints only `ok` on stdout
+- the `ls` command exits nonzero
+- the missing-file message stays on stderr, not stdout
+
+If those checks fail, inspect and repair the remote logger wrapper:
+
+```bash
+ssh user@host-pi-agent "grep -n 'command=' ~/.ssh/authorized_keys || true"
+ssh user@host-pi-agent "sed -n '1,220p' ~/bin/pi-ssh-logger"
+bash ~/.pi/agent/extensions/pi-ssh/scripts/pi-ssh-logger-setup.sh \
+  --host user@host-pi-agent
+```
+
+### Stale remote skill-stage cache
+
+`skill-uri` stages local skill files under:
+
+```text
+~/.cache/pi/skill-stage/<skill>/<content-hash>/...
+```
+
+If you want a clean remote re-stage during debugging, remove the skill subtree and retry:
+
+```bash
+ssh user@host-pi-agent 'rm -rf ~/.cache/pi/skill-stage/<skill-name>'
+```
 
 ## Development
 
