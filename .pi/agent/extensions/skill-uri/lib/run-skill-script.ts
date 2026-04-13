@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { join as pathJoin, posix as pathPosix } from "node:path";
 import type { SkillStageTransport } from "./backend-runtime.ts";
 import { SkillRegistry, parseSkillUri, skillUriToVirtualPath, type ResolvedSkillPath, type SkillEntry } from "./skill-uris.ts";
@@ -146,6 +146,62 @@ function isMissingStageMarkerError(error: unknown): boolean {
   return message.includes("missing") || message.includes("no such file") || message.includes("not found");
 }
 
+function getFsErrorCode(error: unknown): string | null {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code === "string" && code.trim()) {
+      return code;
+    }
+  }
+  return null;
+}
+
+async function assertResolvedSkillScriptPathExists(request: ResolvedRunSkillScriptRequest): Promise<void> {
+  const realPath = request.resolvedScript.realPath;
+
+  let linkStats: Awaited<ReturnType<typeof lstat>>;
+  try {
+    linkStats = await lstat(realPath);
+  } catch (error) {
+    const code = getFsErrorCode(error);
+    if (code === "ENOENT") {
+      throw new Error(`run_skill_script target does not exist: ${request.skillUri}`);
+    }
+    throw new Error(
+      code
+        ? `run_skill_script could not access target ${request.skillUri} (${code})`
+        : `run_skill_script could not access target ${request.skillUri}`,
+    );
+  }
+
+  if (linkStats.isDirectory()) {
+    throw new Error(`run_skill_script target must point to a file, not a directory: ${request.skillUri}`);
+  }
+
+  if (request.target === "remote" && linkStats.isSymbolicLink()) {
+    throw new Error(`run_skill_script remote execution does not support symlink script targets: ${request.skillUri}`);
+  }
+
+  let targetStats: Awaited<ReturnType<typeof stat>>;
+  try {
+    targetStats = await stat(realPath);
+  } catch (error) {
+    const code = getFsErrorCode(error);
+    if (code === "ENOENT") {
+      throw new Error(`run_skill_script target does not exist: ${request.skillUri}`);
+    }
+    throw new Error(
+      code
+        ? `run_skill_script could not access target ${request.skillUri} (${code})`
+        : `run_skill_script could not access target ${request.skillUri}`,
+    );
+  }
+
+  if (!targetStats.isFile()) {
+    throw new Error(`run_skill_script target must point to a regular file: ${request.skillUri}`);
+  }
+}
+
 async function collectLocalSkillFiles(rootPath: string, relativeDir = ""): Promise<SkillFileEntry[]> {
   const currentPath = relativeDir ? pathJoin(rootPath, relativeDir) : rootPath;
   const entries = await readdir(currentPath, { withFileTypes: true });
@@ -242,6 +298,7 @@ export async function prepareRunSkillScript(
   },
 ): Promise<PreparedRunSkillScript> {
   await options.assertLocalPathSafe?.(request.resolvedScript.entry.rootPath, request.resolvedScript.relativePath);
+  await assertResolvedSkillScriptPathExists(request);
 
   if (request.target === "local") {
     return {

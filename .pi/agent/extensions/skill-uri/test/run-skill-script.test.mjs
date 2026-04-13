@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -149,6 +149,124 @@ test("prepareRunSkillScript stages the skill root for remote execution", async (
   assert.match(prepared.executionPath, /tools\/bootstrap\.py$/);
   assert.ok(writes.some((entry) => entry.path.endsWith("/SKILL.md")));
   assert.ok(writes.some((entry) => entry.path.endsWith("/tools/bootstrap.py")));
+});
+
+test("prepareRunSkillScript rejects missing script targets with skill uri errors", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-missing-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+
+  const registry = buildRegistry("demo", join(skillRoot, "SKILL.md"));
+  const localRequest = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "bin/missing.sh"),
+      interpreter: "bash",
+      target: "local",
+    },
+    registry,
+    false,
+  );
+  const remoteRequest = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "bin/missing.sh"),
+      interpreter: "bash",
+      target: "remote",
+    },
+    registry,
+    true,
+  );
+
+  await assert.rejects(
+    () =>
+      prepareRunSkillScript(localRequest, {
+        assertLocalPathSafe: async () => {},
+      }),
+    /run_skill_script target does not exist: skill:\/\/demo\/bin\/missing\.sh/i,
+  );
+
+  await assert.rejects(
+    () =>
+      prepareRunSkillScript(remoteRequest, {
+        remoteHome: "/remote/home",
+        transport: {
+          readFile: async () => {
+            throw new Error("missing");
+          },
+          writeFile: async () => {},
+        },
+        assertLocalPathSafe: async () => {},
+      }),
+    /run_skill_script target does not exist: skill:\/\/demo\/bin\/missing\.sh/i,
+  );
+});
+
+test("prepareRunSkillScript rejects directory targets with skill uri errors", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-dir-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+
+  const registry = buildRegistry("demo", join(skillRoot, "SKILL.md"));
+  const request = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "bin"),
+      interpreter: "bash",
+      target: "remote",
+    },
+    registry,
+    true,
+  );
+
+  await assert.rejects(
+    () =>
+      prepareRunSkillScript(request, {
+        remoteHome: "/remote/home",
+        transport: {
+          readFile: async () => {
+            throw new Error("missing");
+          },
+          writeFile: async () => {},
+        },
+        assertLocalPathSafe: async () => {},
+      }),
+    /run_skill_script target must point to a file, not a directory: skill:\/\/demo\/bin/i,
+  );
+});
+
+test("prepareRunSkillScript rejects remote symlink script targets with skill uri errors", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-remote-symlink-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+  await writeFile(join(skillRoot, "bin", "target.sh"), "echo ok\n", "utf-8");
+  await symlink(join(skillRoot, "bin", "target.sh"), join(skillRoot, "bin", "run"));
+
+  const registry = buildRegistry("demo", join(skillRoot, "SKILL.md"));
+  const request = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
+      interpreter: "bash",
+      target: "remote",
+    },
+    registry,
+    true,
+  );
+
+  await assert.rejects(
+    () =>
+      prepareRunSkillScript(request, {
+        remoteHome: "/remote/home",
+        transport: {
+          readFile: async () => {
+            throw new Error("missing");
+          },
+          writeFile: async () => {},
+        },
+        assertLocalPathSafe: async () => {},
+      }),
+    /run_skill_script remote execution does not support symlink script targets: skill:\/\/demo\/bin\/run/i,
+  );
 });
 
 test("prepareRunSkillScript forwards symlink safety failures", async () => {
