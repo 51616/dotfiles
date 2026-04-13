@@ -35,13 +35,26 @@ type CreateCheckpointProbeOptions = {
   sshProbeTimeoutMs?: number;
 };
 
+type ProbeValidationResult = {
+  exists: boolean;
+  fresh: boolean;
+  mtimeMs?: number;
+};
+
+type ProbeLatestResult = {
+  latestPath: string | null;
+  mtimeMs?: number;
+};
+
 type RemoteValidateResult = {
   exists?: boolean;
   fresh?: boolean;
+  mtimeMs?: number;
 };
 
 type RemoteLatestResult = {
   latestPath?: string | null;
+  mtimeMs?: number | null;
 };
 
 const REMOTE_PROBE_BEGIN_MARKER = "__PI_SELF_CHECKPOINT_PROBE_BEGIN__";
@@ -265,57 +278,128 @@ function runRemoteProbe<T extends object>(
   }
 }
 
+function validateLocalCheckpointFile(
+  checkpointPath: string,
+  maxCheckpointAgeMs: number,
+): ProbeValidationResult {
+  if (!isLikelyCheckpointPath(checkpointPath)) {
+    return { exists: false, fresh: false };
+  }
+  if (!existsSync(checkpointPath)) {
+    return { exists: false, fresh: false };
+  }
+
+  try {
+    const st = statSync(checkpointPath);
+    const ageMs = Date.now() - st.mtimeMs;
+    return {
+      exists: true,
+      fresh: maxCheckpointAgeMs <= 0 ? true : ageMs <= maxCheckpointAgeMs,
+      mtimeMs: st.mtimeMs,
+    };
+  } catch {
+    return { exists: false, fresh: false };
+  }
+}
+
+function inferLatestLocalCheckpoint(maxCheckpointAgeMs: number): ProbeLatestResult {
+  const dir = path.join("work", "log", "checkpoints");
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return { latestPath: null };
+  }
+
+  const nowMs = Date.now();
+  let bestPath: string | null = null;
+  let bestMtimeMs = -1;
+
+  for (const name of entries) {
+    if (!name.endsWith(".md")) continue;
+
+    const candidate = path.join(dir, name);
+
+    try {
+      const st = statSync(candidate);
+      const ageMs = nowMs - st.mtimeMs;
+      if (maxCheckpointAgeMs > 0 && ageMs > maxCheckpointAgeMs) continue;
+
+      if (st.mtimeMs > bestMtimeMs) {
+        bestMtimeMs = st.mtimeMs;
+        bestPath = candidate;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    latestPath: bestPath,
+    mtimeMs: bestMtimeMs >= 0 ? bestMtimeMs : undefined,
+  };
+}
+
+function validateRemoteCheckpointFile(
+  config: SshCheckpointConfig,
+  options: CreateCheckpointProbeOptions,
+  checkpointPath: string,
+  maxCheckpointAgeMs: number,
+): ProbeValidationResult {
+  if (!isLikelyCheckpointPath(checkpointPath)) {
+    return { exists: false, fresh: false };
+  }
+
+  const result = runRemoteProbe<RemoteValidateResult>(
+    config,
+    options,
+    "validate",
+    maxCheckpointAgeMs,
+    checkpointPath,
+  );
+  return {
+    exists: Boolean(result?.exists),
+    fresh: Boolean(result?.exists && result?.fresh),
+    mtimeMs: typeof result?.mtimeMs === "number" ? result.mtimeMs : undefined,
+  };
+}
+
+function inferLatestRemoteCheckpoint(
+  config: SshCheckpointConfig,
+  options: CreateCheckpointProbeOptions,
+  maxCheckpointAgeMs: number,
+): ProbeLatestResult {
+  const result = runRemoteProbe<RemoteLatestResult>(config, options, "latest", maxCheckpointAgeMs);
+  const latestPath = typeof result?.latestPath === "string" ? result.latestPath.trim() : "";
+  return {
+    latestPath: latestPath || null,
+    mtimeMs: typeof result?.mtimeMs === "number" ? result.mtimeMs : undefined,
+  };
+}
+
+function pickLatestCheckpointPath(localResult: ProbeLatestResult, remoteResult: ProbeLatestResult): string | null {
+  if (!localResult.latestPath) {
+    return remoteResult.latestPath;
+  }
+  if (!remoteResult.latestPath) {
+    return localResult.latestPath;
+  }
+
+  const localMtimeMs = localResult.mtimeMs ?? -1;
+  const remoteMtimeMs = remoteResult.mtimeMs ?? -1;
+  return localMtimeMs >= remoteMtimeMs ? localResult.latestPath : remoteResult.latestPath;
+}
+
 export function createLocalCheckpointProbe(): CheckpointProbe {
   return {
     isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
-      if (!isLikelyCheckpointPath(checkpointPath)) return false;
-      if (!existsSync(checkpointPath)) return false;
-
-      if (maxCheckpointAgeMs <= 0) return true;
-
-      try {
-        const st = statSync(checkpointPath);
-        const ageMs = Date.now() - st.mtimeMs;
-        return ageMs <= maxCheckpointAgeMs;
-      } catch {
-        return false;
-      }
+      const result = validateLocalCheckpointFile(checkpointPath, maxCheckpointAgeMs);
+      return result.exists && result.fresh;
     },
 
     inferLatestCheckpointPath(maxCheckpointAgeMs) {
-      const dir = path.join("work", "log", "checkpoints");
-
-      let entries: string[];
-      try {
-        entries = readdirSync(dir);
-      } catch {
-        return null;
-      }
-
-      const nowMs = Date.now();
-      let bestPath: string | null = null;
-      let bestMtimeMs = -1;
-
-      for (const name of entries) {
-        if (!name.endsWith(".md")) continue;
-
-        const candidate = path.join(dir, name);
-
-        try {
-          const st = statSync(candidate);
-          const ageMs = nowMs - st.mtimeMs;
-          if (maxCheckpointAgeMs > 0 && ageMs > maxCheckpointAgeMs) continue;
-
-          if (st.mtimeMs > bestMtimeMs) {
-            bestMtimeMs = st.mtimeMs;
-            bestPath = candidate;
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      return bestPath;
+      return inferLatestLocalCheckpoint(maxCheckpointAgeMs).latestPath;
     },
   };
 }
@@ -326,22 +410,12 @@ export function createSshCheckpointProbe(
 ): CheckpointProbe {
   return {
     isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
-      if (!isLikelyCheckpointPath(checkpointPath)) return false;
-
-      const result = runRemoteProbe<RemoteValidateResult>(
-        config,
-        options,
-        "validate",
-        maxCheckpointAgeMs,
-        checkpointPath,
-      );
-      return Boolean(result?.exists && result?.fresh);
+      const result = validateRemoteCheckpointFile(config, options, checkpointPath, maxCheckpointAgeMs);
+      return result.exists && result.fresh;
     },
 
     inferLatestCheckpointPath(maxCheckpointAgeMs) {
-      const result = runRemoteProbe<RemoteLatestResult>(config, options, "latest", maxCheckpointAgeMs);
-      const latestPath = typeof result?.latestPath === "string" ? result.latestPath.trim() : "";
-      return latestPath || null;
+      return inferLatestRemoteCheckpoint(config, options, maxCheckpointAgeMs).latestPath;
     },
   };
 }
@@ -357,7 +431,27 @@ export function createCheckpointProbe(
     if (!sshConfig) {
       return localProbe;
     }
-    return createSshCheckpointProbe(sshConfig, options);
+
+    return {
+      isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
+        // In SSH sessions the working conversation still lives locally, and some checkpoint flows
+        // intentionally write notes into the local vault/worktree. Accept a fresh local checkpoint
+        // first, then fall back to the remote workspace for SSH-backed checkpoints.
+        const localResult = validateLocalCheckpointFile(checkpointPath, maxCheckpointAgeMs);
+        if (localResult.exists && localResult.fresh) {
+          return true;
+        }
+
+        const remoteResult = validateRemoteCheckpointFile(sshConfig, options, checkpointPath, maxCheckpointAgeMs);
+        return remoteResult.exists && remoteResult.fresh;
+      },
+
+      inferLatestCheckpointPath(maxCheckpointAgeMs) {
+        const localResult = inferLatestLocalCheckpoint(maxCheckpointAgeMs);
+        const remoteResult = inferLatestRemoteCheckpoint(sshConfig, options, maxCheckpointAgeMs);
+        return pickLatestCheckpointPath(localResult, remoteResult);
+      },
+    };
   };
 
   return {
