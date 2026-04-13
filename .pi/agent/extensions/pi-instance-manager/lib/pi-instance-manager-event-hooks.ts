@@ -176,6 +176,7 @@ export function registerInstanceManagerEventHooks({
 
   pi.on("input", async (event, ctx) => {
     if (event.source === "extension") return { action: "continue" };
+    if (!ctx.hasUI) return { action: "continue" };
 
     const sid = getCurrentSessionId() || asString(ctx.sessionManager.getSessionId()).trim();
     setCurrentSessionId(sid);

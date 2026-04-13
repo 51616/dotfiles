@@ -11,6 +11,96 @@ import { expandPromptTemplateCommand } from "../pi-instance-manager/lib/pi-insta
 function noop() {}
 async function noopAsync() {}
 
+test("input hook bypasses headless print/json callers", async () => {
+  const handlers = new Map();
+  const queue = new SessionInputQueue();
+  const enqueuedTexts = [];
+  let currentSessionId = "";
+  let currentSessionFile = "";
+  let lastSubmitAt = 0;
+
+  const pi = {
+    on(name, handler) {
+      const key = String(name);
+      const list = handlers.get(key) || [];
+      list.push(handler);
+      handlers.set(key, list);
+    },
+  };
+
+  registerInstanceManagerEventHooks({
+    pi,
+    queue,
+    getCurrentSessionId: () => currentSessionId,
+    setCurrentSessionId: (value) => {
+      currentSessionId = value;
+    },
+    setLastCtx: noop,
+    setSessionResyncCurrentFile: (value) => {
+      currentSessionFile = value;
+    },
+    resetExternalWriteExpected: noop,
+    refreshTrackedSessionFile: noop,
+    resetSessionScopedState: noop,
+    ensurePollTimer: noopAsync,
+    clearPollTimer: noop,
+    clearQueueRetryTimer: noop,
+    clearSpinnerTimer: noop,
+    stopTurnLockRenew: noop,
+    clearSessionResyncState: noop,
+    getActiveTurnTicketId: () => "",
+    clearActiveTurnTicketId: noop,
+    finishTurnTicket: noopAsync,
+    getActiveCompactionId: () => "",
+    endCompactionById: noopAsync,
+    clearActiveCompactionId: noop,
+    releaseTurnLock: noopAsync,
+    clearUiState: noop,
+    beginCompaction: noopAsync,
+    endCompaction: noopAsync,
+    guardBranchNavigation: async () => ({ cancel: false }),
+    getActiveTurnLockToken: () => "",
+    getActiveTurnLockSessionId: () => "",
+    setAwaitingTurnEnd: noop,
+    refreshManagerState: noopAsync,
+    pumpInputQueue: noopAsync,
+    setManagerUnavailableError: noop,
+    setLastLocalSubmitAt: (value) => {
+      lastSubmitAt = value;
+    },
+    enqueueTurnTicket: async (sessionId, text) => {
+      enqueuedTexts.push({ sessionId, text });
+      return "ticket-1";
+    },
+    setFooter: noop,
+    expandQueuedCommandText: (text) => text,
+  });
+
+  const ctx = {
+    hasUI: false,
+    sessionManager: {
+      getSessionId: () => "session-1",
+      getSessionFile: () => "/tmp/session-1.jsonl",
+    },
+    ui: {
+      setEditorText: noop,
+      notify: noop,
+    },
+  };
+
+  const inputHandlers = handlers.get("input") || [];
+  assert.equal(inputHandlers.length, 1);
+
+  const result = await inputHandlers[0]({ source: "interactive", text: "say hi" }, ctx);
+
+  assert.deepEqual(result, { action: "continue" });
+  assert.equal(queue.list("session-1").length, 0);
+  assert.deepEqual(enqueuedTexts, []);
+  assert.equal(currentSessionId, "");
+  assert.equal(currentSessionFile, "");
+  assert.equal(lastSubmitAt, 0);
+});
+
 test("input hook expands prompt-template commands before queueing", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-im-hook-"));
   const templatePath = path.join(dir, "implement.md");
