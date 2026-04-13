@@ -8,6 +8,7 @@
   "files": [
     "index.ts",
     "lib",
+    "scripts",
     "README.md",
     "extension-spec.md",
     "LICENSE"
