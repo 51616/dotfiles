@@ -363,7 +363,10 @@ test("staged marker reuse avoids uploading the same skill twice", async () => {
         if (path.endsWith(".pi-stage-complete.json")) {
           return Buffer.from("{}", "utf-8");
         }
-        return await readFile(path);
+        if (path.endsWith("/bin/run")) {
+          return Buffer.from("echo ok\n", "utf-8");
+        }
+        throw new Error(`No such file or directory: ${path}`);
       },
       writeFile: async (path, content) => {
         writes.push({ path, content });
@@ -374,6 +377,46 @@ test("staged marker reuse avoids uploading the same skill twice", async () => {
 
   assert.equal(prepared.staged, false);
   assert.equal(writes.length, 0);
+});
+
+test("staged marker reuse reuploads when the cached script file is missing", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-cache-missing-script-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+  await writeFile(join(skillRoot, "bin", "run"), "echo ok\n", "utf-8");
+
+  const registry = buildRegistry("demo", join(skillRoot, "SKILL.md"));
+  const request = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
+      interpreter: "bash",
+    },
+    registry,
+    true,
+  );
+
+  const writes = [];
+  const prepared = await prepareRunSkillScript(request, {
+    remoteHome: "/remote/home",
+    transport: {
+      readFile: async (path) => {
+        if (path.endsWith(".pi-stage-complete.json")) {
+          return Buffer.from("{}", "utf-8");
+        }
+        throw new Error(`No such file or directory: ${path}`);
+      },
+      writeFile: async (path, content) => {
+        writes.push({ path, content: content.toString("utf-8") });
+      },
+    },
+    assertLocalPathSafe: async () => {},
+  });
+
+  assert.equal(prepared.staged, true);
+  assert.ok(writes.some((entry) => entry.path.endsWith("/SKILL.md")));
+  assert.ok(writes.some((entry) => entry.path.endsWith("/bin/run")));
+  assert.ok(writes.some((entry) => entry.path.endsWith("/.pi-stage-complete.json")));
 });
 
 test("run_skill_script rejects deprecated target overrides", async () => {

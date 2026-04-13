@@ -127,7 +127,7 @@ export function resolveRunSkillScriptRequest(
   };
 }
 
-function isMissingStageMarkerError(error: unknown): boolean {
+function isMissingRemotePathError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
@@ -236,6 +236,7 @@ export async function stageLocalSkillRootToRemote(
   remoteHome: string,
   transport: SkillStageTransport,
   signal?: AbortSignal,
+  expectedRelativePath?: string,
 ): Promise<{ stageRoot: string; staged: boolean }> {
   const files = await collectLocalSkillFiles(skillEntry.rootPath);
   const totalBytes = files.reduce((sum, file) => sum + file.content.length, 0);
@@ -249,9 +250,14 @@ export async function stageLocalSkillRootToRemote(
 
   try {
     await transport.readFile(markerPath, signal);
+    if (expectedRelativePath) {
+      // A remote cleanup or partial cache corruption can leave the marker behind
+      // while the script itself is gone. Re-stage instead of trusting the marker.
+      await transport.readFile(`${stageRoot}/${expectedRelativePath}`, signal);
+    }
     return { stageRoot, staged: false };
   } catch (error) {
-    if (!isMissingStageMarkerError(error)) {
+    if (!isMissingRemotePathError(error)) {
       throw error;
     }
   }
@@ -301,7 +307,13 @@ export async function prepareRunSkillScript(
     throw new Error("Remote run_skill_script execution requires a remote home and transport");
   }
 
-  const stage = await stageLocalSkillRootToRemote(request.resolvedScript.entry, options.remoteHome, options.transport, options.signal);
+  const stage = await stageLocalSkillRootToRemote(
+    request.resolvedScript.entry,
+    options.remoteHome,
+    options.transport,
+    options.signal,
+    request.normalizedRelativePath,
+  );
   return {
     ...request,
     executionPath: `${stage.stageRoot}/${request.normalizedRelativePath}`,
