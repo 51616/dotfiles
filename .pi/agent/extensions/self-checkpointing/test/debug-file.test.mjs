@@ -21,6 +21,13 @@ test("debug file logger writes jsonl records when enabled", () => {
     pendingDir: dir,
     isEnabled: () => true,
     pid: 123,
+    getCheckpointProbeInfo: () => ({
+      mode: "ssh",
+      source: "active-backend",
+      remote: "user@example.com",
+      port: 22,
+      remotePath: "/srv/repo",
+    }),
   });
   const ctx = createCtx();
 
@@ -36,6 +43,13 @@ test("debug file logger writes jsonl records when enabled", () => {
   assert.equal(record.sessionId, "sess-1");
   assert.equal(record.cwd, "/tmp/demo-cwd");
   assert.equal(record.line, "session_start");
+  assert.deepEqual(record.checkpointProbe, {
+    mode: "ssh",
+    source: "active-backend",
+    remote: "user@example.com",
+    port: 22,
+    remotePath: "/srv/repo",
+  });
 });
 
 test("debug file logger stays silent when disabled", () => {

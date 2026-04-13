@@ -128,6 +128,30 @@ test("registerAutockptCommand forwards test command threshold", async () => {
   assert.deepEqual(calls.startAutotest, [7]);
 });
 
+test("registerAutockptCommand status shows checkpoint probe info", async () => {
+  const reg = getRegisteredHandler();
+  const { deps } = makeDeps({
+    getCheckpointProbeInfo: () => ({
+      mode: "ssh",
+      source: "cached-backend",
+      remote: "user@example.com",
+      port: 2222,
+      remotePath: "/srv/repo",
+    }),
+  });
+  registerAutockptCommand(reg.pi, deps);
+
+  const handler = reg.handler;
+  assert.equal(typeof handler, "function");
+
+  const ctx = makeFakeCtx();
+  await handler("status", ctx);
+
+  const widget = ctx.widgets.at(-1);
+  assert.equal(widget.key, "autockpt-debug");
+  assert.ok(widget.content.some((line) => String(line).includes("checkpointProbe: ssh source=cached-backend remote=user@example.com port=2222 cwd=/srv/repo")));
+});
+
 test("registerAutockptCommand shows shared help text", async () => {
   const reg = getRegisteredHandler();
   const { deps } = makeDeps();

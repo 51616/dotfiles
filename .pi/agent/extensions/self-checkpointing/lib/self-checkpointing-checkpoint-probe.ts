@@ -9,9 +9,18 @@ import {
   type SkillUriBackendProvider,
 } from "../../skill-uri/lib/backend-runtime.ts";
 
+export type CheckpointProbeInfo = {
+  mode: "local" | "ssh";
+  source: "local-default" | "active-backend" | "cached-backend";
+  remote?: string;
+  port?: number;
+  remotePath?: string;
+};
+
 export type CheckpointProbe = {
   isFreshCheckpointFile: (checkpointPath: string, maxCheckpointAgeMs: number) => boolean;
   inferLatestCheckpointPath: (maxCheckpointAgeMs: number) => string | null;
+  describe: () => CheckpointProbeInfo;
 };
 
 type SshCheckpointConfig = {
@@ -347,6 +356,10 @@ export function createLocalCheckpointProbe(): CheckpointProbe {
     inferLatestCheckpointPath(maxCheckpointAgeMs) {
       return inferLatestLocalCheckpoint(maxCheckpointAgeMs).latestPath;
     },
+
+    describe() {
+      return { mode: "local", source: "local-default" };
+    },
   };
 }
 
@@ -363,6 +376,16 @@ export function createSshCheckpointProbe(
     inferLatestCheckpointPath(maxCheckpointAgeMs) {
       return inferLatestRemoteCheckpoint(config, options, maxCheckpointAgeMs).latestPath;
     },
+
+    describe() {
+      return {
+        mode: "ssh",
+        source: "active-backend",
+        remote: config.remote,
+        port: config.port,
+        remotePath: config.remotePath,
+      };
+    },
   };
 }
 
@@ -371,23 +394,53 @@ export function createCheckpointProbe(options: CreateCheckpointProbeOptions = {}
   const getActiveBackend = options.getActiveBackend ?? getActiveSkillUriBackend;
   let lastSshConfig: SshCheckpointConfig | null = null;
 
-  const resolveProbe = (): CheckpointProbe => {
-    const sshConfig = resolveCheckpointBackendConfig(getActiveBackend()?.getConnectionInfo());
-    if (sshConfig) {
-      lastSshConfig = sshConfig;
+  const resolveProbeState = (): { probe: CheckpointProbe; info: CheckpointProbeInfo } => {
+    const activeSshConfig = resolveCheckpointBackendConfig(getActiveBackend()?.getConnectionInfo());
+    if (activeSshConfig) {
+      lastSshConfig = activeSshConfig;
+      return {
+        probe: createSshCheckpointProbe(activeSshConfig, options),
+        info: {
+          mode: "ssh",
+          source: "active-backend",
+          remote: activeSshConfig.remote,
+          port: activeSshConfig.port,
+          remotePath: activeSshConfig.remotePath,
+        },
+      };
     }
-    if (!lastSshConfig) {
-      return localProbe;
+
+    if (lastSshConfig) {
+      return {
+        probe: createSshCheckpointProbe(lastSshConfig, options),
+        info: {
+          mode: "ssh",
+          source: "cached-backend",
+          remote: lastSshConfig.remote,
+          port: lastSshConfig.port,
+          remotePath: lastSshConfig.remotePath,
+        },
+      };
     }
-    return createSshCheckpointProbe(lastSshConfig, options);
+
+    return {
+      probe: localProbe,
+      info: {
+        mode: "local",
+        source: "local-default",
+      },
+    };
   };
 
   return {
     isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
-      return resolveProbe().isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs);
+      return resolveProbeState().probe.isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs);
     },
     inferLatestCheckpointPath(maxCheckpointAgeMs) {
-      return resolveProbe().inferLatestCheckpointPath(maxCheckpointAgeMs);
+      return resolveProbeState().probe.inferLatestCheckpointPath(maxCheckpointAgeMs);
+    },
+    describe() {
+      return resolveProbeState().info;
     },
   };
 }

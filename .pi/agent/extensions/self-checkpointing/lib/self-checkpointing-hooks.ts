@@ -9,7 +9,7 @@ import type { PendingResumeController } from "./self-checkpointing-pending-resum
 import type { AutotestController } from "./self-checkpointing-autotest.ts";
 import { cleanupStaleCompactionLocksInStateDir } from "./self-checkpointing-lock-sweep.ts";
 import { handleAssistantMessageEnd } from "./self-checkpointing-footer-handler.ts";
-import type { CheckpointProbe } from "./self-checkpointing-checkpoint-probe.ts";
+import type { CheckpointProbe, CheckpointProbeInfo } from "./self-checkpointing-checkpoint-probe.ts";
 
 type SessionStoreDeps = {
   cleanupLockOnSessionStart: (ctx: ExtensionContext) => void;
@@ -53,10 +53,19 @@ export type SelfCheckpointingHookDeps = {
   startCompaction: (ctx: ExtensionContext, checkpointPath: string, compactionInstructions?: string) => void;
 
   pushDebug: (ctx: ExtensionContext, line: string) => void;
+  describeCheckpointProbe: () => CheckpointProbeInfo;
   setStatus: (ctx: ExtensionContext, text?: string) => void;
   clearCompactionLoader: (ctx: ExtensionContext) => void;
   isDebugEnabled: () => boolean;
 };
+
+function formatCheckpointProbeInfo(info: CheckpointProbeInfo): string {
+  if (info.mode === "local") {
+    return `mode=local source=${info.source}`;
+  }
+
+  return `mode=ssh source=${info.source} remote=${info.remote ?? "?"} port=${info.port ?? "?"} cwd=${info.remotePath ?? "?"}`;
+}
 
 export function registerSelfCheckpointingHooks(
   pi: Pick<ExtensionAPI, "on">,
@@ -86,6 +95,7 @@ export function registerSelfCheckpointingHooks(
     clearCheckpointCycleState(ctx);
     deps.setStatus(ctx, undefined);
     deps.pushDebug(ctx, "session_start");
+    deps.pushDebug(ctx, `checkpoint_probe ${formatCheckpointProbeInfo(deps.describeCheckpointProbe())}`);
 
     if (ctx.hasUI && !deps.debugWidgetAuto) {
       ctx.ui.setWidget(deps.debugWidgetKey, undefined);

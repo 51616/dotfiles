@@ -110,11 +110,13 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     debugEnabled: initialDebugEnabled,
     debugWidgetAuto,
   });
+  const checkpointProbe = createCheckpointProbe();
   const debugFile = createSelfCheckpointingDebugFile({
     pendingDir: PENDING_DIR,
     pathOverride: debugLogPathOverride,
     isEnabled: uiRuntime.isDebugEnabled,
     pid: process.pid,
+    getCheckpointProbeInfo: checkpointProbe.describe,
   });
   const getUsage = (ctx: ExtensionContext) => ctx.getContextUsage();
   const debugWidgetKey = uiRuntime.debugWidgetKey;
@@ -131,7 +133,6 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
   const sendFollowUpUserMessage = uiRuntime.sendFollowUpUserMessage;
   const showCompactionLoader = uiRuntime.showCompactionLoader;
   const clearCompactionLoader = uiRuntime.clearCompactionLoader;
-  const checkpointProbe = createCheckpointProbe();
 
   const sessionStore = createSelfCheckpointingSessionStore({
     pendingDir: PENDING_DIR,
@@ -283,6 +284,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     getPendingCompactionRequested: () => pendingCompactionRequested,
     getAutotestInProgress: () => autotest.isInProgress(),
     getCompactionLock: (ctx) => sessionStore.getActiveCompactionLock(ctx),
+    getCheckpointProbeInfo: checkpointProbe.describe,
     isDebugEnabled,
     setDebugEnabled,
     getDebugLog,
@@ -330,6 +332,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     maybeAutoKick,
     startCompaction,
     pushDebug,
+    describeCheckpointProbe: checkpointProbe.describe,
     setStatus,
     clearCompactionLoader,
     isDebugEnabled,

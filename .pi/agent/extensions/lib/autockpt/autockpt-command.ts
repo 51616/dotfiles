@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { CheckpointProbeInfo } from "../../self-checkpointing/lib/self-checkpointing-checkpoint-probe.ts";
 
 type ContextUsage =
   | {
@@ -27,6 +28,7 @@ export type AutockptCommandDeps = {
   getAutotestInProgress: () => boolean;
   getCompactionLock?: (ctx: ExtensionContext) => CompactionLockInfo;
   getDebugLogPath?: (ctx: ExtensionContext) => string | null;
+  getCheckpointProbeInfo?: () => CheckpointProbeInfo;
   isDebugEnabled: () => boolean;
   setDebugEnabled: (next: boolean) => void;
   getDebugLog: () => string[];
@@ -61,6 +63,18 @@ function buildLockLine(lock: CompactionLockInfo): string {
   return `compactionLock: pid=${lock.pid} ageSec=${ageSec}${checkpoint}`;
 }
 
+function buildProbeLine(probe: CheckpointProbeInfo | undefined): string {
+  if (!probe) return "checkpointProbe: unknown";
+  if (probe.mode === "local") {
+    return `checkpointProbe: local source=${probe.source}`;
+  }
+
+  const remote = probe.remote ?? "?";
+  const port = probe.port ?? "?";
+  const remotePath = probe.remotePath ?? "?";
+  return `checkpointProbe: ssh source=${probe.source} remote=${remote} port=${port} cwd=${remotePath}`;
+}
+
 function buildStatusLines(
   deps: AutockptCommandDeps,
   ctx: ExtensionContext,
@@ -72,6 +86,7 @@ function buildStatusLines(
   const threshold = deps.getThresholdPercent();
   const lock = deps.getCompactionLock ? deps.getCompactionLock(ctx) : null;
   const debugLogPath = deps.getDebugLogPath ? deps.getDebugLogPath(ctx) : null;
+  const checkpointProbeInfo = deps.getCheckpointProbeInfo ? deps.getCheckpointProbeInfo() : undefined;
 
   return {
     threshold,
@@ -79,6 +94,7 @@ function buildStatusLines(
       `enabled=${deps.enabled} threshold=${threshold}%`,
       `armed=${deps.getArmed()} pendingCompactionRequested=${deps.getPendingCompactionRequested()} autotestInProgress=${deps.getAutotestInProgress()}`,
       buildLockLine(lock),
+      buildProbeLine(checkpointProbeInfo),
       `usage: tokens=${tokens ?? "?"} pct=${pct ?? "?"} window=${win ?? "?"}`,
       `debugEnabled=${deps.isDebugEnabled()} debugLogPath=${debugLogPath ?? "(disabled)"}`,
     ],

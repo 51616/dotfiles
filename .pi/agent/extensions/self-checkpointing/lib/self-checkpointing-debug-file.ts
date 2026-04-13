@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { CheckpointProbeInfo } from "./self-checkpointing-checkpoint-probe.ts";
 
 export type SelfCheckpointingDebugFile = {
   append: (ctx: ExtensionContext, line: string) => void;
@@ -28,6 +29,7 @@ export function createSelfCheckpointingDebugFile(options: {
   pathOverride?: string;
   isEnabled: () => boolean;
   pid: number;
+  getCheckpointProbeInfo?: () => CheckpointProbeInfo;
 }): SelfCheckpointingDebugFile {
   const override = String(options.pathOverride || "").trim();
 
@@ -56,6 +58,7 @@ export function createSelfCheckpointingDebugFile(options: {
               return null;
             }
           })(),
+          checkpointProbe: options.getCheckpointProbeInfo?.() ?? null,
           line,
         })}\n`,
         "utf8",
