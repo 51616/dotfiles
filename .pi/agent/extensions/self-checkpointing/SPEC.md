@@ -5,7 +5,7 @@
 When the session context usage reaches a threshold (**65%** by default), pi should shift into a predictable “save game and keep going” mode:
 
 1) **Auto-kick** (extension-driven): inject a directive message that tells the assistant to checkpoint now.
-2) **Checkpoint** (assistant-driven): pi writes a detailed, resumable checkpoint note under `work/log/checkpoints/`.
+2) **Checkpoint** (assistant-driven): pi writes a detailed, resumable checkpoint note under `/tmp/pi-work/checkpoints/`.
 3) **Compact** (extension-driven): trigger compaction to free context.
 4) **Self-ping / resume** (extension-driven): inject a follow-up user message so work continues from the checkpoint.
 
@@ -32,7 +32,7 @@ Non-goals:
 When the assistant sees the injected `[autockpt]` directive, it must:
 
 1) Stop continuing the main task immediately.
-2) Produce a checkpoint note under `work/log/checkpoints/` using JST naming (`YYYY-MM-DD_HHMM_<slug>.md`).
+2) Produce a checkpoint note under `/tmp/pi-work/checkpoints/` using JST naming (`YYYY-MM-DD_HHMM_<slug>.md`).
 3) Make the checkpoint “reconstructable”:
    - current objective/spec
    - current implementation status

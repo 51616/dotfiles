@@ -16,7 +16,7 @@ Threshold-based arming, auto-kick state, pending compaction state, and footer de
 
 Footer detection should be explicit and deduplicated within the configured window instead of guessing from loosely similar output.
 
-Checkpoint footer paths should fail closed only for obviously malformed values. Relative and absolute paths are both acceptable if the target exists, because `pi-ssh` and other environments may surface remote workspace paths that are not under the local vault's old `work/log/checkpoints/` prefix.
+Checkpoint footer paths should fail closed only for obviously malformed values. Relative and absolute paths are both acceptable if the target exists, because `pi-ssh` and other environments may surface remote workspace paths that are not under the local canonical `/tmp/pi-work/checkpoints/` prefix.
 
 Compaction and resume should be driven by the extension's stored session state so stale locks, stale pending resumes, or abandoned autotest state can be detected and cleaned up.
 

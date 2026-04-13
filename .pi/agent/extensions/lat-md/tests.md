@@ -134,7 +134,7 @@ Owned by:
 - `.pi/extensions/self-checkpointing/test/compaction-ui.test.mjs`
 
 What this proves:
-- footer parsing tolerates normal markdown noise while preserving explicit absolute paths instead of forcing them into a `work/log/checkpoints/` shape
+- footer parsing tolerates normal markdown noise while preserving explicit absolute paths instead of forcing them into a specific checkpoint-directory shape
 - footer-path validation rejects only obviously malformed values and otherwise relies on existence/freshness checks
 - a valid footer path can reach `startCompaction()` even when the assistant emits an absolute remote-workspace path
 - SSH-backed checkpoint probing is used for remote existence/freshness checks instead of local-only filesystem assumptions

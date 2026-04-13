@@ -2,14 +2,14 @@
 name: checkpointing
 description: |
   Use when: work is multi-step/long-horizon, interruption risk is high, OR when the [autockpt] directive appears.
-  Outputs: a reconstructable checkpoint note under work/log/checkpoints/; when triggered by [autockpt], also emit the compaction footer so the extension can compact+resume.
+  Outputs: a reconstructable checkpoint note under /tmp/pi-work/checkpoints/; when triggered by [autockpt], also emit the compaction footer so the extension can compact+resume.
 ---
 
 # checkpointing
 
 ## Flow
 
-1) Create a checkpoint note file under `work/log/checkpoints/`.
+1) Create a checkpoint note file under `/tmp/pi-work/checkpoints/`.
 - Filename: `YYYY-MM-DD_HHMM_<slug>.md` (JST)
 
 2) Fill it using the template:

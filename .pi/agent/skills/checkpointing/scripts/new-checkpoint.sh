@@ -14,7 +14,7 @@ Example:
   bash scripts/new-checkpoint.sh ssh-pi-agent-flow
 
 Output:
-  work/log/checkpoints/YYYY-MM-DD_HHMM_<slug>.md
+  /tmp/pi-work/checkpoints/YYYY-MM-DD_HHMM_<slug>.md
 USAGE
 }
 
@@ -34,16 +34,7 @@ fi
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SKILL_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
-# Resolve the target project root from the current working tree, not from the skill install
-# location. The helper's assets come from SKILL_ROOT, while outputs belong to the active
-# workspace rooted at the current cwd/git checkout.
-if ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
-  :
-else
-  ROOT=$(pwd)
-fi
-
-OUT_DIR="$ROOT/work/log/checkpoints"
+OUT_DIR="/tmp/pi-work/checkpoints"
 TPL="$SKILL_ROOT/templates/checkpoint.template.md"
 
 if [[ ! -f "$TPL" ]]; then
@@ -54,7 +45,6 @@ fi
 mkdir -p "$OUT_DIR"
 
 TS=$(TZ=Asia/Tokyo date +%F_%H%M)
-OUT_REL="work/log/checkpoints/${TS}_${SLUG}.md"
 OUT="$OUT_DIR/${TS}_${SLUG}.md"
 
 if [[ -e "$OUT" ]]; then
@@ -74,6 +64,4 @@ text=text.replace('Date: <%Y-%m-%d %H:%M JST>', f'Date: {"$DATE_LINE"}')
 p.write_text(text)
 PY
 
-# IMPORTANT: autockpt footer parsing expects a vault-relative path starting with
-# "work/log/checkpoints/" (NOT an absolute path).
-echo "$OUT_REL"
+echo "$OUT"

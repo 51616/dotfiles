@@ -61,6 +61,7 @@ const REMOTE_PROBE_BEGIN_MARKER = "__PI_SELF_CHECKPOINT_PROBE_BEGIN__";
 const REMOTE_PROBE_END_MARKER = "__PI_SELF_CHECKPOINT_PROBE_END__";
 const DEFAULT_SSH_PROBE_TIMEOUT_MS = 8_000;
 const MAX_SSH_STDOUT_BYTES = 64 * 1024;
+const CHECKPOINT_DIR = "/tmp/pi-work/checkpoints";
 
 const REMOTE_PROBE_SCRIPT = String.raw`import json, os, sys, time
 mode = sys.argv[1]
@@ -76,7 +77,7 @@ if mode == "validate":
         result["mtimeMs"] = mtime_ms
         result["fresh"] = True if max_age_ms <= 0 else (now_ms - mtime_ms) <= max_age_ms
 elif mode == "latest":
-    dir_path = os.path.join(os.getcwd(), "work", "log", "checkpoints")
+    dir_path = "/tmp/pi-work/checkpoints"
     latest_path = None
     latest_mtime = None
     if os.path.isdir(dir_path):
@@ -94,7 +95,7 @@ elif mode == "latest":
                 continue
             if latest_mtime is None or mtime_ms > latest_mtime:
                 latest_mtime = mtime_ms
-                latest_path = os.path.join("work", "log", "checkpoints", name)
+                latest_path = candidate
     result = {"latestPath": latest_path, "mtimeMs": latest_mtime}
 else:
     result = {"error": "unknown_mode", "mode": mode}
@@ -303,7 +304,7 @@ function validateLocalCheckpointFile(
 }
 
 function inferLatestLocalCheckpoint(maxCheckpointAgeMs: number): ProbeLatestResult {
-  const dir = path.join("work", "log", "checkpoints");
+  const dir = CHECKPOINT_DIR;
 
   let entries: string[];
   try {

@@ -20,7 +20,7 @@ const INSTRUCTION_BLOCK_RE = new RegExp(
 );
 
 // Matches lines like:
-//   __pi_autocheckpoint_done__ path=work/log/checkpoints/....md
+//   __pi_autocheckpoint_done__ path=/tmp/pi-work/checkpoints/....md
 // and tolerates bullets / surrounding backticks:
 //   - `__pi_autocheckpoint_done__ path=...md.`
 const DONE_LINE_RE = new RegExp(

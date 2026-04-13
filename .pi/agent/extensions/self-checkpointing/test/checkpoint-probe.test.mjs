@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -40,7 +42,7 @@ test("createCheckpointProbe validates and infers checkpoints through ssh when --
         calls.push(request);
         const payload = calls.length === 1
           ? JSON.stringify({ exists: true, fresh: true, mtimeMs: Date.now() })
-          : JSON.stringify({ latestPath: "work/log/checkpoints/demo.md", mtimeMs: Date.now() });
+          : JSON.stringify({ latestPath: "/tmp/pi-work/checkpoints/demo.md", mtimeMs: Date.now() });
         return {
           status: 0,
           stdout: `remote login banner\n${BEGIN}\n${payload}\n${END}\n`,
@@ -49,14 +51,35 @@ test("createCheckpointProbe validates and infers checkpoints through ssh when --
     },
   );
 
-  assert.equal(probe.isFreshCheckpointFile("work/log/checkpoints/demo.md", 60_000), true);
-  assert.equal(probe.inferLatestCheckpointPath(60_000), "work/log/checkpoints/demo.md");
+  assert.equal(probe.isFreshCheckpointFile("/tmp/pi-work/checkpoints/demo.md", 60_000), true);
+  assert.equal(probe.inferLatestCheckpointPath(60_000), "/tmp/pi-work/checkpoints/demo.md");
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].remote, "user@example.com");
   assert.equal(calls[0].port, 2222);
   assert.match(calls[0].remoteCommand, /\$HOME/);
   assert.match(calls[0].remoteCommand, /python3|python/);
+});
+
+test("createCheckpointProbe infers the latest local checkpoint from /tmp/pi-work/checkpoints", () => {
+  const dir = "/tmp/pi-work/checkpoints";
+  const older = path.join(dir, `probe-local-${process.pid}-older.md`);
+  const newer = path.join(dir, `probe-local-${process.pid}-newer.md`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(older, "older\n", "utf8");
+  fs.writeFileSync(newer, "newer\n", "utf8");
+
+  const oldTime = new Date(Date.now() - 5_000);
+  const newTime = new Date(Date.now() - 1_000);
+  fs.utimesSync(older, oldTime, oldTime);
+  fs.utimesSync(newer, newTime, newTime);
+
+  const probe = createCheckpointProbe({ getFlag() { return undefined; } });
+  assert.equal(probe.inferLatestCheckpointPath(60_000), newer);
+  assert.equal(probe.isFreshCheckpointFile(newer, 60_000), true);
+
+  fs.unlinkSync(older);
+  fs.unlinkSync(newer);
 });
 
 test("createCheckpointProbe rejects obviously malformed checkpoint paths before ssh probing", () => {

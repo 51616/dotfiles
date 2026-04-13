@@ -1,4 +1,4 @@
-const CHECKPOINT_DIR = "work/log/checkpoints/";
+const CHECKPOINT_DIR = "/tmp/pi-work/checkpoints/";
 
 export function buildResumeSelfPing(_checkpointPath: string): string {
   return "We just auto-checkpointed and compacted context. Please continue your work.";

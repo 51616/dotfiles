@@ -9,19 +9,19 @@ import {
 } from "../lib/autockpt/autockpt-prompts.ts";
 
 test("buildResumeSelfPing returns the fixed self-kickstart message", () => {
-  const text = buildResumeSelfPing("work/log/checkpoints/a.md");
+  const text = buildResumeSelfPing("/tmp/pi-work/checkpoints/a.md");
   assert.equal(text, "We just auto-checkpointed and compacted context. Please continue your work.");
 });
 
 test("buildCompactionInstructions merges extra instructions and fallback summary", () => {
   const text = buildCompactionInstructions({
-    checkpointPath: "work/log/checkpoints/a.md",
+    checkpointPath: "/tmp/pi-work/checkpoints/a.md",
     extraInstructions: "Keep milestones.",
   });
 
   assert.match(text, /Compaction focus \(from assistant\):/);
   assert.match(text, /Keep milestones\./);
-  assert.match(text, /Preserve checkpoint path \(work\/log\/checkpoints\/a\.md\)/);
+  assert.match(text, /Preserve checkpoint path \(\/tmp\/pi-work\/checkpoints\/a\.md\)/);
 });
 
 test("autotest kickoff prompts contain required checkpoints", () => {
@@ -29,7 +29,7 @@ test("autotest kickoff prompts contain required checkpoints", () => {
   const commandPrompt = buildCommandAutotestKickoffMessage();
 
   assert.match(flagPrompt, /\[autotest\]/);
-  assert.match(flagPrompt, /work\/log\/checkpoints\//);
+  assert.match(flagPrompt, /\/tmp\/pi-work\/checkpoints\//);
   assert.match(commandPrompt, /Steps:/);
   assert.match(commandPrompt, /final completion footer line/);
 });
