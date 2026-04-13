@@ -1297,7 +1297,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     type: "string",
     default: "22",
   });
-  pi.registerFlag("p", {
+  pi.registerFlag("port", {
     description: "Alias for --ssh-port",
     type: "string",
   });
@@ -1554,7 +1554,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     if (!flag) return;
 
     try {
-      const rawPort = (pi.getFlag("p") as string | undefined) ?? (pi.getFlag("ssh-port") as string | undefined);
+      const rawPort = (pi.getFlag("port") as string | undefined) ?? (pi.getFlag("ssh-port") as string | undefined);
       const port = parseSshPort(rawPort);
       connection = await resolveSshConnection(flag, localCwd, localHome, port);
       transport = new SshTransport(connection);

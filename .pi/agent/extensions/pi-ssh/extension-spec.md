@@ -142,6 +142,7 @@ Use Option A as the first publishable OSS cut.
 
 - `--ssh user@host`
 - `--ssh user@host:/remote/path`
+- optional SSH port via `--ssh-port 2222` or `--port 2222`
 
 If path is omitted, remote cwd is detected with `pwd`.
 
