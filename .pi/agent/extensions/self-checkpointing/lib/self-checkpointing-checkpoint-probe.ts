@@ -378,19 +378,6 @@ function inferLatestRemoteCheckpoint(
   };
 }
 
-function pickLatestCheckpointPath(localResult: ProbeLatestResult, remoteResult: ProbeLatestResult): string | null {
-  if (!localResult.latestPath) {
-    return remoteResult.latestPath;
-  }
-  if (!remoteResult.latestPath) {
-    return localResult.latestPath;
-  }
-
-  const localMtimeMs = localResult.mtimeMs ?? -1;
-  const remoteMtimeMs = remoteResult.mtimeMs ?? -1;
-  return localMtimeMs >= remoteMtimeMs ? localResult.latestPath : remoteResult.latestPath;
-}
-
 export function createLocalCheckpointProbe(): CheckpointProbe {
   return {
     isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
@@ -431,27 +418,7 @@ export function createCheckpointProbe(
     if (!sshConfig) {
       return localProbe;
     }
-
-    return {
-      isFreshCheckpointFile(checkpointPath, maxCheckpointAgeMs) {
-        // In SSH sessions the working conversation still lives locally, and some checkpoint flows
-        // intentionally write notes into the local vault/worktree. Accept a fresh local checkpoint
-        // first, then fall back to the remote workspace for SSH-backed checkpoints.
-        const localResult = validateLocalCheckpointFile(checkpointPath, maxCheckpointAgeMs);
-        if (localResult.exists && localResult.fresh) {
-          return true;
-        }
-
-        const remoteResult = validateRemoteCheckpointFile(sshConfig, options, checkpointPath, maxCheckpointAgeMs);
-        return remoteResult.exists && remoteResult.fresh;
-      },
-
-      inferLatestCheckpointPath(maxCheckpointAgeMs) {
-        const localResult = inferLatestLocalCheckpoint(maxCheckpointAgeMs);
-        const remoteResult = inferLatestRemoteCheckpoint(sshConfig, options, maxCheckpointAgeMs);
-        return pickLatestCheckpointPath(localResult, remoteResult);
-      },
-    };
+    return createSshCheckpointProbe(sshConfig, options);
   };
 
   return {

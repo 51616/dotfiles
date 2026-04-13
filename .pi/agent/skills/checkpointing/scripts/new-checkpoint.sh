@@ -31,9 +31,12 @@ if [[ ! "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   exit 2
 fi
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+SKILL_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
 # Resolve the target project root from the current working tree, not from the skill install
-# location. This keeps the script correct even when the skill lives in ~/.pi/agent/skills/
-# and the project only sees it via a symlink.
+# location. The helper's assets come from SKILL_ROOT, while outputs belong to the active
+# workspace rooted at the current cwd/git checkout.
 if ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
   :
 else
@@ -41,7 +44,7 @@ else
 fi
 
 OUT_DIR="$ROOT/work/log/checkpoints"
-TPL="$ROOT/.pi/skills/checkpointing/templates/checkpoint.template.md"
+TPL="$SKILL_ROOT/templates/checkpoint.template.md"
 
 if [[ ! -f "$TPL" ]]; then
   echo "Template not found at: $TPL" >&2
