@@ -99,6 +99,19 @@ interface PersistentRemoteShellOptions {
   abortGraceMs?: number;
 }
 
+const PI_SSH_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(process.env.PI_SSH_DEBUG ?? "");
+
+function logPiSshDebug(event: string, details: Record<string, unknown>): void {
+  if (!PI_SSH_DEBUG_ENABLED) {
+    return;
+  }
+  console.error(`[pi-ssh] ${event} ${JSON.stringify(details)}`);
+}
+
+function isSkillStagePath(path: string): boolean {
+  return path.includes("/.cache/pi/skill-stage/");
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
@@ -1034,12 +1047,29 @@ class SshTransport implements RemoteTransport {
     // Read files over a one-shot SSH exec so bytes are preserved exactly.
     // The persistent shell runs through a PTY and normalizes output for
     // streaming, which is fine for text commands but corrupts binary reads.
-    return this.queue.enqueue(() =>
-      this.sshExecFn(this.connection.remote, this.connection.port, `cat -- ${shellQuote(remotePath)}`, {
-        timeoutSeconds: DEFAULT_EXEC_TIMEOUT_SECONDS,
-        signal,
-      }),
-    );
+    if (isSkillStagePath(remotePath)) {
+      logPiSshDebug("transport.read-file.begin", { remotePath });
+    }
+    return this.queue.enqueue(async () => {
+      try {
+        const result = await this.sshExecFn(this.connection.remote, this.connection.port, `cat -- ${shellQuote(remotePath)}`, {
+          timeoutSeconds: DEFAULT_EXEC_TIMEOUT_SECONDS,
+          signal,
+        });
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.read-file.ok", { remotePath, bytes: result.length });
+        }
+        return result;
+      } catch (error) {
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.read-file.error", {
+            remotePath,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        throw error;
+      }
+    });
   }
 
   async ensureReadable(remotePath: string, signal?: AbortSignal): Promise<void> {
@@ -1068,6 +1098,10 @@ class SshTransport implements RemoteTransport {
       throw new Error("aborted");
     }
 
+    if (isSkillStagePath(remotePath)) {
+      logPiSshDebug("transport.write-file.begin", { remotePath, bytes: content.length });
+    }
+
     if (content.length <= PERSISTENT_WRITE_MAX_BYTES) {
       const remoteDir = remoteDirname(remotePath);
       const encodedContent = content.toString("base64");
@@ -1078,8 +1112,18 @@ class SshTransport implements RemoteTransport {
 
       try {
         await this.runChecked(command, undefined, signal);
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.write-file.ok", { remotePath, bytes: content.length, mode: "persistent" });
+        }
         return;
       } catch (error) {
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.write-file.retry", {
+            remotePath,
+            bytes: content.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
         if (signal?.aborted) {
           throw error;
         }
@@ -1093,10 +1137,24 @@ class SshTransport implements RemoteTransport {
     await this.queue.enqueue(async () => {
       const remoteDir = remoteDirname(remotePath);
       const command = [`mkdir -p -- ${shellQuote(remoteDir)}`, `cat > ${shellQuote(remotePath)}`].join(" && ");
-      await this.sshExecFn(this.connection.remote, this.connection.port, command, {
-        stdin: content,
-        signal,
-      });
+      try {
+        await this.sshExecFn(this.connection.remote, this.connection.port, command, {
+          stdin: content,
+          signal,
+        });
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.write-file.ok", { remotePath, bytes: content.length, mode: "stream" });
+        }
+      } catch (error) {
+        if (isSkillStagePath(remotePath)) {
+          logPiSshDebug("transport.write-file.error", {
+            remotePath,
+            bytes: content.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        throw error;
+      }
     });
   }
 
@@ -1205,7 +1263,7 @@ async function resolveSshConnection(rawFlag: string, localCwd: string, localHome
 
   if (!parsed.remotePath) {
     const remotePwd = await sshExec(parsed.remote, port, "pwd", { timeoutSeconds: 15 });
-    return {
+    const connection = {
       remote: parsed.remote,
       remoteDisplayTarget,
       port,
@@ -1214,13 +1272,22 @@ async function resolveSshConnection(rawFlag: string, localCwd: string, localHome
       localCwd,
       localHome,
     };
+    logPiSshDebug("resolve-ssh-connection", {
+      remote: connection.remote,
+      remoteDisplayTarget: connection.remoteDisplayTarget,
+      port: connection.port,
+      remoteHome: connection.remoteHome,
+      remoteCwd: connection.remoteCwd,
+      localCwd: connection.localCwd,
+    });
+    return connection;
   }
 
   const resolvedPath = await sshExec(parsed.remote, port, buildResolveRemotePathCommand(parsed.remotePath), {
     timeoutSeconds: 15,
   });
 
-  return {
+  const connection = {
     remote: parsed.remote,
     remoteDisplayTarget,
     port,
@@ -1229,6 +1296,15 @@ async function resolveSshConnection(rawFlag: string, localCwd: string, localHome
     localCwd,
     localHome,
   };
+  logPiSshDebug("resolve-ssh-connection", {
+    remote: connection.remote,
+    remoteDisplayTarget: connection.remoteDisplayTarget,
+    port: connection.port,
+    remoteHome: connection.remoteHome,
+    remoteCwd: connection.remoteCwd,
+    localCwd: connection.localCwd,
+  });
+  return connection;
 }
 
 async function readRemoteTextFileIfExists(remote: string, port: number, remotePath: string): Promise<string | null> {

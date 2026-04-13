@@ -45,6 +45,14 @@ const RUN_SKILL_SCRIPT_URI_REQUIRED_ERROR =
   `run_skill_script requires script to be a full skill://<skill-id>/relative/path URI, for example ${RUN_SKILL_SCRIPT_URI_EXAMPLE}. Relative paths like scripts/demo.sh are not allowed.`;
 export const RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR =
   "run_skill_script no longer accepts `target`. Execution follows the active backend automatically.";
+const SKILL_URI_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(process.env.PI_SKILL_URI_DEBUG ?? "");
+
+function logSkillUriDebug(event: string, details: Record<string, unknown>): void {
+  if (!SKILL_URI_DEBUG_ENABLED) {
+    return;
+  }
+  console.error(`[skill-uri] ${event} ${JSON.stringify(details)}`);
+}
 
 function isLegacySourcePrefixedSkillUri(path: string): boolean {
   return path.startsWith("skill://local/") || path.startsWith("skill://remote/");
@@ -88,6 +96,12 @@ export function resolveRunSkillScriptRequest(
   }
 
   const args = (request.args ?? []).map((arg) => String(arg));
+  logSkillUriDebug("resolve-run-skill-script-request", {
+    script,
+    interpreter,
+    hasRemoteBackend,
+    argCount: args.length,
+  });
   if (isLegacySourcePrefixedSkillUri(script)) {
     throw new Error(
       `run_skill_script no longer accepts source-prefixed skill URIs like ${script}. Use skill://<skill-id>/relative/path instead, for example ${RUN_SKILL_SCRIPT_URI_EXAMPLE}.`,
@@ -247,6 +261,14 @@ export async function stageLocalSkillRootToRemote(
   const contentHash = hashSkillFiles(files);
   const stageRoot = `${remoteHome}/.cache/pi/skill-stage/${skillEntry.encodedId}/${contentHash}`;
   const markerPath = `${stageRoot}/.pi-stage-complete.json`;
+  logSkillUriDebug("stage-local-skill-root-to-remote.begin", {
+    skill: skillEntry.name,
+    remoteHome,
+    stageRoot,
+    expectedRelativePath,
+    fileCount: files.length,
+    totalBytes,
+  });
 
   try {
     await transport.readFile(markerPath, signal);
@@ -255,11 +277,25 @@ export async function stageLocalSkillRootToRemote(
       // while the script itself is gone. Re-stage instead of trusting the marker.
       await transport.readFile(`${stageRoot}/${expectedRelativePath}`, signal);
     }
+    logSkillUriDebug("stage-local-skill-root-to-remote.cache-hit", {
+      stageRoot,
+      expectedRelativePath,
+    });
     return { stageRoot, staged: false };
   } catch (error) {
     if (!isMissingRemotePathError(error)) {
+      logSkillUriDebug("stage-local-skill-root-to-remote.error", {
+        stageRoot,
+        expectedRelativePath,
+        message: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
+    logSkillUriDebug("stage-local-skill-root-to-remote.cache-miss", {
+      stageRoot,
+      expectedRelativePath,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
   for (const file of files) {
@@ -279,6 +315,12 @@ export async function stageLocalSkillRootToRemote(
     "utf-8",
   );
   await transport.writeFile(markerPath, marker, signal);
+  logSkillUriDebug("stage-local-skill-root-to-remote.staged", {
+    stageRoot,
+    expectedRelativePath,
+    fileCount: files.length,
+    totalBytes,
+  });
 
   return { stageRoot, staged: true };
 }
@@ -296,11 +338,16 @@ export async function prepareRunSkillScript(
   await assertResolvedSkillScriptPathExists(request);
 
   if (request.executionBackend === "local") {
-    return {
+    const prepared = {
       ...request,
       executionPath: request.resolvedScript.realPath,
       staged: false,
     };
+    logSkillUriDebug("prepare-run-skill-script.local", {
+      skillUri: request.skillUri,
+      executionPath: prepared.executionPath,
+    });
+    return prepared;
   }
 
   if (!options.remoteHome || !options.transport) {
@@ -314,12 +361,20 @@ export async function prepareRunSkillScript(
     options.signal,
     request.normalizedRelativePath,
   );
-  return {
+  const prepared = {
     ...request,
     executionPath: `${stage.stageRoot}/${request.normalizedRelativePath}`,
     staged: stage.staged,
     stageRoot: stage.stageRoot,
   };
+  logSkillUriDebug("prepare-run-skill-script.remote", {
+    skillUri: request.skillUri,
+    remoteHome: options.remoteHome,
+    executionPath: prepared.executionPath,
+    stageRoot: prepared.stageRoot,
+    staged: prepared.staged,
+  });
+  return prepared;
 }
 
 export function buildRunSkillScriptCommand(interpreter: string, scriptPath: string, args: string[] = []): string {
