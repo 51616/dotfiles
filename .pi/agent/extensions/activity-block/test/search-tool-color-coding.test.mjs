@@ -61,7 +61,7 @@ function createSnapshot(overrides = {}) {
 			{
 				id: "tool-run-skill-script",
 				name: "run_skill_script",
-				summary: "scripts/pi-ssh-setup.sh in pi-ssh via bash (remote, timeout 30s, 2 args)",
+				summary: "scripts/pi-ssh-setup.sh in pi-ssh via bash (timeout 30s, 2 args)",
 				state: "complete",
 				startedAt: 700,
 				updatedAt: 800,
@@ -103,10 +103,9 @@ test("summarizeTool formats grep, find, multi_grep, and run_skill_script argumen
 			skill: "pi-ssh",
 			interpreter: "bash",
 			args: ["--verify", "--json"],
-			target: "remote",
 			timeoutSeconds: 30,
 		}),
-		"scripts/pi-ssh-setup.sh in pi-ssh via bash (remote, timeout 30s, 2 args)",
+		"scripts/pi-ssh-setup.sh in pi-ssh via bash (timeout 30s, 2 args)",
 	);
 });
 
@@ -116,5 +115,5 @@ test("ActivityBlockMessageComponent color codes grep, find, multi_grep, and run_
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>grep<\/b><\/toolTitle> <accent>\/needle\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>find<\/b><\/toolTitle> <accent>\*\.test\.mjs in src \(limit 10\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>multi_grep<\/b><\/toolTitle> <accent>\/alpha\/ \| \/beta\/ in src \(\*\.ts\)<\/accent>/);
-	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(remote, timeout 30s, 2 args\)<\/accent>/);
+	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(timeout 30s, 2 args\)<\/accent>/);
 });

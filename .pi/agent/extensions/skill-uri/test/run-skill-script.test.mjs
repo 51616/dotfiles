@@ -4,10 +4,12 @@ import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import skillUriExtension from "../index.ts";
 import {
   buildRunSkillScriptCommand,
   prepareRunSkillScript,
   resolveRunSkillScriptRequest,
+  RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR,
 } from "../lib/run-skill-script.ts";
 import { SkillRegistry, buildSkillUri, encodeSkillId } from "../lib/skill-uris.ts";
 
@@ -29,6 +31,24 @@ function buildRegistry(name, filePath) {
   return registry;
 }
 
+function createFakePi() {
+  const tools = new Map();
+  const events = new Map();
+
+  return {
+    tools,
+    events,
+    api: {
+      registerTool(tool) {
+        tools.set(tool.name, tool);
+      },
+      on(eventName, handler) {
+        events.set(eventName, handler);
+      },
+    },
+  };
+}
+
 test("resolveRunSkillScriptRequest accepts any file under the skill root", async () => {
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-request-"));
   const skillRoot = join(base, "demo");
@@ -46,9 +66,29 @@ test("resolveRunSkillScriptRequest accepts any file under the skill root", async
     false,
   );
 
-  assert.equal(request.target, "local");
+  assert.equal(request.executionBackend, "local");
   assert.equal(request.normalizedRelativePath, "tools/bootstrap.py");
   assert.equal(request.resolvedScript.realPath, join(skillRoot, "tools", "bootstrap.py"));
+});
+
+test("resolveRunSkillScriptRequest uses the remote backend automatically when active", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-request-remote-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "tools"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+  await writeFile(join(skillRoot, "tools", "bootstrap.py"), "print('ok')\n", "utf-8");
+
+  const registry = buildRegistry("demo", join(skillRoot, "SKILL.md"));
+  const request = resolveRunSkillScriptRequest(
+    {
+      script: buildSkillUri(encodeSkillId("demo"), "tools/bootstrap.py"),
+      interpreter: "python3",
+    },
+    registry,
+    true,
+  );
+
+  assert.equal(request.executionBackend, "remote");
 });
 
 test("resolveRunSkillScriptRequest rejects empty skill-root targets and legacy uris", async () => {
@@ -86,7 +126,7 @@ test("resolveRunSkillScriptRequest rejects empty skill-root targets and legacy u
   );
 });
 
-test("prepareRunSkillScript keeps local execution local", async () => {
+test("prepareRunSkillScript keeps local execution local when no remote backend is active", async () => {
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-local-"));
   const skillRoot = join(base, "demo");
   await mkdir(join(skillRoot, "bin"), { recursive: true });
@@ -98,7 +138,6 @@ test("prepareRunSkillScript keeps local execution local", async () => {
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
       interpreter: "bash",
-      target: "local",
     },
     registry,
     false,
@@ -108,6 +147,7 @@ test("prepareRunSkillScript keeps local execution local", async () => {
     assertLocalPathSafe: async () => {},
   });
 
+  assert.equal(prepared.executionBackend, "local");
   assert.equal(prepared.staged, false);
   assert.equal(prepared.executionPath, join(skillRoot, "bin", "run"));
 });
@@ -124,7 +164,6 @@ test("prepareRunSkillScript stages the skill root for remote execution", async (
     {
       script: buildSkillUri(encodeSkillId("demo"), "tools/bootstrap.py"),
       interpreter: "python3",
-      target: "remote",
     },
     registry,
     true,
@@ -144,6 +183,7 @@ test("prepareRunSkillScript stages the skill root for remote execution", async (
     assertLocalPathSafe: async () => {},
   });
 
+  assert.equal(prepared.executionBackend, "remote");
   assert.equal(prepared.staged, true);
   assert.match(prepared.executionPath, /^\/remote\/home\/\.cache\/pi\/skill-stage\/demo\//);
   assert.match(prepared.executionPath, /tools\/bootstrap\.py$/);
@@ -162,7 +202,6 @@ test("prepareRunSkillScript rejects missing script targets with skill uri errors
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/missing.sh"),
       interpreter: "bash",
-      target: "local",
     },
     registry,
     false,
@@ -171,7 +210,6 @@ test("prepareRunSkillScript rejects missing script targets with skill uri errors
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/missing.sh"),
       interpreter: "bash",
-      target: "remote",
     },
     registry,
     true,
@@ -212,7 +250,6 @@ test("prepareRunSkillScript rejects directory targets with skill uri errors", as
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin"),
       interpreter: "bash",
-      target: "remote",
     },
     registry,
     true,
@@ -247,7 +284,6 @@ test("prepareRunSkillScript rejects remote symlink script targets with skill uri
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
       interpreter: "bash",
-      target: "remote",
     },
     registry,
     true,
@@ -281,7 +317,6 @@ test("prepareRunSkillScript forwards symlink safety failures", async () => {
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
       interpreter: "bash",
-      target: "local",
     },
     registry,
     false,
@@ -300,7 +335,7 @@ test("prepareRunSkillScript forwards symlink safety failures", async () => {
 
 test("buildRunSkillScriptCommand quotes the target path and arguments", () => {
   const command = buildRunSkillScriptCommand("python3", "/tmp/my skill.py", ["--name", "Tan's test"]);
-  assert.equal(command, "python3 '/tmp/my skill.py' '--name' 'Tan'\"'\"'s test'");
+  assert.equal(command, "python3 '/tmp/my skill.py' '--name' 'Tan\"'\"'s test'");
 });
 
 test("staged marker reuse avoids uploading the same skill twice", async () => {
@@ -315,7 +350,6 @@ test("staged marker reuse avoids uploading the same skill twice", async () => {
     {
       script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
       interpreter: "bash",
-      target: "remote",
     },
     registry,
     true,
@@ -340,4 +374,42 @@ test("staged marker reuse avoids uploading the same skill twice", async () => {
 
   assert.equal(prepared.staged, false);
   assert.equal(writes.length, 0);
+});
+
+test("run_skill_script rejects deprecated target overrides", async () => {
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-target-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+  await writeFile(join(skillRoot, "bin", "run"), "echo ok\n", "utf-8");
+
+  const fake = createFakePi();
+  skillUriExtension(fake.api);
+
+  const beforeAgentStart = fake.events.get("before_agent_start");
+  await beforeAgentStart(
+    {
+      systemPrompt: [
+        "<available_skills>",
+        "  <skill>",
+        "    <name>demo</name>",
+        "    <description>demo skill</description>",
+        `    <location>${join(skillRoot, "SKILL.md")}</location>`,
+        "  </skill>",
+        "</available_skills>",
+      ].join("\n"),
+    },
+    { hasUI: false },
+  );
+
+  const runSkillScript = fake.tools.get("run_skill_script");
+  await assert.rejects(
+    () =>
+      runSkillScript.execute("call-1", {
+        script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
+        interpreter: "bash",
+        target: "local",
+      }),
+    new RegExp(RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
 });

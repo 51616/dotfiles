@@ -457,14 +457,12 @@ export function summarizeTool(toolName: string, args: unknown): string {
 		const script = getStringProperty(args, ["script"]);
 		const skill = getStringProperty(args, ["skill"]);
 		const interpreter = getStringProperty(args, ["interpreter"]);
-		const target = getStringProperty(args, ["target"]);
 		const timeoutSeconds = getNumberProperty(args, ["timeoutSeconds"]);
 		const argCount = getStringArrayProperty(args, ["args"]).length;
 		let summary = script ?? "…";
 		if (skill) summary += ` in ${skill}`;
 		if (interpreter) summary += ` via ${interpreter}`;
 		const modifiers = [
-			target,
 			timeoutSeconds !== undefined ? `timeout ${timeoutSeconds}s` : undefined,
 			argCount > 0 ? `${argCount} arg${argCount === 1 ? "" : "s"}` : undefined,
 		].filter((value): value is string => Boolean(value));

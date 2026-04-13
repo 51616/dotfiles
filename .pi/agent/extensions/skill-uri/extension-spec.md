@@ -26,8 +26,8 @@ Provide one canonical skill resource interface for pi sessions without modifying
 
 - requires `script` to be a full `skill://<skill-id>/relative/path` URI
 - allows any file under the skill root, not only `scripts/`
-- defaults to `remote` when a remote backend is active, otherwise `local`
-- stages the local skill root to `~/.cache/pi/skill-stage/...` before remote execution
+- no longer accepts an explicit `target`; execution follows the active backend automatically
+- uses local execution by default, and stages the local skill root to `~/.cache/pi/skill-stage/...` before execution when a remote backend is active
 - skips obvious local-only or sensitive paths during staging
 - rejects staged payloads above 10 MiB
 

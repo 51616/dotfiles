@@ -4,17 +4,16 @@ import { join as pathJoin, posix as pathPosix } from "node:path";
 import type { SkillStageTransport } from "./backend-runtime.ts";
 import { SkillRegistry, parseSkillUri, skillUriToVirtualPath, type ResolvedSkillPath, type SkillEntry } from "./skill-uris.ts";
 
-export type SkillScriptTarget = "local" | "remote";
+type RunSkillScriptExecutionBackend = "local" | "remote";
 
 export interface RunSkillScriptRequest {
   script: string;
   interpreter: string;
   args?: string[];
-  target?: SkillScriptTarget;
 }
 
 export interface ResolvedRunSkillScriptRequest {
-  target: SkillScriptTarget;
+  executionBackend: RunSkillScriptExecutionBackend;
   skillUri: string;
   interpreter: string;
   args: string[];
@@ -23,7 +22,7 @@ export interface ResolvedRunSkillScriptRequest {
 }
 
 export interface PreparedRunSkillScript {
-  target: SkillScriptTarget;
+  executionBackend: RunSkillScriptExecutionBackend;
   skillUri: string;
   interpreter: string;
   args: string[];
@@ -44,13 +43,15 @@ const MAX_STAGE_BYTES = 10 * 1024 * 1024;
 const RUN_SKILL_SCRIPT_URI_EXAMPLE = "skill://pi-ssh/scripts/demo.sh";
 const RUN_SKILL_SCRIPT_URI_REQUIRED_ERROR =
   `run_skill_script requires script to be a full skill://<skill-id>/relative/path URI, for example ${RUN_SKILL_SCRIPT_URI_EXAMPLE}. Relative paths like scripts/demo.sh are not allowed.`;
+export const RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR =
+  "run_skill_script no longer accepts `target`. Execution follows the active backend automatically.";
 
 function isLegacySourcePrefixedSkillUri(path: string): boolean {
   return path.startsWith("skill://local/") || path.startsWith("skill://remote/");
 }
 
 function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
+  return `'${value.replace(/'/g, `"'"'`)}'`;
 }
 
 function normalizeTrimmed(value: string, label: string): string {
@@ -70,20 +71,8 @@ function shouldSkipStageFile(name: string): boolean {
   return STAGE_SKIP_FILES.has(name) || name.startsWith(".env");
 }
 
-export function resolveRunSkillScriptTarget(hasRemoteBackend: boolean, target?: SkillScriptTarget): SkillScriptTarget {
-  if (!target) {
-    return hasRemoteBackend ? "remote" : "local";
-  }
-
-  if (target !== "local" && target !== "remote") {
-    throw new Error(`Unsupported run_skill_script target: ${target}`);
-  }
-
-  if (target === "remote" && !hasRemoteBackend) {
-    throw new Error("Remote run_skill_script execution requires an active remote backend");
-  }
-
-  return target;
+function resolveRunSkillScriptExecutionBackend(hasRemoteBackend: boolean): RunSkillScriptExecutionBackend {
+  return hasRemoteBackend ? "remote" : "local";
 }
 
 export function resolveRunSkillScriptRequest(
@@ -91,7 +80,7 @@ export function resolveRunSkillScriptRequest(
   registry: SkillRegistry,
   hasRemoteBackend: boolean,
 ): ResolvedRunSkillScriptRequest {
-  const target = resolveRunSkillScriptTarget(hasRemoteBackend, request.target);
+  const executionBackend = resolveRunSkillScriptExecutionBackend(hasRemoteBackend);
   const script = normalizeTrimmed(request.script, "script");
   const interpreter = normalizeTrimmed(request.interpreter, "interpreter");
   if (/\r|\n/.test(interpreter)) {
@@ -129,7 +118,7 @@ export function resolveRunSkillScriptRequest(
   }
 
   return {
-    target,
+    executionBackend,
     skillUri: script,
     interpreter,
     args,
@@ -178,7 +167,7 @@ async function assertResolvedSkillScriptPathExists(request: ResolvedRunSkillScri
     throw new Error(`run_skill_script target must point to a file, not a directory: ${request.skillUri}`);
   }
 
-  if (request.target === "remote" && linkStats.isSymbolicLink()) {
+  if (request.executionBackend === "remote" && linkStats.isSymbolicLink()) {
     throw new Error(`run_skill_script remote execution does not support symlink script targets: ${request.skillUri}`);
   }
 
@@ -300,7 +289,7 @@ export async function prepareRunSkillScript(
   await options.assertLocalPathSafe?.(request.resolvedScript.entry.rootPath, request.resolvedScript.relativePath);
   await assertResolvedSkillScriptPathExists(request);
 
-  if (request.target === "local") {
+  if (request.executionBackend === "local") {
     return {
       ...request,
       executionPath: request.resolvedScript.realPath,

@@ -32,11 +32,15 @@ all follow the same rule without reimplementing pi core discovery.
 A remote-capable extension can register a backend provider. In this vault, `pi-ssh` does that. When such a backend is active:
 - non-skill workspace reads/writes/edits are delegated to the remote backend
 - `skill://...` paths still resolve to the local skill source
-- `run_skill_script` can stage the local skill root remotely and execute the requested file there
+- `run_skill_script` stages the local skill root remotely and executes the requested file there automatically
 
 ## `run_skill_script`
 
 `run_skill_script` accepts any file relative to the skill root.
+
+It no longer accepts an explicit execution `target`. Skills always resolve from the local machine. Execution follows the active backend automatically:
+- no remote backend: execute locally
+- remote backend active: stage locally-sourced skill files to the remote host, then execute there
 
 Examples:
 - `skill://pi-ssh/scripts/pi-ssh-setup.sh`

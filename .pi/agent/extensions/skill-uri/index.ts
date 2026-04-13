@@ -7,7 +7,12 @@ import { createBashTool, createEditTool, createReadTool, createWriteTool, type E
 import { Type } from "@sinclair/typebox";
 import { getActiveSkillUriBackend } from "./lib/backend-runtime.ts";
 import { SkillPathGuard } from "./lib/skill-path-guard.ts";
-import { buildRunSkillScriptCommand, prepareRunSkillScript, resolveRunSkillScriptRequest } from "./lib/run-skill-script.ts";
+import {
+  buildRunSkillScriptCommand,
+  prepareRunSkillScript,
+  resolveRunSkillScriptRequest,
+  RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR,
+} from "./lib/run-skill-script.ts";
 import {
   SkillRegistry,
   buildSkillUri,
@@ -238,33 +243,35 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
       script: Type.String({ description: "Required. Full skill file URI like `skill://pi-ssh/scripts/pi-ssh-setup.sh`. Relative paths are rejected." }),
       interpreter: Type.String({ description: "Interpreter command to invoke via `bash` on the target machine, e.g. `bash`, `python3`, or `uv run python`." }),
       args: Type.Optional(Type.Array(Type.String({ description: "Argument passed to the target file" }))),
-      target: Type.Optional(Type.Union([Type.Literal("local"), Type.Literal("remote")])),
       timeoutSeconds: Type.Optional(
         Type.Integer({
           minimum: 0,
-          description: "Timeout in seconds. Local runs behave like the normal `bash` tool. Remote runs inherit the active remote backend `bash` default when omitted.",
+          description: "Timeout in seconds. Uses the active backend automatically: local by default, remote when a remote backend is active.",
         }),
       ),
     }),
     async execute(id, params, signal, onUpdate) {
+      if (typeof params === "object" && params !== null && Object.hasOwn(params, "target")) {
+        throw new Error(RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR);
+      }
+
       const backend = getActiveSkillUriBackend();
       const request = resolveRunSkillScriptRequest(
         {
           script: params.script,
           interpreter: params.interpreter,
           args: params.args,
-          target: params.target,
         },
         skillRegistry,
         Boolean(backend),
       );
 
-      const remoteContext = request.target === "remote" ? backend?.getRemoteContext(signal) ?? null : null;
-      if (request.target === "remote" && !backend) {
-        throw new Error("Remote run_skill_script execution requested, but no remote backend is active");
+      const remoteContext = request.executionBackend === "remote" ? backend?.getRemoteContext(signal) ?? null : null;
+      if (request.executionBackend === "remote" && !backend) {
+        throw new Error("Remote run_skill_script execution requires an active remote backend");
       }
-      if (request.target === "remote" && !remoteContext) {
-        throw new Error("Remote run_skill_script execution requested, but the active backend did not provide remote transport details");
+      if (request.executionBackend === "remote" && !remoteContext) {
+        throw new Error("Remote run_skill_script execution requires remote transport details from the active backend");
       }
 
       const prepared = await prepareRunSkillScript(request, {
@@ -276,7 +283,7 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
 
       const command = buildRunSkillScriptCommand(prepared.interpreter, prepared.executionPath, prepared.args);
       const timeout = params.timeoutSeconds;
-      const runner = prepared.target === "remote"
+      const runner = prepared.executionBackend === "remote"
         ? createBashTool(localCwd, { operations: backend!.createBashOps() })
         : localBash;
 
@@ -285,7 +292,7 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
         ...result,
         details: {
           ...(result.details ?? {}),
-          target: prepared.target,
+          executionBackend: prepared.executionBackend,
           interpreter: prepared.interpreter,
           resolvedSkillUri: prepared.skillUri,
           executionPath: prepared.executionPath,
