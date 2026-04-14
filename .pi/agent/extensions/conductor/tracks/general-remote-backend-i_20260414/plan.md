@@ -23,6 +23,7 @@ Default target unless implementation reveals a cleaner equivalent:
 
 Planned `PiSshSession` surface:
 - `getConnectionInfo()`
+- `repoRoot(remoteCwd?)`
 - `createReadOps(signal?)`
 - `createWriteOps(signal?)`
 - `createEditOps(signal?)`
@@ -60,21 +61,25 @@ The public surface should stay small. Expose narrow helpers, not the whole inter
 - Planned proof:
   - keep `self-checkpointing/test/pending-resume.test.mjs` green
 
-### Behavior 6: local→remote workspace path mapping is exposed and correct for consumers
+### Behavior 6: remote repo-root resolution is exposed and correct for repo-aware consumers
+- Planned proof:
+  - add `pi-ssh/test/session-runtime.test.mjs` with focused repo-root cases using a fake exec/capture dependency
+
+### Behavior 7: local→remote workspace path mapping is exposed and correct for consumers
 - Planned proof:
   - add `pi-ssh/test/session-runtime.test.mjs` with focused mapping cases for:
     - local cwd path mapped to remote cwd
     - local home path mapped to remote home
     - already-remote absolute path passed through only where intended by the current mapper contract
 
-### Behavior 7: exact one-shot SSH exec capture preserves stdout, stderr, and exit code semantics
+### Behavior 8: exact one-shot SSH exec capture preserves stdout, stderr, and exit code semantics
 - Planned proof:
   - add `pi-ssh/test/session-runtime.test.mjs` with a fake exec/capture dependency proving:
     - stdout and stderr stay separate
     - nonzero exit codes survive
     - helper is suitable for probe-style consumers instead of PTY-shell streaming
 
-### Behavior 8: shared exists/stat helper supports remote artifact validation
+### Behavior 9: shared exists/stat helper supports remote artifact validation
 - Planned proof:
   - add `pi-ssh/test/session-runtime.test.mjs` with focused cases for:
     - existing remote file
@@ -112,7 +117,7 @@ Default (Option A): capture only key checkpoints:
 - [ ] Task: Record the chosen API and migration boundary in Change evidence
 
 ## Phase 2: Tests first for the new session contract
-- [ ] Task: Add `pi-ssh/test/session-runtime.test.mjs` for singleton session lifecycle, path mapping, exec capture, and exists/stat helpers
+- [ ] Task: Add `pi-ssh/test/session-runtime.test.mjs` for singleton session lifecycle, repo-root resolution, path mapping, exec capture, and exists/stat helpers
 - [ ] Task: Update `skill-uri/test/backend-runtime.test.mjs` to use the `pi-ssh` session runtime instead of `skill-uri/lib/backend-runtime.ts`
 - [ ] Task: Update `skill-uri/test/run-skill-script.test.mjs` only as needed to prove the new session runtime hookup
 - [ ] Task: Update `self-checkpointing/test/checkpoint-probe.test.mjs` to use the new `pi-ssh` session runtime contract
@@ -122,7 +127,7 @@ Default (Option A): capture only key checkpoints:
 ## Phase 3: Implementation
 - [ ] Task: Implement `pi-ssh/lib/pi-ssh-session-runtime.ts`
 - [ ] Task: Refactor `pi-ssh/index.ts` to publish/clear the active session through the new runtime module
-- [ ] Task: Expose narrow helpers for path mapping, exact exec capture, and exists/stat without leaking unnecessary transport internals
+- [ ] Task: Expose narrow helpers for repo-root resolution, path mapping, exact exec capture, and exists/stat without leaking unnecessary transport internals
 - [ ] Task: Migrate `skill-uri/index.ts` and any helper modules to consume `getActivePiSshSession()`
 - [ ] Task: Migrate `self-checkpointing` checkpoint discovery/probing code to consume the `pi-ssh` session runtime directly
 - [ ] Task: Remove or retire `skill-uri/lib/backend-runtime.ts` and update imports/docs accordingly

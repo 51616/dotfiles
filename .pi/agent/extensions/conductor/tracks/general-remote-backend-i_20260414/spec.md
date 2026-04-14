@@ -30,6 +30,7 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
   - remote workspace tool-operation factories used by `skill-uri`
   - remote staging context used by `run_skill_script`
   - SSH connection metadata used by `self-checkpointing`
+  - remote repo-root resolution for consumers like `pi-diff-review`
   - remote path mapping from local workspace paths to remote workspace paths
   - exact one-shot command capture with real stdout/stderr/exit semantics
   - remote file existence/stat probing suitable for checkpoint validation and future artifact checks
@@ -60,6 +61,7 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
   - pending resume still respects remote-only checkpoints
   - transient SSH session-state loss does not accidentally break the existing recovery path during the same session lifecycle
 - The new `pi-ssh` session contract exposes the added helpers and they are covered by tests where they prove an approved behavior:
+  - remote repo-root resolution
   - remote path mapping
   - exact one-shot command capture
   - remote exists/stat probing
@@ -71,6 +73,7 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
 - `skill-uri` uses the active `pi-ssh` session for non-skill workspace operations, but still resolves `skill://...` resources from local skill roots
 - `run_skill_script` uses the active `pi-ssh` session for remote staging/execution when available, and local execution otherwise
 - `self-checkpointing` uses `pi-ssh` session data or helpers to decide whether to run checkpoint validation as SSH-backed instead of local-only
+- The session object exposes remote repo-root resolution so repo-aware extensions can anchor git operations correctly without shipping their own SSH bootstrap just to discover the repo root
 - The session object exposes exact one-shot exec capture so extensions can run SSH probes without rebuilding raw `ssh` subprocess logic
 - The session object exposes file existence/stat helpers so checkpoint or artifact validation does not need to reimplement path probing each time
 - The session object exposes local→remote path mapping for extensions that reason about workspace paths
@@ -96,6 +99,10 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
   - it obtains SSH connection data or helpers from the active `pi-ssh` session
   - it treats checkpoint freshness/existence as remote, not local
   - valid remote-only checkpoints are accepted
+
+- Scenario: `pi-diff-review` or another repo-aware extension needs the remote repository root for the current SSH workspace
+  - it uses the shared `pi-ssh` session repo-root helper
+  - it does not ship a separate SSH bootstrap path just to discover the repo root
 
 - Scenario: An extension needs to validate a remote artifact path without parsing shell output itself
   - it uses the shared `pi-ssh` session exists/stat helper
@@ -124,6 +131,9 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
 - Scenario: pending resume still respects remote-only checkpoints
   - Proof: existing `self-checkpointing/test/pending-resume.test.mjs`
 
+- Scenario: shared repo-root resolution remains correct for repo-aware consumers
+  - Proof: new focused `pi-ssh` session-runtime regression test or expanded existing `pi-ssh` test coverage
+
 - Scenario: shared path mapping remains correct for consumer use
   - Proof: new focused `pi-ssh` session-runtime regression test or expanded existing `pi-ssh` test coverage
 
@@ -141,6 +151,7 @@ Define and implement one canonical `pi-ssh` session interface, move the shared r
 - We are intentionally optimizing for SSH-only cooperation, not future generic remote backends
 - The session API should stay small and explicit; only add helpers with clear current or near-term extension value
 - The most likely useful added helpers are:
+  - remote repo-root resolution
   - exact one-shot exec capture
   - file exists/stat probing
   - local→remote workspace path mapping

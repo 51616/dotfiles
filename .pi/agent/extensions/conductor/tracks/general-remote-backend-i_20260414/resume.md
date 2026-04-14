@@ -25,13 +25,13 @@ The extension workspace audit is done at a high level. The current shared SSH co
 - 2026-04-14: Audited `package.json`, `lat-md/extensions.md`, `lat-md/tests.md`, `pi-ssh`, `skill-uri`, and `self-checkpointing` runtime/test files relevant to remote backend sharing
 - 2026-04-14: Created Conductor track `general-remote-backend-i_20260414`
 - 2026-04-14: Drafted the initial spec and project-context docs from the extension workspace audit
-- 2026-04-14: Revised the spec to an SSH-only `pi-ssh` session interface, dropped multi-provider logic, and added planned helpers for path mapping, exact exec capture, and file exists/stat probing
-- 2026-04-14: Drafted `plan.md` with targeted regression coverage for `pi-ssh`, `skill-uri`, and `self-checkpointing`
+- 2026-04-14: Revised the spec to an SSH-only `pi-ssh` session interface, dropped multi-provider logic, and added planned helpers for repo-root resolution, path mapping, exact exec capture, and file exists/stat probing
+- 2026-04-14: Drafted `plan.md` with targeted regression coverage for `pi-ssh`, `skill-uri`, and `self-checkpointing`, then updated it to include shared repo-root resolution for future `pi-diff-review` use
 
 ## Accepted behaviors currently in scope
 Pending user approval. The current draft keeps these behaviors in scope:
 - no active `pi-ssh` session means local behavior
-- one active `pi-ssh` session supplies shared SSH helpers to consumers
+- one active `pi-ssh` session supplies shared SSH helpers to consumers, including repo-root resolution for repo-aware extensions
 - `skill-uri` continues using the active session for non-skill workspace ops and remote `run_skill_script`
 - `self-checkpointing` continues using SSH-backed checkpoint probing and remote-aware pending resume behavior
 
