@@ -2,13 +2,17 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { createBashTool, type BashOperations } from "@mariozechner/pi-coding-agent";
 import {
-  createBashTool,
-  type BashOperations,
-  type EditOperations,
-  type ReadOperations,
-  type WriteOperations,
-} from "@mariozechner/pi-coding-agent";
+  clearPublishedPiSshSession,
+  createPiSshSession,
+  createRemoteEditOps,
+  createRemoteReadOps,
+  createRemoteWriteOps,
+  mapLocalPathToRemote,
+  publishActivePiSshSession,
+  type PiSshConnection,
+} from "./lib/pi-ssh-session-runtime.ts";
 import {
   PROMPT_CONTEXT_END_MARKER,
   PROMPT_CONTEXT_STATUS_MARKER,
@@ -17,7 +21,6 @@ import {
   resolvePreferredPromptContextFile,
   type PromptContextFile,
 } from "./lib/remote-context.ts";
-import { registerSkillUriBackendProvider } from "../skill-uri/lib/backend-runtime.ts";
 import {
   isTuiBrokerInstalled,
   registerTuiBrokerFooterPathProvider,
@@ -30,14 +33,8 @@ import {
   setPiSshFooterSnapshot,
 } from "./lib/pi-ssh-footer-runtime.ts";
 
-interface SshConnection {
-  remote: string;
+interface SshConnection extends PiSshConnection {
   remoteDisplayTarget: string;
-  port: number;
-  remoteCwd: string;
-  remoteHome: string;
-  localCwd: string;
-  localHome: string;
 }
 
 interface SshCaptureOptions {
@@ -422,18 +419,6 @@ async function resolveRemoteGitBranch(
   } catch {
     return null;
   }
-}
-
-function mapLocalPathToRemote(path: string, conn: SshConnection): string {
-  if (path === conn.localCwd) return conn.remoteCwd;
-  if (path.startsWith(`${conn.localCwd}/`)) {
-    return `${conn.remoteCwd}${path.slice(conn.localCwd.length)}`;
-  }
-  if (path === conn.localHome) return conn.remoteHome;
-  if (path.startsWith(`${conn.localHome}/`)) {
-    return `${conn.remoteHome}${path.slice(conn.localHome.length)}`;
-  }
-  return path;
 }
 
 function findRemotePathSeparator(value: string): number {
@@ -1188,66 +1173,6 @@ class SshTransport implements RemoteTransport {
   }
 }
 
-function createRemoteReadOps(
-  conn: SshConnection,
-  transport: RemoteTransport,
-  signal?: AbortSignal,
-): ReadOperations {
-  return {
-    readFile: async (absolutePath) => transport.readFile(mapLocalPathToRemote(absolutePath, conn), signal),
-    access: async (absolutePath) => transport.ensureReadable(mapLocalPathToRemote(absolutePath, conn), signal),
-    detectImageMimeType: async (absolutePath) => {
-      try {
-        return await transport.detectImageMimeType(mapLocalPathToRemote(absolutePath, conn), signal);
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-function createRemoteWriteOps(
-  conn: SshConnection,
-  transport: RemoteTransport,
-  signal?: AbortSignal,
-): WriteOperations {
-  return {
-    mkdir: async (absoluteDir) => transport.mkdir(mapLocalPathToRemote(absoluteDir, conn), signal),
-    writeFile: async (absolutePath, content) =>
-      transport.writeFile(mapLocalPathToRemote(absolutePath, conn), Buffer.from(content, "utf-8"), signal),
-  };
-}
-
-function createRemoteEditOps(
-  conn: SshConnection,
-  transport: RemoteTransport,
-  signal?: AbortSignal,
-): EditOperations {
-  const readOps = createRemoteReadOps(conn, transport, signal);
-  const writeOps = createRemoteWriteOps(conn, transport, signal);
-
-  return {
-    readFile: readOps.readFile,
-    writeFile: writeOps.writeFile,
-    access: async (absolutePath) => transport.ensureReadableWritable(mapLocalPathToRemote(absolutePath, conn), signal),
-  };
-}
-
-function createRemoteBashOps(
-  transport: RemoteTransport,
-  options: { onCommandComplete?: (cwd: string) => void } = {},
-): BashOperations {
-  return {
-    exec: async (command, cwd, { onData, signal, timeout }) => {
-      try {
-        return await transport.exec(command, cwd, { onData, signal, timeout });
-      } finally {
-        options.onCommandComplete?.(cwd);
-      }
-    },
-  };
-}
-
 async function resolveSshConnection(rawFlag: string, localCwd: string, localHome: string, port: number): Promise<SshConnection> {
   const parsed = parseSshFlag(rawFlag);
   const remoteDisplayTarget = await resolveSshDisplayTarget(parsed.remote, port);
@@ -1389,6 +1314,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
 
   let connection: SshConnection | null = null;
   let transport: SshTransport | null = null;
+  let activeSession: ReturnType<typeof createPiSshSession> | null = null;
   let remotePromptContext: RemotePromptContextState = { file: null };
   let remoteFooterBranch: string | null = null;
   let remoteFooterCwd: string | null = null;
@@ -1525,10 +1451,10 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     }, 150);
   };
   const createTrackedRemoteBashOps = (): BashOperations => {
-    if (!transport) {
+    if (!connection || !activeSession) {
       throw new Error("Remote SSH transport is not available");
     }
-    return createRemoteBashOps(transport, {
+    return activeSession.createBashOps({
       onCommandComplete: (cwd) => {
         if (!connection) {
           return;
@@ -1538,50 +1464,6 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       },
     });
   };
-
-  registerSkillUriBackendProvider({
-    key: "pi-ssh",
-    isActive: () => Boolean(connection && transport),
-    createReadOps: (signal) => {
-      if (!connection || !transport) {
-        throw new Error("Remote SSH transport is not available");
-      }
-      return createRemoteReadOps(connection, transport, signal);
-    },
-    createWriteOps: (signal) => {
-      if (!connection || !transport) {
-        throw new Error("Remote SSH transport is not available");
-      }
-      return createRemoteWriteOps(connection, transport, signal);
-    },
-    createEditOps: (signal) => {
-      if (!connection || !transport) {
-        throw new Error("Remote SSH transport is not available");
-      }
-      return createRemoteEditOps(connection, transport, signal);
-    },
-    createBashOps: () => createTrackedRemoteBashOps(),
-    getRemoteContext: () => {
-      if (!connection || !transport) {
-        return null;
-      }
-      return {
-        remoteHome: connection.remoteHome,
-        transport,
-      };
-    },
-    getConnectionInfo: () => {
-      if (!connection || !transport) {
-        return null;
-      }
-      return {
-        kind: "ssh" as const,
-        remote: connection.remote,
-        port: connection.port,
-        remoteCwd: connection.remoteCwd,
-      };
-    },
-  });
 
   const installRemoteFooter = (ctx: ExtensionContext, conn: SshConnection): void => {
     if (!ctx.hasUI || isTuiBrokerInstalled()) {
@@ -1644,7 +1526,14 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       const rawPort = (pi.getFlag("port") as string | undefined) ?? (pi.getFlag("ssh-port") as string | undefined);
       const port = parseSshPort(rawPort);
       connection = await resolveSshConnection(flag, localCwd, localHome, port);
-      transport = new SshTransport(connection);
+      const sessionConnection = connection;
+      transport = new SshTransport(sessionConnection);
+      activeSession = createPiSshSession({
+        connection: sessionConnection,
+        transport,
+        execCapture: (command, options) => sshCapture(sessionConnection.remote, sessionConnection.port, command, options),
+      });
+      publishActivePiSshSession(activeSession);
       activeUiContext = ctx.hasUI ? ctx : null;
       remoteFooterCwd = mapLocalPathToRemote(ctx.sessionManager.getCwd(), connection);
       remoteFooterBranch = null;
@@ -1667,6 +1556,8 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       connection = null;
+      activeSession = null;
+      clearPublishedPiSshSession();
       remotePromptContext = { file: null };
       remoteFooterBranch = null;
       remoteFooterCwd = null;
@@ -1694,6 +1585,8 @@ export default function piSshExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     connection = null;
+    activeSession = null;
+    clearPublishedPiSshSession();
     remotePromptContext = { file: null };
     remoteFooterBranch = null;
     remoteFooterCwd = null;

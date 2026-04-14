@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import skillUriExtension from "../index.ts";
 import { buildSkillUri, encodeSkillId } from "../lib/skill-uris.ts";
-import { __resetSkillUriBackendProvidersForTests } from "../lib/backend-runtime.ts";
+import { __resetPiSshSessionForTests } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function createFakePi() {
   const tools = new Map();
@@ -27,7 +27,7 @@ function createFakePi() {
 }
 
 test("local mode read/write/edit tools support canonical skill uris", async () => {
-  __resetSkillUriBackendProvidersForTests();
+  __resetPiSshSessionForTests();
 
   const base = await mkdtemp(join(tmpdir(), "skill-uri-local-tools-"));
   const skillRoot = join(base, "demo-skill");

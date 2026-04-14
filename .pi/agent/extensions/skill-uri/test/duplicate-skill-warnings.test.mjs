@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import skillUriExtension from "../index.ts";
-import { __resetSkillUriBackendProvidersForTests } from "../lib/backend-runtime.ts";
+import { __resetPiSshSessionForTests } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function createFakePi() {
   const tools = new Map();
@@ -23,7 +23,7 @@ function createFakePi() {
 }
 
 test("before_agent_start warns once and keeps the last duplicate skill", async () => {
-  __resetSkillUriBackendProvidersForTests();
+  __resetPiSshSessionForTests();
 
   const fake = createFakePi();
   skillUriExtension(fake.api);

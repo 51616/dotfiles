@@ -5,7 +5,7 @@ import { dirname, extname } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createBashTool, createEditTool, createReadTool, createWriteTool, type EditOperations, type ReadOperations, type WriteOperations } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { getActiveSkillUriBackend } from "./lib/backend-runtime.ts";
+import { getActivePiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
 import { SkillPathGuard } from "./lib/skill-path-guard.ts";
 import {
   buildRunSkillScriptCommand,
@@ -186,12 +186,12 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
         return tool.execute(id, rewrittenParams, signal, onUpdate);
       }
 
-      const backend = getActiveSkillUriBackend();
-      if (!backend) {
+      const session = getActivePiSshSession();
+      if (!session) {
         return localRead.execute(id, params, signal, onUpdate);
       }
 
-      const tool = createReadTool(localCwd, { operations: backend.createReadOps(signal) });
+      const tool = createReadTool(localCwd, { operations: session.createReadOps(signal) });
       return tool.execute(id, rewrittenParams, signal, onUpdate);
     },
   });
@@ -205,12 +205,12 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
         return tool.execute(id, rewrittenParams, signal, onUpdate);
       }
 
-      const backend = getActiveSkillUriBackend();
-      if (!backend) {
+      const session = getActivePiSshSession();
+      if (!session) {
         return localWrite.execute(id, params, signal, onUpdate);
       }
 
-      const tool = createWriteTool(localCwd, { operations: backend.createWriteOps(signal) });
+      const tool = createWriteTool(localCwd, { operations: session.createWriteOps(signal) });
       return tool.execute(id, rewrittenParams, signal, onUpdate);
     },
   });
@@ -224,12 +224,12 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
         return tool.execute(id, rewrittenParams, signal, onUpdate);
       }
 
-      const backend = getActiveSkillUriBackend();
-      if (!backend) {
+      const session = getActivePiSshSession();
+      if (!session) {
         return localEdit.execute(id, params, signal, onUpdate);
       }
 
-      const tool = createEditTool(localCwd, { operations: backend.createEditOps(signal) });
+      const tool = createEditTool(localCwd, { operations: session.createEditOps(signal) });
       return tool.execute(id, rewrittenParams, signal, onUpdate);
     },
   });
@@ -246,7 +246,7 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
       timeoutSeconds: Type.Optional(
         Type.Integer({
           minimum: 0,
-          description: "Timeout in seconds. Uses the active backend automatically: local by default, remote when a remote backend is active.",
+          description: "Timeout in seconds. Uses local execution by default and the active pi-ssh session automatically when one is active.",
         }),
       ),
     }),
@@ -255,7 +255,7 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
         throw new Error(RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR);
       }
 
-      const backend = getActiveSkillUriBackend();
+      const session = getActivePiSshSession();
       const request = resolveRunSkillScriptRequest(
         {
           script: params.script,
@@ -263,15 +263,15 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
           args: params.args,
         },
         skillRegistry,
-        Boolean(backend),
+        Boolean(session),
       );
 
-      const remoteContext = request.executionBackend === "remote" ? backend?.getRemoteContext(signal) ?? null : null;
-      if (request.executionBackend === "remote" && !backend) {
-        throw new Error("Remote run_skill_script execution requires an active remote backend");
+      const remoteContext = request.executionBackend === "remote" ? session?.getRemoteContext(signal) ?? null : null;
+      if (request.executionBackend === "remote" && !session) {
+        throw new Error("Remote run_skill_script execution requires an active pi-ssh session");
       }
       if (request.executionBackend === "remote" && !remoteContext) {
-        throw new Error("Remote run_skill_script execution requires remote transport details from the active backend");
+        throw new Error("Remote run_skill_script execution requires remote transport details from the active pi-ssh session");
       }
 
       const prepared = await prepareRunSkillScript(request, {
@@ -284,7 +284,7 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
       const command = buildRunSkillScriptCommand(prepared.interpreter, prepared.executionPath, prepared.args);
       const timeout = params.timeoutSeconds;
       const runner = prepared.executionBackend === "remote"
-        ? createBashTool(localCwd, { operations: backend!.createBashOps() })
+        ? createBashTool(localCwd, { operations: session!.createBashOps() })
         : localBash;
 
       const result = await runner.execute(id, { command, timeout }, signal, onUpdate);

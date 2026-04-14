@@ -12,6 +12,11 @@ import {
   RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR,
 } from "../lib/run-skill-script.ts";
 import { SkillRegistry, buildSkillUri, encodeSkillId } from "../lib/skill-uris.ts";
+import {
+  __publishActivePiSshSessionForTests,
+  __resetPiSshSessionForTests,
+  createPiSshSession,
+} from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function buildRegistry(name, filePath) {
   const registry = new SkillRegistry();
@@ -49,6 +54,37 @@ function createFakePi() {
   };
 }
 
+function makeSession(executeCommand) {
+  return createPiSshSession({
+    connection: {
+      remote: "user@example.com",
+      port: 2222,
+      remoteCwd: process.cwd(),
+      remoteHome: "/remote/home",
+      localCwd: process.cwd(),
+      localHome: "/home/local",
+    },
+    transport: {
+      exec: executeCommand,
+      readFile: async (path) => {
+        throw new Error(`No such file or directory: ${path}`);
+      },
+      ensureReadable: async () => {},
+      ensureReadableWritable: async () => {},
+      detectImageMimeType: async () => null,
+      mkdir: async () => {},
+      writeFile: async () => {},
+    },
+    execCapture: async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false,
+      aborted: false,
+    }),
+  });
+}
+
 test("resolveRunSkillScriptRequest accepts any file under the skill root", async () => {
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-request-"));
   const skillRoot = join(base, "demo");
@@ -71,7 +107,7 @@ test("resolveRunSkillScriptRequest accepts any file under the skill root", async
   assert.equal(request.resolvedScript.realPath, join(skillRoot, "tools", "bootstrap.py"));
 });
 
-test("resolveRunSkillScriptRequest uses the remote backend automatically when active", async () => {
+test("resolveRunSkillScriptRequest uses the active pi-ssh session automatically when active", async () => {
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-request-remote-"));
   const skillRoot = join(base, "demo");
   await mkdir(join(skillRoot, "tools"), { recursive: true });
@@ -126,7 +162,7 @@ test("resolveRunSkillScriptRequest rejects empty skill-root targets and legacy u
   );
 });
 
-test("prepareRunSkillScript keeps local execution local when no remote backend is active", async () => {
+test("prepareRunSkillScript keeps local execution local when no pi-ssh session is active", async () => {
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-local-"));
   const skillRoot = join(base, "demo");
   await mkdir(join(skillRoot, "bin"), { recursive: true });
@@ -419,7 +455,58 @@ test("staged marker reuse reuploads when the cached script file is missing", asy
   assert.ok(writes.some((entry) => entry.path.endsWith("/.pi-stage-complete.json")));
 });
 
+test("run_skill_script uses the active pi-ssh session for remote execution", async () => {
+  __resetPiSshSessionForTests();
+
+  const base = await mkdtemp(join(tmpdir(), "skill-uri-run-session-"));
+  const skillRoot = join(base, "demo");
+  await mkdir(join(skillRoot, "bin"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "demo\n", "utf-8");
+  await writeFile(join(skillRoot, "bin", "run"), "echo ok\n", "utf-8");
+
+  const commands = [];
+  __publishActivePiSshSessionForTests(makeSession(async (command, cwd, options) => {
+    commands.push({ command, cwd });
+    options.onData(Buffer.from("remote-ok\n", "utf-8"));
+    return { exitCode: 0 };
+  }));
+
+  const fake = createFakePi();
+  skillUriExtension(fake.api);
+
+  const beforeAgentStart = fake.events.get("before_agent_start");
+  await beforeAgentStart(
+    {
+      systemPrompt: [
+        "<available_skills>",
+        "  <skill>",
+        "    <name>demo</name>",
+        "    <description>demo skill</description>",
+        `    <location>${join(skillRoot, "SKILL.md")}</location>`,
+        "  </skill>",
+        "</available_skills>",
+      ].join("\n"),
+    },
+    { hasUI: false },
+  );
+
+  const runSkillScript = fake.tools.get("run_skill_script");
+  const result = await runSkillScript.execute("call-1", {
+    script: buildSkillUri(encodeSkillId("demo"), "bin/run"),
+    interpreter: "bash",
+  });
+
+  assert.equal(result.content[0].type, "text");
+  assert.equal(result.content[0].text, "remote-ok\n");
+  assert.equal(result.details.executionBackend, "remote");
+  assert.equal(commands.length, 1);
+  assert.match(commands[0].command, /bash '.+\/bin\/run'/);
+  assert.equal(commands[0].cwd, process.cwd());
+});
+
 test("run_skill_script rejects deprecated target overrides", async () => {
+  __resetPiSshSessionForTests();
+
   const base = await mkdtemp(join(tmpdir(), "skill-uri-run-target-"));
   const skillRoot = join(base, "demo");
   await mkdir(join(skillRoot, "bin"), { recursive: true });

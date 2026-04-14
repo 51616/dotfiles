@@ -170,13 +170,15 @@ If path is omitted, remote cwd is detected with `pwd`.
 - supports abort and timeout behavior expected by built-in bash tool
 - if Ctrl-C cannot produce a completion marker from the remote shell, the extension force-resets the persistent shell and rejects the command so the queue recovers cleanly
 
-### skill-uri backend integration
+### Shared SSH session integration
 
 - `pi-ssh` no longer owns canonical `skill://...` behavior
-- instead it registers the active SSH session as the remote backend provider consumed by the separate `skill-uri` extension
-- the backend supplies remote read / write / edit operations for normal workspace paths
-- the backend also supplies remote bash execution plus remote staging context for `run_skill_script`
-- this keeps skill URI behavior consistent between local and SSH sessions without modifying pi core
+- instead it publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`
+- `skill-uri` consumes that session for remote read / write / edit operations on normal workspace paths
+- the same session also supplies remote bash execution, remote staging context for `run_skill_script`, repo-root resolution, local→remote path mapping, exact one-shot exec capture, and remote exists/stat helpers
+- `self-checkpointing` consumes the same session runtime for SSH-backed checkpoint probing metadata
+- the shared helpers assume `git` exists on the remote host for `repoRoot()` and `python3` or `python` exists for `stat()`
+- this keeps cross-extension SSH behavior consistent without modifying pi core
 
 ### forced-command logger contract
 

@@ -30,5 +30,5 @@ Example (kept uppercase here so simple status parsers do not count the example a
 
 ---
 
-- [~] **Track: shared pi-ssh session interface**
+- [x] **Track: shared pi-ssh session interface**
   *Link: [./tracks/general-remote-backend-i_20260414/](./tracks/general-remote-backend-i_20260414/)*

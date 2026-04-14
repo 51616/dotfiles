@@ -43,6 +43,8 @@ This is useful when:
 - Remote host with:
   - a standard login shell (for example `zsh` or `bash`)
   - `base64`, `cat`, `grep`, `mkdir`, `pwd`, `test`, `tr`
+  - `git` if consumers use the shared `PiSshSession.repoRoot()` helper
+  - `python3` or `python` if consumers use the shared `PiSshSession.stat()` helper
   - optional: `file` (for image mime detection)
 
 ## Install
@@ -122,12 +124,14 @@ The helper uploads `scripts/pi-ssh-logger.remote.sh`, backs up the existing remo
 - When one of those files is found, its contents are cached once for the session and injected into the system prompt using the same project-context file format local pi uses.
 - Remote prompt-context loading is high-trust. If the remote workspace is not trusted, do not point `pi-ssh` at it.
 - Canonical `skill://...` handling now lives in the separate `skill-uri` extension so the same skill interface works in both local and SSH sessions.
-- `pi-ssh` registers the active remote backend used by `skill-uri` for non-skill workspace paths and for remote `run_skill_script` staging/execution.
-- When the SSH backend is active, normal workspace `read`/`write`/`edit` calls go remote, while `skill://...` paths still resolve against the local skill source managed by `skill-uri`.
+- `pi-ssh` publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`.
+- `skill-uri` and `self-checkpointing` consume that session directly for remote workspace ops, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
+- The shared session helpers currently assume `git` is present for `repoRoot()` and `python3` or `python` is present for `stat()`.
+- When the SSH session is active, normal workspace `read`/`write`/`edit` calls go remote, while `skill://...` paths still resolve against the local skill source managed by `skill-uri`.
 - The pi-managed remote shell disables shell history so wrapper commands do not flood your normal `bash`/`zsh` history.
 - If you need remote audit logs, connect through a server setup that already logs SSH sessions, such as a `*-pi-agent` alias created with the separate `pi-ssh` logger workflow.
 - If `--ssh` is not set, extension falls back to local tool behavior.
-- Current version focuses on remote workspace tool execution (`bash` directly, and `read`/`write`/`edit` through the `skill-uri` backend contract).
+- Current version focuses on remote workspace tool execution (`bash` directly, and `read`/`write`/`edit` plus shared SSH helpers through the `pi-ssh` session runtime consumed by `skill-uri` and other extensions).
 
 ## Troubleshooting
 

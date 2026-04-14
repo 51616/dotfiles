@@ -114,11 +114,17 @@ What this proves:
 - session-before-switch/fork/tree/compact events fail closed, abort the in-flight semantic naming request, and prevent stale naming from landing on the wrong branch after lifecycle changes
 - fingerprint mismatch blocks semantic renames from an unrelated later turn after interruption/reload
 
-## pi-ssh remote prompt-context pickup stays exact and fail-closed
+## pi-ssh shared session runtime and prompt-context pickup stay exact
 
-Owned by `.pi/extensions/pi-ssh/test/remote-context.test.mjs`.
+Owned by:
+- `pi-ssh/test/session-runtime.test.mjs`
+- `pi-ssh/test/remote-context.test.mjs`
 
 What this proves:
+- only one active `pi-ssh` session is published at a time
+- local workspace paths map onto the remote cwd and remote home consistently
+- repo-root lookup uses exact one-shot SSH capture semantics instead of the PTY shell path
+- remote exists/stat helpers distinguish present and missing paths without ad-hoc consumer parsing
 - remote prompt-context probing checks only `remoteCwd/AGENTS.md` and then `remoteCwd/CLAUDE.md`
 - unreadable remote context files stop the probe and surface warnings instead of falling through silently
 - decoded remote context is injected into the existing local-style `# Project Context` section without inventing a separate remote-only format

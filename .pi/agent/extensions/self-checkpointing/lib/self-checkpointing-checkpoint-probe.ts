@@ -4,10 +4,10 @@ import path from "node:path";
 
 import { isLikelyCheckpointPath } from "../../lib/autockpt/autockpt-footer-guards.ts";
 import {
-  getActiveSkillUriBackend,
-  type SkillUriBackendConnectionInfo,
-  type SkillUriBackendProvider,
-} from "../../skill-uri/lib/backend-runtime.ts";
+  getActivePiSshSession,
+  type PiSshConnectionInfo,
+  type PiSshSession,
+} from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 export type CheckpointProbeInfo = {
   mode: "local" | "ssh";
@@ -44,7 +44,7 @@ type SshExecResult = {
 type CreateCheckpointProbeOptions = {
   sshExec?: (request: SshExecRequest) => SshExecResult;
   sshProbeTimeoutMs?: number;
-  getActiveBackend?: () => Pick<SkillUriBackendProvider, "getConnectionInfo"> | null;
+  getActiveSession?: () => Pick<PiSshSession, "getConnectionInfo"> | null;
 };
 
 type ProbeValidationResult = {
@@ -118,8 +118,8 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-export function resolveCheckpointBackendConfig(
-  connectionInfo: SkillUriBackendConnectionInfo | null | undefined,
+export function resolveCheckpointSshConfig(
+  connectionInfo: PiSshConnectionInfo | null | undefined,
 ): SshCheckpointConfig | null {
   if (!connectionInfo || connectionInfo.kind !== "ssh") {
     return null;
@@ -391,11 +391,11 @@ export function createSshCheckpointProbe(
 
 export function createCheckpointProbe(options: CreateCheckpointProbeOptions = {}): CheckpointProbe {
   const localProbe = createLocalCheckpointProbe();
-  const getActiveBackend = options.getActiveBackend ?? getActiveSkillUriBackend;
+  const getActiveSession = options.getActiveSession ?? getActivePiSshSession;
   let lastSshConfig: SshCheckpointConfig | null = null;
 
   const resolveProbeState = (): { probe: CheckpointProbe; info: CheckpointProbeInfo } => {
-    const activeSshConfig = resolveCheckpointBackendConfig(getActiveBackend()?.getConnectionInfo());
+    const activeSshConfig = resolveCheckpointSshConfig(getActiveSession()?.getConnectionInfo());
     if (activeSshConfig) {
       lastSshConfig = activeSshConfig;
       return {

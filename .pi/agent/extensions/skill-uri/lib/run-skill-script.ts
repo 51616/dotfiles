@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { join as pathJoin, posix as pathPosix } from "node:path";
-import type { SkillStageTransport } from "./backend-runtime.ts";
+import type { PiSshStageTransport } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 import { SkillRegistry, parseSkillUri, skillUriToVirtualPath, type ResolvedSkillPath, type SkillEntry } from "./skill-uris.ts";
 
 type RunSkillScriptExecutionBackend = "local" | "remote";
@@ -44,7 +44,7 @@ const RUN_SKILL_SCRIPT_URI_EXAMPLE = "skill://pi-ssh/scripts/demo.sh";
 const RUN_SKILL_SCRIPT_URI_REQUIRED_ERROR =
   `run_skill_script requires script to be a full skill://<skill-id>/relative/path URI, for example ${RUN_SKILL_SCRIPT_URI_EXAMPLE}. Relative paths like scripts/demo.sh are not allowed.`;
 export const RUN_SKILL_SCRIPT_TARGET_REMOVED_ERROR =
-  "run_skill_script no longer accepts `target`. Execution follows the active backend automatically.";
+  "run_skill_script no longer accepts `target`. Execution follows the active pi-ssh session automatically when one is present.";
 const SKILL_URI_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(process.env.PI_SKILL_URI_DEBUG ?? "");
 
 function logSkillUriDebug(event: string, details: Record<string, unknown>): void {
@@ -248,7 +248,7 @@ function hashSkillFiles(files: SkillFileEntry[]): string {
 export async function stageLocalSkillRootToRemote(
   skillEntry: SkillEntry,
   remoteHome: string,
-  transport: SkillStageTransport,
+  transport: PiSshStageTransport,
   signal?: AbortSignal,
   expectedRelativePath?: string,
 ): Promise<{ stageRoot: string; staged: boolean }> {
@@ -329,7 +329,7 @@ export async function prepareRunSkillScript(
   request: ResolvedRunSkillScriptRequest,
   options: {
     remoteHome?: string;
-    transport?: SkillStageTransport;
+    transport?: PiSshStageTransport;
     signal?: AbortSignal;
     assertLocalPathSafe?: (rootPath: string, relativePath: string) => Promise<void> | void;
   },

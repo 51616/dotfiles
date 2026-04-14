@@ -26,22 +26,23 @@ Provide one canonical skill resource interface for pi sessions without modifying
 
 - requires `script` to be a full `skill://<skill-id>/relative/path` URI
 - allows any file under the skill root, not only `scripts/`
-- no longer accepts an explicit `target`; execution follows the active backend automatically
-- uses local execution by default, and stages the local skill root to `~/.cache/pi/skill-stage/...` before execution when a remote backend is active
+- no longer accepts an explicit `target`; execution follows the active `pi-ssh` session automatically when one is present
+- uses local execution by default, and stages the local skill root to `~/.cache/pi/skill-stage/...` before execution when an active `pi-ssh` session exists
 - reuses a cached remote stage only after both the stage marker and the requested staged script path probe successfully
 - skips obvious local-only or sensitive paths during staging
 - rejects staged payloads above 10 MiB
 
-## Backend contract
+## SSH session contract
 
-`skill-uri` can use an optional backend provider registered on runtime state.
+`skill-uri` can consume one active SSH session published on runtime state.
 
-A provider supplies:
+That session supplies:
 - read / write / edit operation builders for non-skill workspace paths
 - bash operations for remote command execution
 - remote staging context (`remoteHome` + `transport`) for `run_skill_script`
+- exact one-shot exec capture and path-mapping helpers for future SSH-aware consumers
 
-In this vault, `pi-ssh` provides that backend.
+In this vault, `pi-ssh/lib/pi-ssh-session-runtime.ts` provides that contract.
 
 When debugging, `PI_SKILL_URI_DEBUG=1` emits stage decision logs and should usually be paired with `PI_SSH_DEBUG=1` so the remote file probes behind each cache-hit or cache-miss are visible too.
 
