@@ -45,7 +45,7 @@ function makePiStub() {
   };
 }
 
-function makeLocalPiSshSession({ localRoot, remoteRoot }) {
+function makeLocalPiSshSession({ localRoot, remoteRoot, counters }) {
   return createPiSshSession({
     connection: {
       remote: "user@example.com",
@@ -64,7 +64,25 @@ function makeLocalPiSshSession({ localRoot, remoteRoot }) {
       mkdir: async () => {},
       writeFile: async () => {},
     },
+    execText: async (command, options = {}) => {
+      if (counters) {
+        counters.execText += 1;
+        counters.execTextCommands = counters.execTextCommands ?? [];
+        counters.execTextCommands.push(command);
+      }
+      const res = spawnSync("bash", ["-lc", command], {
+        encoding: "utf8",
+        timeout: (options.timeoutSeconds ?? 30) * 1000,
+      });
+      return {
+        output: typeof res.stdout === "string" ? res.stdout : String(res.stdout ?? ""),
+        exitCode: typeof res.status === "number" ? res.status : null,
+        timedOut: res.signal === "SIGTERM",
+        aborted: false,
+      };
+    },
     execCapture: async (command, options = {}) => {
+      counters && (counters.execCapture += 1);
       const res = spawnSync("bash", ["-lc", command], {
         encoding: "buffer",
         input: options.stdin,
@@ -88,7 +106,8 @@ test("resolveRepoIdentity and getWorkspaceBundle use the active pi-ssh session",
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const tracked = 2;\n", "utf8");
   fs.writeFileSync(path.join(repo, "src", "new.ts"), "export const newer = 1;\n", "utf8");
 
-  __publishActivePiSshSessionForTests(makeLocalPiSshSession({ localRoot, remoteRoot: repo }));
+  const counters = { execText: 0, execCapture: 0, execTextCommands: [] };
+  __publishActivePiSshSessionForTests(makeLocalPiSshSession({ localRoot, remoteRoot: repo, counters }));
   const pi = makePiStub();
 
   const identity = await resolveRepoIdentity(pi, localRoot);
@@ -102,6 +121,9 @@ test("resolveRepoIdentity and getWorkspaceBundle use the active pi-ssh session",
   assert.equal(bundle.files.some((file) => file.displayPath === "src/tracked.ts"), true);
   assert.equal(bundle.files.some((file) => file.displayPath === "src/new.ts"), true);
   assert.equal(bundle.repoRoot, repo);
+  assert.ok(counters.execText >= 3, `expected persistent execText calls, got ${counters.execText}`);
+  assert.equal(counters.execCapture, 0);
+  assert.equal(counters.execTextCommands.every((command) => command.includes("2>/dev/null")), true);
 });
 
 test("resolveRepoIdentity falls back to the session remote cwd when the mapped cwd is invalid", async () => {

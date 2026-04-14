@@ -32,3 +32,8 @@ Example (kept uppercase here so simple status parsers do not count the example a
 
 - [x] **Track: shared pi-ssh session interface**
   *Link: [./tracks/general-remote-backend-i_20260414/](./tracks/general-remote-backend-i_20260414/)*
+
+---
+
+- [x] **Track: pi diff review ssh editing and latency**
+  *Link: [./tracks/pi-diff-review-ssh-editi_20260415/](./tracks/pi-diff-review-ssh-editi_20260415/)*

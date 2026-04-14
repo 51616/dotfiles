@@ -175,9 +175,12 @@ If path is omitted, remote cwd is detected with `pwd`.
 - `pi-ssh` no longer owns canonical `skill://...` behavior
 - instead it publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`
 - `skill-uri` consumes that session for remote read / write / edit operations on normal workspace paths
-- the same session also supplies remote bash execution, remote staging context for `run_skill_script`, repo-root resolution, local→remote path mapping, exact one-shot exec capture, and remote exists/stat helpers
+- the same session also supplies remote bash execution, remote staging context for `run_skill_script`, repo-root resolution, local→remote path mapping, exact one-shot exec capture, low-latency persistent text execution, and remote exists/stat helpers
 - `self-checkpointing` consumes the same session runtime for SSH-backed checkpoint probing metadata
+- `pi-diff-review` also consumes the same runtime for remote diff inspection and local staged editor writeback
 - the shared helpers assume `git` exists on the remote host for `repoRoot()` and `python3` or `python` exists for `stat()`
+- `execText()` is intentionally text-oriented and may reflect PTY-style combined output; exact-byte consumers should keep using `execCapture()` or transport file reads
+- `stat()` should keep its stdout-only parse path on `execCapture()` even when lower-latency `execText()` is available, because JSON payload consumers must not depend on PTY-clean output
 - this keeps cross-extension SSH behavior consistent without modifying pi core
 
 ### forced-command logger contract

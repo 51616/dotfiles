@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { buildFileKey, parseSingleFilePatch, splitPatchIntoFileSections } from "../pi-diff-review-tui/lib/diff-parser.ts";
 import { getActivePiSshSession, type PiSshConnectionInfo, type PiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
@@ -22,6 +23,53 @@ export type RemoteApplyReverseResult = {
   strategyUsed: "direct" | "3way" | null;
   output: string;
 };
+
+export type RemoteCompareAndWriteResult = {
+  ok: boolean;
+  conflict: boolean;
+  missing: boolean;
+  symlink: boolean;
+  hardlink: boolean;
+};
+
+const REMOTE_COMPARE_AND_WRITE_SCRIPT = String.raw`import hashlib, json, os, sys, tempfile
+path = sys.argv[1]
+expected_hash = sys.argv[2]
+payload = sys.stdin.buffer.read()
+try:
+    original_lstat = os.lstat(path)
+    if os.path.islink(path):
+        print(json.dumps({"ok": False, "conflict": False, "missing": False, "symlink": True, "hardlink": False}, separators=(",", ":")))
+        raise SystemExit(0)
+    original_stat = os.stat(path)
+    if original_stat.st_nlink > 1:
+        print(json.dumps({"ok": False, "conflict": False, "missing": False, "symlink": False, "hardlink": True}, separators=(",", ":")))
+        raise SystemExit(0)
+    with open(path, "rb") as fh:
+        current = fh.read()
+except FileNotFoundError:
+    print(json.dumps({"ok": False, "conflict": True, "missing": True, "symlink": False, "hardlink": False}, separators=(",", ":")))
+    raise SystemExit(0)
+current_hash = hashlib.sha256(current).hexdigest()
+if current_hash != expected_hash:
+    print(json.dumps({"ok": False, "conflict": True, "missing": False, "symlink": False, "hardlink": False}, separators=(",", ":")))
+    raise SystemExit(0)
+dir_name = os.path.dirname(path) or "."
+fd, tmp_path = tempfile.mkstemp(prefix=".pi-diff-review-write-", dir=dir_name)
+try:
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.chmod(tmp_path, original_stat.st_mode & 0o7777)
+    os.replace(tmp_path, path)
+except Exception:
+    try:
+        os.unlink(tmp_path)
+    except FileNotFoundError:
+        pass
+    raise
+print(json.dumps({"ok": True, "conflict": False, "missing": False, "symlink": False, "hardlink": False}, separators=(",", ":")))`;
 
 function shellQuote(value: string): string {
   if (!value) return "''";
@@ -51,24 +99,6 @@ function validateRepoRelPath(value: string): string | null {
   return parts.join("/");
 }
 
-async function execCaptureText(
-  session: PiSshSession,
-  command: string,
-  options: { stdin?: string | Buffer; timeoutSeconds?: number } = {},
-): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; aborted: boolean }> {
-  const result = await session.execCapture(command, {
-    stdin: options.stdin,
-    timeoutSeconds: options.timeoutSeconds,
-  });
-  return {
-    stdout: normalizeText(result.stdout),
-    stderr: normalizeText(result.stderr),
-    exitCode: result.exitCode,
-    timedOut: result.timedOut,
-    aborted: result.aborted,
-  };
-}
-
 function throwExecFailure(prefix: string, result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; aborted: boolean }): never {
   if (result.aborted) throw new Error(`${prefix}: aborted`);
   if (result.timedOut) throw new Error(`${prefix}: timed out`);
@@ -81,27 +111,60 @@ async function runRemoteCommand(
   command: string,
   options: { stdin?: string | Buffer; timeoutSeconds?: number; allowFailure?: boolean } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  const result = await execCaptureText(session, command, {
+  if (options.stdin == null) {
+    const result = await session.execText(command, {
+      timeoutSeconds: options.timeoutSeconds ?? 60,
+    });
+    const normalized = normalizeText(Buffer.from(result.output, "utf-8"));
+    const response = {
+      stdout: normalized,
+      stderr: "",
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      aborted: result.aborted,
+    };
+    if (response.aborted || response.timedOut) {
+      throwExecFailure(`remote command failed`, response);
+    }
+    if (!options.allowFailure && response.exitCode !== 0) {
+      throwExecFailure(`remote command failed`, response);
+    }
+    return {
+      stdout: response.stdout,
+      stderr: response.stderr,
+      exitCode: response.exitCode,
+    };
+  }
+
+  const result = await session.execCapture(command, {
     stdin: options.stdin,
     timeoutSeconds: options.timeoutSeconds ?? 60,
   });
-  if (result.aborted || result.timedOut) {
-    throwExecFailure(`remote command failed`, result);
+  const response = {
+    stdout: normalizeText(result.stdout),
+    stderr: normalizeText(result.stderr),
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    aborted: result.aborted,
+  };
+  if (response.aborted || response.timedOut) {
+    throwExecFailure(`remote command failed`, response);
   }
-  if (!options.allowFailure && result.exitCode !== 0) {
-    throwExecFailure(`remote command failed`, result);
+  if (!options.allowFailure && response.exitCode !== 0) {
+    throwExecFailure(`remote command failed`, response);
   }
   return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.exitCode,
+    stdout: response.stdout,
+    stderr: response.stderr,
+    exitCode: response.exitCode,
   };
 }
 
-function buildRemoteGitCommand(repoRoot: string, args: string[]): string {
+function buildRemoteGitCommand(repoRoot: string, args: string[], options: { suppressStderr?: boolean } = {}): string {
+  const gitCommand = `env GIT_PAGER=cat PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true ${shellJoin(["git", ...args])}`;
   return [
     `cd -- ${shellQuote(repoRoot)}`,
-    `env GIT_PAGER=cat PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true ${shellJoin(["git", ...args])}`,
+    options.suppressStderr ? `${gitCommand} 2>/dev/null` : gitCommand,
   ].join(" && ");
 }
 
@@ -111,7 +174,7 @@ async function runRemoteGit(
   args: string[],
   options: { stdin?: string | Buffer; timeoutSeconds?: number; allowFailure?: boolean } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return runRemoteCommand(session, buildRemoteGitCommand(repoRoot, args), options);
+  return runRemoteCommand(session, buildRemoteGitCommand(repoRoot, args, { suppressStderr: options.stdin == null }), options);
 }
 
 function splitLines(text: string): string[] {
@@ -371,6 +434,71 @@ export async function applyReverse(
   return { ok: false, strategyUsed: null, output: threeWay.output };
 }
 
+function hashBytes(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function buildCompareAndWriteCommand(absolutePath: string, expectedHash: string): string {
+  return [
+    'if command -v python3 >/dev/null 2>&1; then PI_PY=python3',
+    'elif command -v python >/dev/null 2>&1; then PI_PY=python',
+    'else echo "pi-diff-review compare-and-write requires python3 or python on the remote host" >&2; exit 127',
+    'fi',
+    `"$PI_PY" -c ${shellQuote(REMOTE_COMPARE_AND_WRITE_SCRIPT)} ${shellQuote(absolutePath)} ${shellQuote(expectedHash)}`,
+  ].join("\n");
+}
+
+function parseCompareAndWriteResult(stdout: string): RemoteCompareAndWriteResult {
+  const raw = stdout.trim();
+  if (!raw) {
+    throw new Error("Remote compare-and-write returned no output");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Remote compare-and-write returned invalid JSON: ${error.message}`
+        : "Remote compare-and-write returned invalid JSON",
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Remote compare-and-write returned a non-object payload");
+  }
+
+  const value = parsed as Record<string, unknown>;
+  return {
+    ok: value.ok === true,
+    conflict: value.conflict === true,
+    missing: value.missing === true,
+    symlink: value.symlink === true,
+    hardlink: value.hardlink === true,
+  };
+}
+
+export async function compareAndWriteRepoPath(
+  session: PiSshSession,
+  repoRoot: string,
+  repoRelPathInput: string,
+  baselineBytes: Buffer,
+  nextBytes: Buffer,
+): Promise<RemoteCompareAndWriteResult> {
+  const repoRelPath = validateRepoRelPath(repoRelPathInput);
+  if (!repoRelPath) throw new Error("Invalid repo_rel_path");
+  const absolutePath = path.posix.join(repoRoot, repoRelPath);
+  const result = await runRemoteCommand(session, buildCompareAndWriteCommand(absolutePath, hashBytes(baselineBytes)), {
+    stdin: nextBytes,
+    timeoutSeconds: 60,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || "Remote compare-and-write failed");
+  }
+  return parseCompareAndWriteResult(result.stdout);
+}
+
 export async function statRepoPath(
   session: PiSshSession,
   repoRoot: string,
@@ -409,4 +537,17 @@ export async function readRepoPath(
     }
     throw error;
   }
+}
+
+export async function writeRepoPath(
+  session: PiSshSession,
+  repoRoot: string,
+  repoRelPathInput: string,
+  bytes: Buffer,
+): Promise<void> {
+  const repoRelPath = validateRepoRelPath(repoRelPathInput);
+  if (!repoRelPath) throw new Error("Invalid repo_rel_path");
+  const absolutePath = path.posix.join(repoRoot, repoRelPath);
+  const transport = session.getRemoteContext().transport;
+  await transport.writeFile(absolutePath, bytes);
 }

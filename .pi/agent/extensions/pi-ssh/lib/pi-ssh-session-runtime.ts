@@ -28,6 +28,13 @@ export interface PiSshExecCaptureResult {
   aborted: boolean;
 }
 
+export interface PiSshExecTextResult {
+  output: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  aborted: boolean;
+}
+
 export interface PiSshStageTransport {
   readFile(path: string, signal?: AbortSignal): Promise<Buffer>;
   writeFile(path: string, content: Buffer, signal?: AbortSignal): Promise<void>;
@@ -75,6 +82,7 @@ export interface PiSshSession {
   createBashOps(options?: { onCommandComplete?: (cwd: string) => void }): BashOperations;
   mapLocalPathToRemote(localPath: string): string;
   execCapture(command: string, options?: PiSshExecCaptureOptions): Promise<PiSshExecCaptureResult>;
+  execText(command: string, options?: Omit<PiSshExecCaptureOptions, "stdin">): Promise<PiSshExecTextResult>;
   exists(remotePath: string, signal?: AbortSignal): Promise<boolean>;
   stat(remotePath: string, signal?: AbortSignal): Promise<PiSshRemoteStat>;
   repoRoot(remoteCwd?: string, signal?: AbortSignal): Promise<string | null>;
@@ -110,16 +118,18 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `"'"'`)}'`;
 }
 
-function resolveCommandFailure(result: PiSshExecCaptureResult, fallbackPrefix: string): Error {
+function resolveCommandFailure(result: PiSshExecCaptureResult | PiSshExecTextResult, fallbackPrefix: string): Error {
   if (result.aborted) {
     return new Error("aborted");
   }
   if (result.timedOut) {
     return new Error(`SSH command timed out after ${fallbackPrefix}`);
   }
-  const stderr = result.stderr.toString("utf-8").trim();
+  const detail = "stderr" in result
+    ? result.stderr.toString("utf-8").trim() || result.stdout.toString("utf-8").trim()
+    : result.output.trim();
   const suffix = result.exitCode === null ? "unknown exit code" : `exit code ${result.exitCode}`;
-  return new Error(stderr || `SSH command failed with ${suffix}`);
+  return new Error(detail || `SSH command failed with ${suffix}`);
 }
 
 function buildRepoRootCommand(remoteCwd: string): string {
@@ -261,8 +271,22 @@ export function createPiSshSession(options: {
   connection: PiSshConnection;
   transport: PiSshTransport;
   execCapture: (command: string, options?: PiSshExecCaptureOptions) => Promise<PiSshExecCaptureResult>;
+  execText?: (command: string, options?: Omit<PiSshExecCaptureOptions, "stdin">) => Promise<PiSshExecTextResult>;
 }): PiSshSession {
-  const { connection, transport, execCapture } = options;
+  const { connection, transport, execCapture, execText: execTextImpl } = options;
+
+  const execText = async (command: string, captureOptions: Omit<PiSshExecCaptureOptions, "stdin"> = {}): Promise<PiSshExecTextResult> => {
+    if (execTextImpl) {
+      return execTextImpl(command, captureOptions);
+    }
+    const result = await execCapture(command, captureOptions);
+    return {
+      output: [result.stdout.toString("utf-8"), result.stderr.toString("utf-8")].filter(Boolean).join("\n").replace(/\r\n/g, "\n"),
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      aborted: result.aborted,
+    };
+  };
 
   return {
     getConnectionInfo() {
@@ -305,8 +329,12 @@ export function createPiSshSession(options: {
       return execCapture(command, captureOptions);
     },
 
+    async execText(command, captureOptions = {}) {
+      return execText(command, captureOptions);
+    },
+
     async exists(remotePath, signal) {
-      const result = await execCapture(`test -e ${shellQuote(remotePath)}`, {
+      const result = await execText(`test -e ${shellQuote(remotePath)}`, {
         signal,
         timeoutSeconds: DEFAULT_SESSION_HELPER_TIMEOUT_SECONDS,
       });
@@ -334,7 +362,7 @@ export function createPiSshSession(options: {
     },
 
     async repoRoot(remoteCwd = connection.remoteCwd, signal) {
-      const result = await execCapture(buildRepoRootCommand(remoteCwd), {
+      const result = await execText(buildRepoRootCommand(remoteCwd), {
         signal,
         timeoutSeconds: DEFAULT_SESSION_HELPER_TIMEOUT_SECONDS,
       });
@@ -344,7 +372,7 @@ export function createPiSshSession(options: {
       if (result.exitCode !== 0) {
         throw resolveCommandFailure(result, `${DEFAULT_SESSION_HELPER_TIMEOUT_SECONDS}s`);
       }
-      const root = result.stdout.toString("utf-8").trim();
+      const root = result.output.trim();
       return root || null;
     },
   };

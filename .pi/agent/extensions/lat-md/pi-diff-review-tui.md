@@ -6,7 +6,9 @@ This extension owns the interactive `/diff-review` overlay for reviewing repo di
 
 It resolves the repo root, chooses the initial review mode, opens the overlay app, and falls back from `t` (last turn) to `a` (`workspace vs HEAD`) when the session has no usable turn bundle.
 
-When `pi-ssh` is active it consumes the shared `pi-ssh` session runtime for remote repo-root lookup, remote workspace-vs-HEAD diffs, remote current-patch inspection, and remote reverse-apply. `/diff-review debug` prints a local-vs-remote backend report instead of opening the overlay.
+When `pi-ssh` is active it consumes the shared `pi-ssh` session runtime for remote repo-root lookup, remote workspace-vs-HEAD diffs, remote current-patch inspection, remote reverse-apply, and SSH edit mode. `/diff-review debug` prints a local-vs-remote backend report instead of opening the overlay.
+
+In SSH mode, external editing stages the remote file into a local diff-review temp path, opens that local copy in the user editor, and only writes it back to the remote checkout if the baseline still matches through a single remote compare-and-write step. Binary-looking files and symlink/hardlink targets should fail closed in this path, drift/conflict should preserve the staged local file, and a later retry should allocate a fresh stage path instead of overwriting the preserved recovery copy. Remote git/text commands should prefer the shared low-latency `PiSshSession.execText()` path; exact-byte file reads still belong on the transport read/write path.
 
 When the last-turn artifact includes advisory agent metadata, it enriches `t` mode with canonical observed rows, optional reported-only rows that still normalize inside the repo/workspace, and explicit mismatch/provenance state for the UI.
 
@@ -40,4 +42,4 @@ Keep the command as a thin entrypoint. Heavy diff-review state belongs in the ap
 
 Run `bash lat-local.sh .pi/extensions check` after editing this lattice.
 
-See [[tests#Diff-review TUI exposes only t-and-a review modes]] and [[tests#Diff-review TUI renders canonical-vs-reported-only file provenance honestly]] for the proving tests. The shared-session SSH path is anchored by `pi-diff-review-tui/test/backend-ssh.test.mjs` and `pi-diff-review-tui/test/entrypoint.test.mjs`.
+See [[tests#Diff-review TUI exposes only t-and-a review modes]] and [[tests#Diff-review TUI renders canonical-vs-reported-only file provenance honestly]] for the proving tests. The shared-session SSH path is anchored by `pi-diff-review-tui/test/backend-ssh.test.mjs`, `pi-diff-review-tui/test/ssh-staged-editor.test.mjs`, and `pi-diff-review-tui/test/entrypoint.test.mjs`.

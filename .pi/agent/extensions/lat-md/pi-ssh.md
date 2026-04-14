@@ -8,7 +8,7 @@ When `--ssh` is set, it overrides `read`, `write`, `edit`, and `bash`, plus user
 
 It maintains one remote shell session for bash-style work, publishes remote footer state so the interactive cwd line becomes `<user>@<host>:<remote-path>` after SSH connects, preserves remote branch display when it can, and injects remote prompt context from the exact remote working directory when `AGENTS.md` or `CLAUDE.md` exists there.
 
-It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. Other extensions should consume that module instead of importing `skill-uri` internals when they need remote workspace ops, repo-root lookup, local→remote path mapping, exact one-shot SSH probes, or remote exists/stat checks.
+It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. Other extensions should consume that module instead of importing `skill-uri` internals when they need remote workspace ops, repo-root lookup, local→remote path mapping, exact one-shot SSH probes, low-latency persistent text commands, or remote exists/stat checks. `execText()` is the text-oriented low-latency path; `stat()` should stay on stdout-only exact capture so JSON helpers do not depend on PTY-clean output.
 
 `skill-uri`, `self-checkpointing`, and the `pi-diff-review-*` extensions now all share that single runtime boundary.
 
@@ -44,5 +44,5 @@ If you broaden the remote-tool surface beyond the current coding tools and `!` c
 
 Use these checks after changing SSH prompt-context handling, shared session runtime behavior, or remote tool wiring.
 
-- `node --test pi-ssh/test/session-runtime.test.mjs pi-ssh/test/remote-context.test.mjs`
+- `node --test pi-ssh/test/session-runtime.test.mjs pi-ssh/test/remote-context.test.mjs pi-ssh/test/abort-recovery.test.mjs`
 - `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all`

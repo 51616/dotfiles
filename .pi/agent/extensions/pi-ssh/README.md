@@ -125,8 +125,11 @@ The helper uploads `scripts/pi-ssh-logger.remote.sh`, backs up the existing remo
 - Remote prompt-context loading is high-trust. If the remote workspace is not trusted, do not point `pi-ssh` at it.
 - Canonical `skill://...` handling now lives in the separate `skill-uri` extension so the same skill interface works in both local and SSH sessions.
 - `pi-ssh` publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`.
-- `skill-uri` and `self-checkpointing` consume that session directly for remote workspace ops, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
+- `skill-uri`, `self-checkpointing`, and `pi-diff-review-*` consume that session directly for remote workspace ops, remote diff inspection, local staged editor flows, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
 - The shared session helpers currently assume `git` is present for `repoRoot()` and `python3` or `python` is present for `stat()`.
+- `PiSshSession.execText()` is the shared low-latency text-command path backed by the persistent remote shell. Use it for git/text workflows where combined PTY output is acceptable.
+- `PiSshSession.stat()` still uses stdout-only exact capture under the hood so callers do not have to parse PTY noise around JSON payloads.
+- Keep exact-byte reads/writes on `execCapture()` or the remote transport.
 - When the SSH session is active, normal workspace `read`/`write`/`edit` calls go remote, while `skill://...` paths still resolve against the local skill source managed by `skill-uri`.
 - The pi-managed remote shell disables shell history so wrapper commands do not flood your normal `bash`/`zsh` history.
 - If you need remote audit logs, connect through a server setup that already logs SSH sessions, such as a `*-pi-agent` alias created with the separate `pi-ssh` logger workflow.

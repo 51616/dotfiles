@@ -79,6 +79,7 @@ Owned by:
 - `.pi/extensions/pi-diff-review-tui/test/comment-panel.test.mjs`
 - `.pi/extensions/pi-diff-review-tui/test/git.test.mjs`
 - `.pi/extensions/pi-diff-review-tui/test/backend-ssh.test.mjs`
+- `.pi/extensions/pi-diff-review-tui/test/ssh-staged-editor.test.mjs`
 - `.pi/extensions/pi-diff-review-tui/test/entrypoint.test.mjs`
 
 What this proves:
@@ -87,7 +88,8 @@ What this proves:
 - the metadata/comments panel explains canonical vs reported-only provenance and agent summaries
 - workspace-prefixed reported-only files resolve to the correct repo before deriving a current diff
 - saved review metadata records both `touched_paths` and `observed_changed_paths`, plus agent-report counts
-- the SSH diff-review path resolves its repo identity and workspace bundle from the shared `pi-ssh` session runtime
+- the SSH diff-review path resolves its repo identity and workspace bundle from the shared `pi-ssh` session runtime and prefers the persistent text-command helper for remote git/text calls
+- SSH edit mode stages remote files locally, refuses binary-looking/symlink/hardlink targets, writes back only when the remote baseline is unchanged through a single remote compare-and-write step, preserves execute bits, preserves the staged file on drift, and allocates a fresh stage path instead of overwriting an older recovery copy
 - `/diff-review debug` prints a local-vs-remote backend report without opening the overlay
 
 ## Command palette prompt-template execution stays aligned with prompt discovery
@@ -130,7 +132,9 @@ Owned by:
 What this proves:
 - only one active `pi-ssh` session is published at a time
 - local workspace paths map onto the remote cwd and remote home consistently
-- repo-root lookup uses exact one-shot SSH capture semantics instead of the PTY shell path
+- exact-byte exec capture remains available for consumers that need byte-preserving SSH probes
+- text-oriented helpers (`execText()`, `repoRoot()`, `exists()`) can use the persistent shell path for lower latency without forcing consumers to parse PTY output themselves
+- `stat()` keeps a stdout-only exact-capture path so JSON consumers do not need to tolerate PTY/stderr noise
 - remote exists/stat helpers distinguish present and missing paths without ad-hoc consumer parsing
 - remote prompt-context probing checks only `remoteCwd/AGENTS.md` and then `remoteCwd/CLAUDE.md`
 - unreadable remote context files stop the probe and surface warnings instead of falling through silently

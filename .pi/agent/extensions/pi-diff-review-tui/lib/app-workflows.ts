@@ -21,6 +21,7 @@ import {
   updateCommentBody,
 } from "./comment-resolution.ts";
 import { openExternalEditor } from "./external-editor.ts";
+import { editRemoteFileViaLocalStage, SshStagedEditorError } from "./ssh-staged-editor.ts";
 import { commentDisabledReason } from "./agent-report-ui.ts";
 import {
   renderCommentsOverlay,
@@ -50,6 +51,7 @@ import type {
   ReviewMode,
   ScopeState,
 } from "./types.ts";
+import type { DiffReviewRepoIdentity } from "./backend.ts";
 
 export interface ApplyRejectedBeforeSubmitResult {
   ok: true;
@@ -71,6 +73,7 @@ export interface AppWorkflowContext {
   allowRepoRootWrites?: boolean;
   backendKind?: "local" | "ssh";
   sessionId: string;
+  getRepoIdentity: () => DiffReviewRepoIdentity;
   getScope: () => ReviewMode;
   setScope: (scope: ReviewMode) => void;
   getScopeState: (scope: ReviewMode) => ScopeState | undefined;
@@ -421,32 +424,70 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
     },
 
     async openEditor(lineTargeted: boolean): Promise<void> {
-      const file = ctx.getCurrentFile();
-      if (!file) return;
-      if (ctx.backendKind === "ssh") {
-        ctx.callbacks.notify("Opening files in an external editor is not supported in SSH diff-review mode.", "info");
-        return;
-      }
-      const repoRoot = file.resolvedRepoRoot ?? ctx.repoRoot;
-      const relativePath = file.resolvedEditablePath ?? file.editablePath;
-      if (!relativePath) {
-        ctx.callbacks.notify("Deleted files cannot be opened for editing.", "info");
-        return;
-      }
+      try {
+        const file = ctx.getCurrentFile();
+        if (!file) return;
+        const repoRoot = file.resolvedRepoRoot ?? ctx.repoRoot;
+        const relativePath = file.resolvedEditablePath ?? file.editablePath;
+        if (!relativePath) {
+          ctx.callbacks.notify("Deleted files cannot be opened for editing.", "info");
+          return;
+        }
 
-      const result = openExternalEditor({
-        tui: ctx.tui,
-        repoRoot,
-        relativePath,
-        line: editorLineForRow(ctx.getCurrentRow(), lineTargeted),
-        lineTargeted,
-      });
+        const line = editorLineForRow(ctx.getCurrentRow(), lineTargeted);
 
-      if (result.status != null && result.status !== 0) {
-        ctx.callbacks.notify(`Editor exited with status ${result.status}.`, "info");
+        if (ctx.backendKind === "ssh") {
+          const identity = ctx.getRepoIdentity();
+          if (!identity.ssh) {
+            ctx.callbacks.notify("SSH edit mode is unavailable because the active SSH session identity is missing.", "error");
+            return;
+          }
+          const result = await editRemoteFileViaLocalStage({
+            tui: ctx.tui,
+            ssh: identity.ssh,
+            sessionId: ctx.sessionId,
+            repoRelPath: relativePath,
+            line,
+            lineTargeted,
+          });
+          if (result.status != null && result.status !== 0) {
+            ctx.callbacks.notify(`Editor exited with status ${result.status}.`, "info");
+          }
+          if (result.conflict) {
+            ctx.callbacks.notify(
+              `Remote file changed while you were editing. Kept your staged copy at ${result.stagePath}. Reload diff-review and reconcile manually.`,
+              "warning",
+            );
+            await ctx.reloadCurrentScope();
+            return;
+          }
+          if (result.uploaded) {
+            ctx.callbacks.notify("Uploaded the staged edit back to the remote checkout.", "info");
+          }
+          await ctx.reloadCurrentScope();
+          return;
+        }
+
+        const result = openExternalEditor({
+          tui: ctx.tui,
+          repoRoot,
+          relativePath,
+          line,
+          lineTargeted,
+        });
+
+        if (result.status != null && result.status !== 0) {
+          ctx.callbacks.notify(`Editor exited with status ${result.status}.`, "info");
+        }
+
+        await ctx.reloadCurrentScope();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const stageSuffix = error instanceof SshStagedEditorError && error.stagePath
+          ? ` Staged copy: ${error.stagePath}`
+          : "";
+        ctx.callbacks.notify(`Could not complete the editor workflow: ${message}${stageSuffix}`, "error");
       }
-
-      await ctx.reloadCurrentScope();
     },
 
     async submit(): Promise<void> {

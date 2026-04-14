@@ -32,11 +32,12 @@ function makeTransport() {
   };
 }
 
-function makeSession(execCapture) {
+function makeSession(execCapture, execText) {
   return createPiSshSession({
     connection: makeConnection(),
     transport: makeTransport(),
     execCapture,
+    ...(execText ? { execText } : {}),
   });
 }
 
@@ -83,20 +84,11 @@ test("PiSshSession maps local cwd and home paths onto the remote workspace", () 
   assert.equal(session.mapLocalPathToRemote("/already/remote/path.txt"), "/already/remote/path.txt");
 });
 
-test("PiSshSession execCapture preserves exact stdout/stderr/exit details and repoRoot uses one-shot probes", async () => {
+test("PiSshSession execCapture preserves exact stdout/stderr/exit details", async () => {
   __resetPiSshSessionForTests();
   const calls = [];
   const session = makeSession(async (command, options = {}) => {
     calls.push({ command, options });
-    if (command.includes("git --no-optional-locks rev-parse --show-toplevel")) {
-      return {
-        stdout: Buffer.from("/remote/repo\n", "utf-8"),
-        stderr: Buffer.alloc(0),
-        exitCode: 0,
-        timedOut: false,
-        aborted: false,
-      };
-    }
     return {
       stdout: Buffer.from("stdout-bytes", "utf-8"),
       stderr: Buffer.from("stderr-bytes", "utf-8"),
@@ -111,12 +103,83 @@ test("PiSshSession execCapture preserves exact stdout/stderr/exit details and re
   assert.equal(capture.stderr.toString("utf-8"), "stderr-bytes");
   assert.equal(capture.exitCode, 7);
   assert.equal(calls[0].options.timeoutSeconds, 3);
+});
+
+test("PiSshSession execText falls back to execCapture when no text helper is provided", async () => {
+  __resetPiSshSessionForTests();
+  const calls = [];
+  const session = makeSession(async (command, options = {}) => {
+    calls.push({ command, options });
+    return {
+      stdout: Buffer.from("capture-stdout", "utf-8"),
+      stderr: Buffer.from("capture-stderr", "utf-8"),
+      exitCode: 0,
+      timedOut: false,
+      aborted: false,
+    };
+  });
+
+  const text = await session.execText("printf text", { timeoutSeconds: 4 });
+  assert.equal(text.output, "capture-stdout\ncapture-stderr");
+  assert.equal(text.exitCode, 0);
+  assert.equal(calls[0].options.timeoutSeconds, 4);
+});
+
+test("PiSshSession repoRoot/exists prefer the text helper while stat keeps stdout-only capture", async () => {
+  __resetPiSshSessionForTests();
+  const captureCalls = [];
+  const textCalls = [];
+  const session = makeSession(
+    async (command, options = {}) => {
+      captureCalls.push({ command, options });
+      return {
+        stdout: Buffer.from(JSON.stringify({ exists: true, kind: "file", mtimeMs: 1710000000123, size: 42 }), "utf-8"),
+        stderr: Buffer.from("stderr-noise-that-should-not-be-parsed", "utf-8"),
+        exitCode: 0,
+        timedOut: false,
+        aborted: false,
+      };
+    },
+    async (command, options = {}) => {
+      textCalls.push({ command, options });
+      if (command.startsWith("test -e")) {
+        return {
+          output: "",
+          exitCode: command.includes("missing.txt") ? 1 : 0,
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      if (command.includes("git --no-optional-locks rev-parse --show-toplevel")) {
+        return {
+          output: "/remote/repo\n",
+          exitCode: 0,
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      return {
+        output: JSON.stringify({ exists: true, kind: "file", mtimeMs: 1710000000123, size: 42 }),
+        exitCode: 0,
+        timedOut: false,
+        aborted: false,
+      };
+    },
+  );
 
   const repoRoot = await session.repoRoot("/remote/repo/subdir");
   assert.equal(repoRoot, "/remote/repo");
-  assert.match(calls[1].command, /git --no-optional-locks rev-parse --show-toplevel/);
-  assert.match(calls[1].command, /\/remote\/repo\/subdir/);
-  assert.equal(calls[1].options.timeoutSeconds, 15);
+  assert.equal(await session.exists("/remote/worktree/out.txt"), true);
+  assert.equal(await session.exists("/remote/worktree/missing.txt"), false);
+  assert.deepEqual(await session.stat("/remote/worktree/out.txt"), {
+    exists: true,
+    kind: "file",
+    mtimeMs: 1710000000123,
+    size: 42,
+  });
+  assert.equal(textCalls.length, 3);
+  assert.equal(captureCalls.length, 1);
+  assert.equal(captureCalls[0].command.includes("pi-ssh session stat requires python3 or python on the remote host"), true);
 });
 
 test("PiSshSession exists/stat helpers distinguish present and missing remote paths", async () => {

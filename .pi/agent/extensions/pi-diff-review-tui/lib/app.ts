@@ -141,6 +141,7 @@ export class DiffReviewApp implements Component, Focusable {
       allowRepoRootWrites: this.allowRepoRootWrites,
       backendKind: this.backendKind,
       sessionId: this.sessionId,
+      getRepoIdentity: () => this.repoIdentity(),
       getScope: () => this.scope,
       setScope: (scope) => { this.scope = scope; },
       getScopeState: (scope) => this.scopeStates.get(scope),

@@ -985,6 +985,7 @@ interface RemoteTransport {
     cwd: string,
     options: { onData: (data: Buffer) => void; signal?: AbortSignal; timeout?: number },
   ): Promise<{ exitCode: number | null }>;
+  execText(command: string, options?: { timeout?: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; output: string }>;
   readFile(remotePath: string, signal?: AbortSignal): Promise<Buffer>;
   ensureReadable(remotePath: string, signal?: AbortSignal): Promise<void>;
   ensureReadableWritable(remotePath: string, signal?: AbortSignal): Promise<void>;
@@ -1026,6 +1027,14 @@ class SshTransport implements RemoteTransport {
     options: { onData: (data: Buffer) => void; signal?: AbortSignal; timeout?: number },
   ): Promise<{ exitCode: number | null }> {
     return this.queue.enqueue(() => this.shell.exec(command, cwd, options));
+  }
+
+  async execText(command: string, options: { timeout?: number; signal?: AbortSignal } = {}): Promise<{ exitCode: number | null; output: string }> {
+    const result = await this.capture(command, options);
+    return {
+      exitCode: result.exitCode,
+      output: result.output.toString("utf-8").replace(/\r\n/g, "\n"),
+    };
   }
 
   async readFile(remotePath: string, signal?: AbortSignal): Promise<Buffer> {
@@ -1528,10 +1537,33 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       connection = await resolveSshConnection(flag, localCwd, localHome, port);
       const sessionConnection = connection;
       transport = new SshTransport(sessionConnection);
+      const sessionTransport = transport;
       activeSession = createPiSshSession({
         connection: sessionConnection,
-        transport,
+        transport: sessionTransport,
         execCapture: (command, options) => sshCapture(sessionConnection.remote, sessionConnection.port, command, options),
+        execText: async (command, options) => {
+          try {
+            const result = await sessionTransport.execText(command, {
+              timeout: typeof options?.timeoutSeconds === "number" ? options.timeoutSeconds : undefined,
+              signal: options?.signal,
+            });
+            return {
+              ...result,
+              timedOut: false,
+              aborted: false,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message === "aborted") {
+              return { output: "", exitCode: null, timedOut: false, aborted: true };
+            }
+            if (message.startsWith("timeout:")) {
+              return { output: "", exitCode: null, timedOut: true, aborted: false };
+            }
+            throw error;
+          }
+        },
       });
       publishActivePiSshSession(activeSession);
       activeUiContext = ctx.hasUI ? ctx : null;
