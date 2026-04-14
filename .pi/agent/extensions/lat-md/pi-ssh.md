@@ -10,6 +10,8 @@ It maintains one remote shell session for bash-style work, publishes remote foot
 
 It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. Other extensions should consume that module instead of importing `skill-uri` internals when they need remote workspace ops, repo-root lookup, local→remote path mapping, exact one-shot SSH probes, or remote exists/stat checks.
 
+`skill-uri`, `self-checkpointing`, and the `pi-diff-review-*` extensions now all share that single runtime boundary.
+
 ## Invariants
 
 Without `--ssh`, the extension must stay inert and preserve normal local tool behavior.

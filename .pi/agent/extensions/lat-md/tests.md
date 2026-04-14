@@ -33,7 +33,9 @@ What this proves:
 
 ## Diff-review tracker artifacts include canonical observed paths and advisory agent reports
 
-Owned by `.pi/extensions/pi-diff-review-turn-tracker/test/artifacts.test.mjs`.
+Owned by:
+- `.pi/extensions/pi-diff-review-turn-tracker/test/artifacts.test.mjs`
+- `.pi/extensions/pi-diff-review-turn-tracker/test/ssh-turn-tracker.test.mjs`
 
 What this proves:
 - `latest.json` and `latest-reviewable.json` include `observed_changed_paths`
@@ -42,6 +44,7 @@ What this proves:
 - empty later turns do not clobber the latest reviewable artifact
 - empty/no-observed-diff turns discard invalid non-empty advisory reports
 - artifact publication waits until the advisory step finishes for the current turn
+- the SSH path uses the shared `pi-ssh` session runtime, including local→remote path mapping for touched files
 
 ## Agent change report validation keeps canonical-vs-advisory boundaries exact
 
@@ -75,6 +78,8 @@ Owned by:
 - `.pi/extensions/pi-diff-review-tui/test/file-list.test.mjs`
 - `.pi/extensions/pi-diff-review-tui/test/comment-panel.test.mjs`
 - `.pi/extensions/pi-diff-review-tui/test/git.test.mjs`
+- `.pi/extensions/pi-diff-review-tui/test/backend-ssh.test.mjs`
+- `.pi/extensions/pi-diff-review-tui/test/entrypoint.test.mjs`
 
 What this proves:
 - `t` mode keeps canonical observed rows visible even when the agent report disagrees
@@ -82,6 +87,8 @@ What this proves:
 - the metadata/comments panel explains canonical vs reported-only provenance and agent summaries
 - workspace-prefixed reported-only files resolve to the correct repo before deriving a current diff
 - saved review metadata records both `touched_paths` and `observed_changed_paths`, plus agent-report counts
+- the SSH diff-review path resolves its repo identity and workspace bundle from the shared `pi-ssh` session runtime
+- `/diff-review debug` prints a local-vs-remote backend report without opening the overlay
 
 ## Command palette prompt-template execution stays aligned with prompt discovery
 

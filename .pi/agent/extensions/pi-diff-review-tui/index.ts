@@ -2,7 +2,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DiffReviewApp } from "./lib/app.ts";
-import { disposeDiffReviewSshBackend, resolveRepoIdentity } from "./lib/backend.ts";
+import { buildDiffReviewDebugReport, disposeDiffReviewSshBackend, resolveRepoIdentity } from "./lib/backend.ts";
 import { resolveInitialBundleSelection } from "./lib/review-bundles.ts";
 
 export default function piDiffReviewTui(pi: ExtensionAPI) {
@@ -14,7 +14,15 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
 
   pi.registerCommand("diff-review", {
     description: "Open a pi-native TUI diff review overlay",
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (args.includes("debug") || args.includes("--debug")) {
+        const report = await buildDiffReviewDebugReport(pi, ctx.cwd);
+        console.error(report);
+        if (ctx.hasUI) {
+          ctx.ui.notify("Printed diff-review debug report to stderr.", "info");
+        }
+        return;
+      }
       if (!ctx.hasUI) {
         ctx.ui.notify("/diff-review requires an interactive TUI session.", "error");
         return;
@@ -53,7 +61,7 @@ export default function piDiffReviewTui(pi: ExtensionAPI) {
           scopeKey: identity.scopeKey,
           allowRepoRootWrites: identity.allowRepoRootWrites,
           backendKind: identity.backend,
-          sshHelper: identity.helper,
+          sshIdentity: identity.ssh,
           sessionId,
           tui,
           theme,

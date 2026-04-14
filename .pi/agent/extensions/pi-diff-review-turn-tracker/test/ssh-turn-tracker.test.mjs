@@ -6,11 +6,18 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { DiffReviewTurnTracker } from "../lib/tracker.ts";
-import { DiffReviewSshHelperClient, makeSshScopeKey } from "../../lib/diff-review-ssh-helper/client.ts";
+import { makeSshScopeKey } from "../../lib/pi-diff-review-ssh.ts";
 import { resolveTurnLatestCandidates } from "../../pi-diff-review-tui/lib/diff-review-paths.ts";
+import { createPiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
-function sh(cwd, argv) {
-  const res = spawnSync(argv[0], argv.slice(1), { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function sh(cwd, argv, options = {}) {
+  const res = spawnSync(argv[0], argv.slice(1), {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    input: options.input,
+    timeout: options.timeout,
+  });
   if (res.status !== 0) {
     throw new Error(`command failed: ${argv.join(" ")}\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`);
   }
@@ -24,10 +31,46 @@ function firstExistingCandidate(candidates) {
   return null;
 }
 
-test("turn-tracker: ssh mode writes artifacts into local scopeKey root and produces a reviewable patch", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-turn-ssh-test-"));
+function makeLocalPiSshSession({ localRoot, remoteRoot }) {
+  return createPiSshSession({
+    connection: {
+      remote: "user@example.com",
+      port: 2222,
+      remoteCwd: remoteRoot,
+      remoteHome: path.dirname(remoteRoot),
+      localCwd: localRoot,
+      localHome: path.dirname(localRoot),
+    },
+    transport: {
+      exec: async () => ({ exitCode: 0 }),
+      readFile: async (remotePath) => fs.promises.readFile(remotePath),
+      ensureReadable: async () => {},
+      ensureReadableWritable: async () => {},
+      detectImageMimeType: async () => null,
+      mkdir: async () => {},
+      writeFile: async () => {},
+    },
+    execCapture: async (command, options = {}) => {
+      const res = spawnSync("bash", ["-lc", command], {
+        encoding: "buffer",
+        input: options.stdin,
+        timeout: (options.timeoutSeconds ?? 30) * 1000,
+      });
+      return {
+        stdout: Buffer.isBuffer(res.stdout) ? res.stdout : Buffer.from(res.stdout ?? ""),
+        stderr: Buffer.isBuffer(res.stderr) ? res.stderr : Buffer.from(res.stderr ?? ""),
+        exitCode: typeof res.status === "number" ? res.status : null,
+        timedOut: res.signal === "SIGTERM",
+        aborted: false,
+      };
+    },
+  });
+}
 
-  let helper;
+test("turn-tracker: ssh mode uses the shared pi-ssh session mapping and writes a reviewable patch", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-turn-ssh-test-"));
+  const localRoot = "/local/demo-repo";
+
   try {
     sh(tmp, ["git", "init", "-q"]);
     sh(tmp, ["git", "config", "user.email", "pi@example.com"]);
@@ -38,20 +81,17 @@ test("turn-tracker: ssh mode writes artifacts into local scopeKey root and produ
     sh(tmp, ["git", "add", "file.txt"]);
     sh(tmp, ["git", "commit", "-m", "init", "-q"]);
 
-    helper = await DiffReviewSshHelperClient.startLocalForTest({ cwd: tmp });
-    const repoRoot = await helper.repoRoot(tmp);
-    const scopeKey = makeSshScopeKey(helper.target, repoRoot);
+    const session = makeLocalPiSshSession({ localRoot, remoteRoot: tmp });
+    const connection = session.getConnectionInfo();
+    const repoRoot = await session.repoRoot(tmp);
+    const scopeKey = makeSshScopeKey(connection, repoRoot);
 
     const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
-    tracker.startTurn({ sessionId: "s1", turnId: "t1", cwd: repoRoot, ssh: { helper, repoRoot, scopeKey } });
+    tracker.startTurn({ sessionId: "s1", turnId: "t1", cwd: localRoot, ssh: { session, repoRoot, scopeKey } });
 
-    // Baseline capture.
-    await tracker.touchPath("file.txt", repoRoot);
-
-    // Mutate file after baseline.
+    await tracker.touchPath(path.join(localRoot, "file.txt"), localRoot);
     fs.writeFileSync(filePath, "hello world\n", "utf8");
-
-    await tracker.finalize(repoRoot);
+    await tracker.finalize(localRoot);
 
     const candidates = resolveTurnLatestCandidates({
       repoRoot,
@@ -74,11 +114,6 @@ test("turn-tracker: ssh mode writes artifacts into local scopeKey root and produ
     assert.ok(Array.isArray(metadata.touched_paths));
     assert.deepEqual(metadata.touched_paths, ["file.txt"]);
   } finally {
-    try {
-      helper?.dispose();
-    } catch {
-      // ignore
-    }
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });

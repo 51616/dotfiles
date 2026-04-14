@@ -138,6 +138,43 @@ test("entrypoint falls back to workspace vs HEAD with an explicit notification",
   assert.match(notices[0]?.message ?? "", /falling back to workspace vs HEAD/i);
 });
 
+test("entrypoint runs debug mode without opening the overlay", async () => {
+  const repo = makeRepo();
+
+  const pi = makePiStub();
+  piDiffReviewTui(pi);
+  const handler = pi.commands.get("diff-review")?.handler;
+  assert.ok(handler, "diff-review handler should be registered");
+
+  const notices = [];
+  let customCalled = false;
+  const logged = [];
+  const originalError = console.error;
+  console.error = (message) => logged.push(String(message));
+  try {
+    await handler(["debug"], {
+      hasUI: true,
+      cwd: repo,
+      sessionManager: { getSessionId: () => "session-debug" },
+      ui: {
+        notify(message, type) {
+          notices.push({ message, type });
+        },
+        async custom() {
+          customCalled = true;
+        },
+        setEditorText() {},
+      },
+    });
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.equal(customCalled, false);
+  assert.match(logged[0] ?? "", /\[pi-diff-review debug\]/);
+  assert.match(notices[0]?.message ?? "", /Printed diff-review debug report to stderr/i);
+});
+
 test("entrypoint does not open the overlay when neither last-turn nor workspace diffs are reviewable", async () => {
   const repo = makeRepo();
 

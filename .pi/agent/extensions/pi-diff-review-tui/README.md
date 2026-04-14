@@ -8,6 +8,8 @@ The diff pane uses pi-style `cli-highlight` syntax highlighting for code rows, w
 
 This extension is loaded automatically by the vault `./pi` wrapper because it lives under `.pi/extensions/`.
 
+When `pi-ssh` is active, `/diff-review` now uses the shared `pi-ssh` session runtime instead of its own SSH flag parser/helper process. Repo-root lookup, remote workspace diffs, remote patch inspection, and remote reverse-apply all go through the active `PiSshSession`.
+
 When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` opens in `t` mode by default and shows the most recent reviewable agent-touched patch for this session before falling back explicitly to `a` (`workspace vs HEAD`).
 
 When the tracker metadata also carries an advisory `agent_change_report`, `t` mode keeps runtime-observed rows canonical and may append repo-contained reported-only rows. Those reported-only rows are labeled explicitly, stay inspect-only in v1, and may either show a derived current repo diff or an explicit no-current-diff advisory placeholder.
@@ -37,6 +39,7 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 - `e`: edit at cursor in `$VISUAL` / `$EDITOR` / `nvim`
 - `g`: edit file
 - `r`: reload current review mode
+- `/diff-review debug` or `/diff-review --debug`: print a local-vs-remote backend report to stderr instead of opening the overlay
 - `?`: help
 - `s`: submit
 - `q` or `esc`: cancel (`esc` clears an active range selection before quitting)
@@ -45,13 +48,13 @@ These are intentionally lowercase-only for terminal reliability; uppercase-vs-lo
 
 Submit writes a full-fidelity Markdown review file to the first writable location in this order.
 
-The directory naming follows pi's session convention (`~/.pi/agent/sessions/--<cwd>--/`). For a given git repo root, the safe-path is computed from that root.
+The directory naming follows pi's session convention (`~/.pi/agent/sessions/--<cwd>--/`). For local reviews the safe-path is computed from the local repo root. For SSH reviews it is computed from the SSH scope key (`ssh:<remote>[:port]:<repoRoot>`), so different remotes do not collide.
 
-- `/tmp/pi/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
-- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
-- `<repoRoot>/.pi/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
+- `/tmp/pi/sessions/--<scopeKey>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
+- `~/.pi/agent/sessions/--<scopeKey>--/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md`
+- `<repoRoot>/.pi/diff-review/reviews/sessions/<sessionId>/<timestamp>_<mode>.md` (local backend only)
 
-If `/tmp` is not writable, the UI warns when it falls back to `~/.pi/agent/sessions/...` or the repo-local `.pi` directory.
+If `/tmp` is not writable, the UI warns when it falls back to `~/.pi/agent/sessions/...` or the repo-local `.pi` directory. SSH-backed reviews do not use the repo-local fallback path.
 
 After saving the full file, the extension replaces pi's editor content with a compact prompt that points the agent at the saved review file for the full snippets/context.
 

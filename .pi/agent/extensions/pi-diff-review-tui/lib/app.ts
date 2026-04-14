@@ -13,7 +13,7 @@ import {
   type DiffReviewBackendKind,
   type DiffReviewRepoIdentity,
 } from "./backend.ts";
-import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
+import type { DiffReviewSshIdentity } from "../../lib/pi-diff-review-ssh.ts";
 import { buildTurnSourceSummary, commentDisabledReason } from "./agent-report-ui.ts";
 import { nextNavigableChangeBlockRowIndex, nextNavigableRowIndex } from "./navigation.ts";
 import {
@@ -47,7 +47,7 @@ export class DiffReviewApp implements Component, Focusable {
   private readonly scopeKey: string;
   private readonly allowRepoRootWrites: boolean;
   private readonly backendKind: DiffReviewBackendKind;
-  private readonly sshHelper?: DiffReviewSshHelperClient;
+  private readonly sshIdentity?: DiffReviewSshIdentity;
   private readonly sessionId: string;
   private readonly tui: TUI;
   private readonly theme: Theme;
@@ -98,7 +98,7 @@ export class DiffReviewApp implements Component, Focusable {
     scopeKey,
     allowRepoRootWrites,
     backendKind,
-    sshHelper,
+    sshIdentity,
     sessionId,
     tui,
     theme,
@@ -111,7 +111,7 @@ export class DiffReviewApp implements Component, Focusable {
     scopeKey: string;
     allowRepoRootWrites: boolean;
     backendKind: DiffReviewBackendKind;
-    sshHelper?: DiffReviewSshHelperClient;
+    sshIdentity?: DiffReviewSshIdentity;
     sessionId: string;
     tui: TUI;
     theme: Theme;
@@ -124,7 +124,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.scopeKey = scopeKey;
     this.allowRepoRootWrites = allowRepoRootWrites;
     this.backendKind = backendKind;
-    this.sshHelper = sshHelper;
+    this.sshIdentity = sshIdentity;
     this.sessionId = sessionId;
     this.tui = tui;
     this.theme = theme;
@@ -227,9 +227,7 @@ export class DiffReviewApp implements Component, Focusable {
       scopeKey: this.scopeKey,
       allowRepoRootWrites: this.allowRepoRootWrites,
       repoLabel: this.repoLabel,
-      // Do not store a helper instance here; it can go stale across reconnects.
-      // Backend calls should fetch the current shared helper when needed.
-      helper: undefined,
+      ssh: this.sshIdentity,
     };
   }
 

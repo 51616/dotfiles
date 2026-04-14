@@ -6,7 +6,8 @@ import { buildPersistedAgentChangeReport, summarizeAgentChangeArtifact } from ".
 import { snoopedBashPaths } from "./bash-snoop.ts";
 import { findCwdRepoRoot, repoKeyForRoot, resolveRepoPath } from "./repo.ts";
 import type { AgentChangeReport, RepoTurnArtifact, RepoTurnState, TurnArtifactMetadata, TurnState } from "./types.ts";
-import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
+import { resolveRemoteRepoPathFromLocalInput } from "../../lib/pi-diff-review-ssh.ts";
+import type { PiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function noteForTurn(hasBashCalls: boolean, touchedPaths: number, patchText: string): string | undefined {
   const notes: string[] = [];
@@ -27,45 +28,11 @@ type SummarizeArtifact = (input: {
 }) => Promise<Partial<AgentChangeReport> | null>;
 
 type SshTurnContext = {
-  helper: DiffReviewSshHelperClient;
+  session: PiSshSession;
   repoRoot: string;
   scopeKey: string;
 };
 
-function normalizeRemotePath(value: string): string {
-  return value.replace(/\\/g, "/");
-}
-
-function validateRepoRelPath(value: string): string | null {
-  const v = normalizeRemotePath(value).trim();
-  if (!v) return null;
-  if (v.startsWith("/")) return null;
-  if (v.includes("\u0000")) return null;
-  const parts = v.split("/").filter(Boolean);
-  if (!parts.length) return null;
-  if (parts.some((p) => p === "." || p === "..")) return null;
-  return parts.join("/");
-}
-
-function resolveRemoteAbsolutePath(rawPath: string, cwd: string): string | null {
-  const raw = normalizeRemotePath(String(rawPath ?? "")).trim();
-  if (!raw) return null;
-  const base = normalizeRemotePath(String(cwd ?? "/")).trim() || "/";
-  if (raw.startsWith("/")) return path.posix.normalize(raw);
-  return path.posix.resolve(base, raw);
-}
-
-function remoteRepoRelPath({ repoRoot, cwd, rawPath }: { repoRoot: string; cwd: string; rawPath: string }): { absolutePath: string; repoRelPath: string } | null {
-  const absolutePath = resolveRemoteAbsolutePath(rawPath, cwd);
-  if (!absolutePath) return null;
-
-  const rel = path.posix.relative(normalizeRemotePath(repoRoot), absolutePath);
-  if (!rel || rel === ".") return null;
-  const validated = validateRepoRelPath(rel);
-  if (!validated) return null;
-  if (validated.startsWith("../")) return null;
-  return { absolutePath, repoRelPath: validated };
-}
 
 export class DiffReviewTurnTracker {
   private current: TurnState | null = null;
@@ -150,7 +117,7 @@ export class DiffReviewTurnTracker {
     if (!turn.cwdRepoRoot) return;
 
     if (this.ssh) {
-      const resolved = remoteRepoRelPath({ repoRoot: this.ssh.repoRoot, cwd, rawPath });
+      const resolved = resolveRemoteRepoPathFromLocalInput(this.ssh.session, this.ssh.repoRoot, cwd, rawPath);
       if (!resolved) return;
       if (turn.cwdRepoRoot !== this.ssh.repoRoot) return;
 
@@ -159,7 +126,7 @@ export class DiffReviewTurnTracker {
       if (!turn.repos.has(this.ssh.repoRoot)) return;
 
       if (repo.touchedPaths.has(resolved.repoRelPath)) return;
-      const baseline = await captureFileImageRemote(repo, this.ssh.helper, this.ssh.repoRoot, resolved.repoRelPath, "pre");
+      const baseline = await captureFileImageRemote(repo, this.ssh.session, this.ssh.repoRoot, resolved.repoRelPath, "pre");
       repo.touchedPaths.set(resolved.repoRelPath, {
         repoRelPath: resolved.repoRelPath,
         absolutePath: resolved.absolutePath,
@@ -233,7 +200,7 @@ export class DiffReviewTurnTracker {
 
       for (const tracked of repo.touchedPaths.values()) {
         if (ssh) {
-          tracked.final = await captureFileImageRemote(repo, ssh.helper, ssh.repoRoot, tracked.repoRelPath, "post");
+          tracked.final = await captureFileImageRemote(repo, ssh.session, ssh.repoRoot, tracked.repoRelPath, "post");
         } else {
           tracked.final = captureFileImage(repo, tracked.absolutePath, "post");
         }

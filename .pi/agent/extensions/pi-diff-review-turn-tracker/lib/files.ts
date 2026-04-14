@@ -9,7 +9,8 @@ import {
   type OmitReason,
   type RepoTurnState,
 } from "./types.ts";
-import type { DiffReviewSshHelperClient } from "../../lib/diff-review-ssh-helper/client.ts";
+import { readRepoPath, statRepoPath } from "../../lib/pi-diff-review-ssh.ts";
+import type { PiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -86,7 +87,7 @@ export function captureFileImage(repoState: RepoTurnState, absolutePath: string,
 
 export async function captureFileImageRemote(
   repoState: RepoTurnState,
-  helper: DiffReviewSshHelperClient,
+  session: PiSshSession,
   repoRoot: string,
   repoRelPath: string,
   phase: "pre" | "post",
@@ -95,7 +96,7 @@ export async function captureFileImageRemote(
 
   let st: { exists: boolean; isFile: boolean; sizeBytes?: number; mtimeMs?: number };
   try {
-    st = await helper.stat({ repoRoot, repoRelPath });
+    st = await statRepoPath(session, repoRoot, repoRelPath);
   } catch {
     return omitted(readErrorReason);
   }
@@ -116,7 +117,7 @@ export async function captureFileImageRemote(
 
   let read: { exists: boolean; bytes: Buffer; truncated: boolean };
   try {
-    read = await helper.read({ repoRoot, repoRelPath, maxBytes: MAX_FILE_BYTES_FOR_CONTENT });
+    read = await readRepoPath(session, repoRoot, repoRelPath, MAX_FILE_BYTES_FOR_CONTENT);
   } catch {
     return { kind: "omitted", exists: true, reason: readErrorReason, sizeBytes: size, mtimeMs: st.mtimeMs };
   }

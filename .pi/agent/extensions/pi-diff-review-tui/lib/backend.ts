@@ -1,9 +1,15 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { getRepoRoot as getLocalRepoRoot, parseNameStatus, buildBundleFromPatchText } from "./git.ts";
+import { buildBundleFromPatchText, getRepoRoot as getLocalRepoRoot, parseNameStatus } from "./git.ts";
 import { getWorkspaceReviewBundle as getLocalWorkspaceBundle } from "./live-repo-bundle.ts";
 import type { DiffBundle } from "./types.ts";
 import { enrichTurnBundleWithAgentReport } from "./turn-agent-report.ts";
-import { DiffReviewSshHelperClient, disposeSharedSshHelperClient, getSharedSshHelperClient, makeSshScopeKey } from "../../lib/diff-review-ssh-helper/client.ts";
+import {
+  applyReverse as applyRemoteReverse,
+  diffWorkspace as getRemoteWorkspaceDiff,
+  patchForPath as getRemotePatchForPath,
+  resolveDiffReviewSshIdentity,
+  type DiffReviewSshIdentity,
+} from "../../lib/pi-diff-review-ssh.ts";
 
 export type DiffReviewBackendKind = "local" | "ssh";
 
@@ -17,56 +23,39 @@ export type DiffReviewRepoIdentity = {
   allowRepoRootWrites: boolean;
   /** Optional label to show in the diff-review header. */
   repoLabel: string;
-  helper?: DiffReviewSshHelperClient;
+  ssh?: DiffReviewSshIdentity;
 };
 
-export const DEFAULT_DIFF_LIMITS = {
-  maxPatchBytesPerFile: 512 * 1024,
-  maxTotalPatchBytes: 10 * 1024 * 1024,
-  maxFiles: 800,
-} as const;
-
-async function withReconnectedSshHelper<T>(
-  pi: ExtensionAPI,
-  identity: { helper?: DiffReviewSshHelperClient } | null,
-  action: (helper: DiffReviewSshHelperClient) => Promise<T>,
-  options?: { retryOnce?: boolean },
-): Promise<{ helper: DiffReviewSshHelperClient; value: T }> {
-  const primary = identity?.helper ?? (await getSharedSshHelperClient(pi));
-  if (!primary) throw new Error("SSH backend unavailable: missing --ssh flags");
-
-  try {
-    return { helper: primary, value: await action(primary) };
-  } catch (error) {
-    if (options?.retryOnce === false) throw error;
-
-    // One-shot reconnect attempt.
-    disposeSharedSshHelperClient();
-    const secondary = await getSharedSshHelperClient(pi);
-    if (!secondary) throw error;
-
-    if (identity) identity.helper = secondary;
-    return { helper: secondary, value: await action(secondary) };
-  }
+function summarizeBundle(bundle: DiffBundle): string {
+  const fileCount = bundle.files.length;
+  const headLabel = bundle.head ? ` head=${bundle.head.slice(0, 12)}` : " head=(unborn)";
+  return `${bundle.sourceKind}:${fileCount} file${fileCount === 1 ? "" : "s"}${headLabel}`;
 }
 
-export async function resolveRepoIdentity(pi: ExtensionAPI, localCwd: string): Promise<DiffReviewRepoIdentity> {
-  const flagsHelper = await getSharedSshHelperClient(pi);
-  if (flagsHelper) {
-    const { helper, value: repoRoot } = await withReconnectedSshHelper(pi, { helper: flagsHelper }, (h) => h.repoRoot(h.probe.remote_cwd));
-    const scopeKey = makeSshScopeKey(helper.target, repoRoot);
-    const portSuffix = helper.target.port && helper.target.port !== 22 ? `:${helper.target.port}` : "";
-    const repoLabel = `SSH ${helper.target.remote}${portSuffix} ${repoRoot}`;
+function requireSshIdentity(identity: DiffReviewRepoIdentity): DiffReviewSshIdentity {
+  if (!identity.ssh) {
+    throw new Error("SSH backend unavailable: missing resolved pi-ssh session identity.");
+  }
+  return identity.ssh;
+}
+
+export async function resolveRepoIdentity(_pi: ExtensionAPI, localCwd: string): Promise<DiffReviewRepoIdentity> {
+  const ssh = await resolveDiffReviewSshIdentity(localCwd);
+  if (ssh) {
     return {
       backend: "ssh",
-      repoRoot,
-      scopeKey,
+      repoRoot: ssh.repoRoot,
+      scopeKey: ssh.scopeKey,
       allowRepoRootWrites: false,
-      repoLabel,
-      helper,
+      repoLabel: ssh.repoLabel,
+      ssh,
     };
   }
 
+  return resolveLocalRepoIdentity(_pi, localCwd);
+}
+
+export async function resolveLocalRepoIdentity(pi: ExtensionAPI, localCwd: string): Promise<DiffReviewRepoIdentity> {
   const repoRoot = await getLocalRepoRoot(pi, localCwd);
   return {
     backend: "local",
@@ -79,39 +68,19 @@ export async function resolveRepoIdentity(pi: ExtensionAPI, localCwd: string): P
 
 export async function getWorkspaceBundle(pi: ExtensionAPI, identity: DiffReviewRepoIdentity): Promise<DiffBundle> {
   if (identity.backend === "local") {
-    const bundle = await getLocalWorkspaceBundle(pi, identity.repoRoot);
-    return bundle;
+    return getLocalWorkspaceBundle(pi, identity.repoRoot);
   }
 
-  const { value: result } = await withReconnectedSshHelper(pi, identity, (helper) =>
-    helper.diffWorkspace({
-      repoRoot: identity.repoRoot,
-      limits: {
-        max_patch_bytes_per_file: DEFAULT_DIFF_LIMITS.maxPatchBytesPerFile,
-        max_total_patch_bytes: DEFAULT_DIFF_LIMITS.maxTotalPatchBytes,
-        max_files: DEFAULT_DIFF_LIMITS.maxFiles,
-      },
-    }),
-  );
-
-  const nameStatusEntries = parseNameStatus(result.nameStatus);
-  const bundle = buildBundleFromPatchText({
+  const ssh = requireSshIdentity(identity);
+  const result = await getRemoteWorkspaceDiff(ssh.session, identity.repoRoot);
+  return buildBundleFromPatchText({
     scope: "a",
     repoRoot: identity.repoRoot,
     head: result.head,
     patchTextRaw: result.patchText,
-    nameStatusEntries,
+    nameStatusEntries: parseNameStatus(result.nameStatus),
     sourceKind: "git",
   });
-
-  const omittedCount = Object.keys(result.omittedPaths ?? {}).length;
-  if (omittedCount > 0) {
-    (bundle as DiffBundle & { warnings?: string[] }).warnings = [
-      `Diff omitted for ${omittedCount} file${omittedCount === 1 ? "" : "s"} due to per-file/total size limits.`,
-    ];
-  }
-
-  return bundle;
 }
 
 export async function getTurnBundleWithAgentReport(
@@ -120,13 +89,14 @@ export async function getTurnBundleWithAgentReport(
   bundle: DiffBundle,
 ): Promise<DiffBundle> {
   if (identity.backend === "ssh") {
+    const ssh = identity.ssh;
+    if (!ssh) {
+      return bundle;
+    }
     return enrichTurnBundleWithAgentReport(pi, bundle, {
       currentRepoPatchForPath: async ({ repoRoot, repoRelPath }) => {
         try {
-          const { value } = await withReconnectedSshHelper(pi, identity, (helper) =>
-            helper.patchForPath({ repoRoot, repoRelPath }),
-          );
-          return value;
+          return await getRemotePatchForPath(ssh.session, repoRoot, repoRelPath);
         } catch {
           return "";
         }
@@ -143,11 +113,8 @@ export async function applyReversePatch(
   patchText: string,
 ): Promise<{ ok: boolean; strategyUsed: "direct" | "3way" | null; output: string }> {
   if (identity.backend === "ssh") {
-    // WARNING: This call mutates the remote working tree.
-    // Do not auto-retry on reconnect; it is not safe/idempotent.
-    const helper = await getSharedSshHelperClient(pi);
-    if (!helper) throw new Error("SSH backend unavailable: missing --ssh flags");
-    return helper.applyReverse({ repoRoot: identity.repoRoot, patchText, strategy: "auto" });
+    const ssh = requireSshIdentity(identity);
+    return applyRemoteReverse(ssh.session, identity.repoRoot, patchText, "auto");
   }
 
   // Local backend uses existing git apply implementation in rejected-hunks.ts.
@@ -157,6 +124,59 @@ export async function applyReversePatch(
     return { ok: false, strategyUsed: null, output: result.stderr.trim() || result.stdout.trim() || "git status failed" };
   }
   return { ok: true, strategyUsed: null, output: "" };
+}
+
+export async function buildDiffReviewDebugReport(pi: ExtensionAPI, localCwd: string): Promise<string> {
+  const lines: string[] = [
+    "[pi-diff-review debug]",
+    `local cwd: ${localCwd}`,
+  ];
+
+  try {
+    const localIdentity = await resolveLocalRepoIdentity(pi, localCwd);
+    const localBundle = await getLocalWorkspaceBundle(pi, localIdentity.repoRoot);
+    lines.push(`local repo root: ${localIdentity.repoRoot}`);
+    lines.push(`local behavior: ${summarizeBundle(localBundle)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    lines.push(`local behavior: error (${message})`);
+  }
+
+  const ssh = await resolveDiffReviewSshIdentity(localCwd).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    lines.push(`remote behavior: error (${message})`);
+    return null;
+  });
+
+  if (!ssh) {
+    if (!lines.some((line) => line.startsWith("remote behavior:"))) {
+      lines.push("remote behavior: no active pi-ssh session");
+    }
+    return lines.join("\n");
+  }
+
+  const portSuffix = ssh.connection.port && ssh.connection.port !== 22 ? `:${ssh.connection.port}` : "";
+  lines.push(`remote target: ${ssh.connection.remote}${portSuffix}`);
+  lines.push(`mapped remote cwd: ${ssh.remoteCwd}`);
+  lines.push(`remote repo root: ${ssh.repoRoot}`);
+  lines.push(`remote scope key: ${ssh.scopeKey}`);
+
+  try {
+    const remoteBundle = await getWorkspaceBundle(pi, {
+      backend: "ssh",
+      repoRoot: ssh.repoRoot,
+      scopeKey: ssh.scopeKey,
+      allowRepoRootWrites: false,
+      repoLabel: ssh.repoLabel,
+      ssh,
+    });
+    lines.push(`remote behavior: ${summarizeBundle(remoteBundle)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    lines.push(`remote behavior: error (${message})`);
+  }
+
+  return lines.join("\n");
 }
 
 let sshReverseApplyConsent: boolean | null = null;
@@ -171,5 +191,4 @@ export function setSshReverseApplyConsent(value: boolean): void {
 
 export function disposeDiffReviewSshBackend(): void {
   sshReverseApplyConsent = null;
-  disposeSharedSshHelperClient();
 }

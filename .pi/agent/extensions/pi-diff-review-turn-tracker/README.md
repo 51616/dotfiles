@@ -2,11 +2,17 @@
 
 Always-loaded helper for `/diff-review` phase 14.
 
-It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes turn artifacts under the first writable location in this order:
+It watches the current agent turn, captures first-touch baselines for agent-touched repo paths, and writes turn artifacts under the first writable location in this order.
 
-- `/tmp/pi/sessions/--<repoRoot>--/diff-review/turns/`
-- `~/.pi/agent/sessions/--<repoRoot>--/diff-review/turns/`
-- `<repoRoot>/.pi/diff-review/turns/`
+When `pi-ssh` is active, the tracker now reads the active `PiSshSession` from `pi-ssh/lib/pi-ssh-session-runtime.ts`, maps local tool paths onto the remote workspace through that shared session contract, and captures remote file baselines/finals without its own SSH helper process.
+
+Artifacts still land under the first writable location in this order:
+
+- `/tmp/pi/sessions/--<scopeKey>--/diff-review/turns/`
+- `~/.pi/agent/sessions/--<scopeKey>--/diff-review/turns/`
+- `<repoRoot>/.pi/diff-review/turns/` (local backend only)
+
+For local turns, `scopeKey === repoRoot`. For SSH turns, `scopeKey` is `ssh:<remote>[:port]:<repoRoot>`, so artifacts stay partitioned by remote target and the repo-local fallback is disabled.
 
 Files written there:
 
