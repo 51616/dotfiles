@@ -4,8 +4,8 @@ import path from "node:path";
 import type { TUI } from "@mariozechner/pi-tui";
 import {
   compareAndWriteRepoPath,
+  inspectRepoPathForStage,
   readRepoPath,
-  statRepoPath,
   type DiffReviewSshIdentity,
 } from "../../lib/pi-diff-review-ssh.ts";
 import { resolveDiffReviewRootForWrite } from "./diff-review-paths.ts";
@@ -133,8 +133,20 @@ export async function editRemoteFileViaLocalStage({
   lineTargeted: boolean;
   openEditor?: typeof openExternalEditorPath;
 }): Promise<SshStagedEditorResult> {
-  const remoteStat = await statRepoPath(ssh.session, ssh.repoRoot, repoRelPath);
-  if (remoteStat.exists && typeof remoteStat.sizeBytes === "number" && remoteStat.sizeBytes > MAX_STAGED_EDIT_BYTES) {
+  const remoteProbe = await inspectRepoPathForStage(ssh.session, ssh.repoRoot, repoRelPath);
+  if (!remoteProbe.exists) {
+    throw new Error(`Remote file no longer exists: ${repoRelPath}`);
+  }
+  if (remoteProbe.isSymlink) {
+    throw new Error(`Refusing to stage a symlinked remote file over SSH edit: ${repoRelPath}`);
+  }
+  if (!remoteProbe.isFile) {
+    throw new Error(`Refusing to stage a non-file remote path over SSH edit: ${repoRelPath}`);
+  }
+  if ((remoteProbe.linkCount ?? 0) > 1) {
+    throw new Error(`Refusing to stage a hardlinked remote file over SSH edit: ${repoRelPath}`);
+  }
+  if (typeof remoteProbe.sizeBytes === "number" && remoteProbe.sizeBytes > MAX_STAGED_EDIT_BYTES) {
     throw new Error(`Remote file is too large to stage locally (> ${MAX_STAGED_EDIT_BYTES} bytes): ${repoRelPath}`);
   }
 

@@ -250,13 +250,14 @@ test("editRemoteFileViaLocalStage refuses oversized staged edits and preserves t
   );
 });
 
-test("editRemoteFileViaLocalStage refuses symlink targets and preserves the staged copy", async () => {
+test("editRemoteFileViaLocalStage refuses symlink targets before opening the editor", async () => {
   const remoteRoot = makeRemoteRepo("pi-diff-review-ssh-stage-symlink-");
   const targetPath = path.join(remoteRoot, "src", "tracked.ts");
   const linkedPath = path.join(remoteRoot, "src", "linked.ts");
   fs.renameSync(targetPath, linkedPath);
   fs.symlinkSync(linkedPath, targetPath);
   const ssh = makeIdentity(remoteRoot);
+  let opened = false;
 
   await assert.rejects(
     () => editRemoteFileViaLocalStage({
@@ -265,26 +266,25 @@ test("editRemoteFileViaLocalStage refuses symlink targets and preserves the stag
       sessionId: `session-${Date.now()}-symlink`,
       repoRelPath: "src/tracked.ts",
       lineTargeted: false,
-      openEditor: ({ filePath }) => {
-        fs.writeFileSync(filePath, "export const remote = 4;\n", "utf8");
+      openEditor: () => {
+        opened = true;
         return { status: 0 };
       },
     }),
-    (error) => {
-      assert.match(String(error?.message ?? error), /Refusing to overwrite a symlinked remote file/);
-      assert.equal(fs.lstatSync(targetPath).isSymbolicLink(), true);
-      assert.equal(fs.existsSync(error?.stagePath), true);
-      return true;
-    },
+    /Refusing to stage a symlinked remote file over SSH edit/,
   );
+
+  assert.equal(opened, false);
+  assert.equal(fs.lstatSync(targetPath).isSymbolicLink(), true);
 });
 
-test("editRemoteFileViaLocalStage refuses hardlinked targets and preserves the staged copy", async () => {
+test("editRemoteFileViaLocalStage refuses hardlinked targets before opening the editor", async () => {
   const remoteRoot = makeRemoteRepo("pi-diff-review-ssh-stage-hardlink-");
   const targetPath = path.join(remoteRoot, "src", "tracked.ts");
   const hardlinkPath = path.join(remoteRoot, "src", "linked.ts");
   fs.linkSync(targetPath, hardlinkPath);
   const ssh = makeIdentity(remoteRoot);
+  let opened = false;
 
   await assert.rejects(
     () => editRemoteFileViaLocalStage({
@@ -293,18 +293,16 @@ test("editRemoteFileViaLocalStage refuses hardlinked targets and preserves the s
       sessionId: `session-${Date.now()}-hardlink`,
       repoRelPath: "src/tracked.ts",
       lineTargeted: false,
-      openEditor: ({ filePath }) => {
-        fs.writeFileSync(filePath, "export const remote = 5;\n", "utf8");
+      openEditor: () => {
+        opened = true;
         return { status: 0 };
       },
     }),
-    (error) => {
-      assert.match(String(error?.message ?? error), /Refusing to overwrite a hardlinked remote file/);
-      assert.ok(fs.statSync(targetPath).nlink > 1);
-      assert.equal(fs.existsSync(error?.stagePath), true);
-      return true;
-    },
+    /Refusing to stage a hardlinked remote file over SSH edit/,
   );
+
+  assert.equal(opened, false);
+  assert.ok(fs.statSync(targetPath).nlink > 1);
 });
 
 test("editRemoteFileViaLocalStage fails closed when the remote baseline drifts during editing", async () => {

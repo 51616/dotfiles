@@ -42,14 +42,15 @@ async stat(remotePath, signal) {
 }
 ```
 
-- `pi-diff-review-tui/lib/ssh-staged-editor.ts` and `lib/pi-diff-review-ssh.ts` — stages SSH edits locally, allocates a fresh recovery-safe stage path, refuses binary/symlink/hardlink targets, preserves execute bits, and fails closed through one remote compare-and-write step (happy / no-op / conflict scenarios)
+- `pi-diff-review-tui/lib/ssh-staged-editor.ts` and `lib/pi-diff-review-ssh.ts` — stages SSH edits locally, preflights remote paths before staging, allocates a fresh recovery-safe stage path, refuses binary/symlink/hardlink targets, preserves execute bits, and fails closed through one remote compare-and-write step (happy / no-op / conflict scenarios)
 
 ```text
-const stagePath = await resolveWritableStagePath(resolveSshEditorStagePath(...));
-assertTextLike(baseline.bytes, repoRelPath);
+const remoteProbe = await inspectRepoPathForStage(...);
+if (remoteProbe.isSymlink) throw new Error("Refusing to stage a symlinked remote file...");
+if ((remoteProbe.linkCount ?? 0) > 1) throw new Error("Refusing to stage a hardlinked remote file...");
 ...
+const stagePath = await resolveWritableStagePath(resolveSshEditorStagePath(...));
 const writeResult = await compareAndWriteRepoPath(... baseline.bytes, stagedBytes);
-if (writeResult.symlink || writeResult.hardlink) throw new SshStagedEditorError(...);
 if (!writeResult.ok) {
   return { uploaded: false, conflict: true, stagePath, ... };
 }
@@ -71,15 +72,16 @@ try {
 }
 ```
 
-- `pi-diff-review-tui/test/backend-ssh.test.mjs`, `pi-diff-review-tui/test/ssh-staged-editor.test.mjs`, `pi-diff-review-tui/test/app.test.mjs`, and `pi-ssh/test/session-runtime.test.mjs` — proved persistent text helper usage, stderr suppression for parse-critical git calls, stdout-only stat parsing, staged edit safety, recovery-path uniqueness, binary/symlink/hardlink refusal, mode preservation, and clean editor failure reporting
+- `pi-diff-review-tui/test/backend-ssh.test.mjs`, `pi-diff-review-tui/test/ssh-staged-editor.test.mjs`, `pi-diff-review-tui/test/app.test.mjs`, and `pi-ssh/test/session-runtime.test.mjs` — proved persistent text helper usage, stderr suppression for parse-critical git calls, stdout-only stat parsing, staged edit safety, recovery-path uniqueness, preflight symlink/hardlink refusal before the editor opens, mode preservation, and clean editor failure reporting
 
 ```text
 assert.ok(counters.execText >= 3);
 assert.equal(counters.execCapture, 0);
 assert.equal(counters.execTextCommands.every((command) => command.includes("2>/dev/null")), true);
 ...
-await assert.rejects(... /Refusing to overwrite a symlinked remote file/);
-await assert.rejects(... /Refusing to overwrite a hardlinked remote file/);
+await assert.rejects(... /Refusing to stage a symlinked remote file over SSH edit/);
+await assert.rejects(... /Refusing to stage a hardlinked remote file over SSH edit/);
+assert.equal(opened, false);
 assert.equal(fs.statSync(targetPath).mode & 0o777, 0o755);
 assert.notEqual(result.stagePath, originalStagePath);
 ...

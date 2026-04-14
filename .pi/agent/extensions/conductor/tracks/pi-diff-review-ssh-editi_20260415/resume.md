@@ -12,14 +12,14 @@ Track id: `pi-diff-review-ssh-editi_20260415`
 - Evidence (optional): [./evidence/](./evidence/)
 
 ## Current state
-Track complete. `PiSshSession` now exposes a text-oriented `execText()` helper, and `repoRoot()` / `exists()` use that low-latency path when the session provides it. `stat()` intentionally stays on stdout-only `execCapture()` so JSON parsing does not depend on PTY-clean output. `pi-ssh/index.ts` wires `execText()` to the persistent remote shell path. `pi-diff-review` remote git/text commands use the persistent text helper for stdin-free structured probes, with stderr suppressed on parse-critical git calls; exact-byte file reads/writes, `stat()`, and patch-stdin reverse-apply stay on the safe capture path. SSH edit mode is enabled: `e` / `g` stage the selected remote file locally, allocate a fresh stage path if an older recovery copy exists, refuse binary/symlink/hardlink targets, preserve executable bits on writeback, and write changes back only through one remote compare-and-write step against the original baseline. Conflict/drift leaves the staged local file in place and warns the user. Docs and `lat-md` are updated. Full targeted verification passed, `lat` checks passed, a real SSH verification against `gcp_slurm_sakana_eu-pi-agent` succeeded, repeated Codex review no longer surfaced code-level major issues, `/reload` was scheduled, and the path-scoped implementation commit is in git history under `feat(pi-diff-review): harden ssh staged editing and latency`.
+Track complete. `PiSshSession` now exposes a text-oriented `execText()` helper, and `repoRoot()` / `exists()` use that low-latency path when the session provides it. `stat()` intentionally stays on stdout-only `execCapture()`, and the new stage-preflight repo-path inspect also uses `execCapture()` because its JSON contract is parse-critical. `pi-ssh/index.ts` wires `execText()` to the persistent remote shell path. `pi-diff-review` remote git/text commands use the persistent text helper for stdin-free structured probes, with stderr suppressed on parse-critical git calls; exact-byte file reads/writes, `stat()`, stage-preflight inspect, and patch-stdin reverse-apply stay on the safe capture path. SSH edit mode is enabled: `e` / `g` stage the selected remote file locally, allocate a fresh stage path if an older recovery copy exists, refuse binary/symlink/hardlink targets before the editor opens, preserve executable bits on writeback, and write changes back only through one remote compare-and-write step against the original baseline. Conflict/drift leaves the staged local file in place and warns the user. Docs and `lat-md` are updated. Focused and full targeted verification passed after the final preflight follow-up, repeated Codex review no longer surfaced major code-level issues, and `/reload` is queued for the updated live extensions.
 
 ## Active phase / task
 - Phase: Complete
 - Task: None
 
 ## Last completed step
-- Committed the finished path-scoped implementation and queued `/reload` for the updated live extensions
+- Closed the final preflight symlink/hardlink follow-up, queued `/reload`, and committed the completion-sync changes without touching `startup-demo/index.ts`
 
 ## Progress log
 - 2026-04-15: Created Conductor track `pi-diff-review-ssh-editi_20260415`
@@ -31,7 +31,9 @@ Track complete. `PiSshSession` now exposes a text-oriented `execText()` helper, 
 - 2026-04-15: Added/updated regression coverage in `pi-ssh/test/session-runtime.test.mjs`, `pi-diff-review-tui/test/backend-ssh.test.mjs`, `pi-diff-review-tui/test/ssh-staged-editor.test.mjs`, and `pi-diff-review-tui/test/app.test.mjs`
 - 2026-04-15: Updated `pi-diff-review-tui/README.md`, `pi-ssh/README.md`, `pi-ssh/extension-spec.md`, `lat-md/pi-diff-review-tui.md`, `lat-md/pi-ssh.md`, and `lat-md/tests.md`
 - 2026-04-15: Verified the change set with targeted/full diff-review + pi-ssh tests, repeated `lat` checks, and a real SSH staged-edit verification script under `/tmp/pi-work`
-- 2026-04-15: Ran repeated Codex review loops and fixed the reported major issues until code-level major findings stopped appearing
+- 2026-04-15: Ran repeated Codex review loops and fixed the reported major issues until code-level major findings stopped appearing in the committed slice
+- 2026-04-15: After commit `da724ee`, Codex found one more real safety issue: symlink/hardlink refusal happened too late (after staging)
+- 2026-04-15: Closed that follow-up by adding a preflight repo-path inspect before staging, moving the inspect path onto stdout/stderr-separated `execCapture()`, updating the staged-editor tests to prove the editor never opens for symlink/hardlink targets, and re-verifying the full targeted suite
 
 ## Accepted behaviors currently in scope
 - SSH `e`/`g` open a locally staged copy of the remote file, not a direct remote path
@@ -55,26 +57,27 @@ Track complete. `PiSshSession` now exposes a text-oriented `execText()` helper, 
 - The staged editor helper hashes file bytes and performs one remote compare-and-write step instead of storing a separate metadata sidecar or doing a separate pre-write re-read; behavior is aligned with the updated spec
 
 ## Blockers / risks
-- PTY-backed persistent shell output must stay clearly scoped as text-only in docs/review
-- The staged editor path intentionally leaves staged local files behind on drift/conflict; review should confirm that this UX is clear enough
+- No known blockers remain for this track
+- Assumption: the remote host and checkout are user-controlled, not hostile. The staged editor now refuses ordinary symlink/hardlink targets before staging, but it does not claim adversarial race-proof nofollow reads across an actively hostile remote filesystem
 
 ## Latest review outcome
 - Status: pass
 - Findings / fixes:
   - fixed unhandled SSH editor failures by surfacing workflow errors through notifications
   - moved staged SSH writeback to one remote compare-and-write step and kept `stat()` on stdout-only capture
-  - added size guards, binary refusal, executable-mode preservation, recovery-safe unique stage paths, and explicit symlink/hardlink refusal
+  - added size guards, binary refusal, executable-mode preservation, recovery-safe unique stage paths, and explicit symlink/hardlink refusal before the editor opens
   - hardened parse-critical remote git text commands against PTY/stderr noise by suppressing stderr on stdin-free structured probes
-  - final remaining caution is operational only: use a strict path-scoped commit because the dotfiles worktree has unrelated dirty files outside this track
+  - moved the new stage-preflight inspect helper onto `execCapture()` so its JSON contract is not exposed to PTY-combined output noise
 
 ## Setup / prerequisites
 - Worktree: `~/.pi/agent/extensions/`
 - Git: `git --git-dir=$HOME/.dotfiles --work-tree=$HOME`
+- Remote prerequisites for SSH staged editing: `python3` or `python`
 - Existing unrelated dirty file to avoid: `~/.pi/agent/extensions/startup-demo/index.ts`
 
 ## Where to pick up (next steps)
-- No pending implementation work in this track.
-- If a follow-up issue appears, start a new track from this committed state.
+- No pending work in this track.
+- If a new SSH diff-review issue appears, start a fresh follow-up track from the completed state.
 
 ## Verification commands
 - Full targeted suite:

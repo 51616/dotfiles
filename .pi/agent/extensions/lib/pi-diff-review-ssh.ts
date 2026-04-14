@@ -32,6 +32,24 @@ export type RemoteCompareAndWriteResult = {
   hardlink: boolean;
 };
 
+const REMOTE_REPO_PATH_INSPECT_SCRIPT = String.raw`import json, os, stat, sys
+path = sys.argv[1]
+if not os.path.lexists(path):
+    print(json.dumps({"exists": False, "isFile": False, "isSymlink": False, "linkCount": None, "sizeBytes": None}, separators=(",", ":")))
+    raise SystemExit(0)
+lstat_info = os.lstat(path)
+is_symlink = stat.S_ISLNK(lstat_info.st_mode)
+if is_symlink:
+    print(json.dumps({"exists": True, "isFile": False, "isSymlink": True, "linkCount": None, "sizeBytes": None}, separators=(",", ":")))
+    raise SystemExit(0)
+print(json.dumps({
+    "exists": True,
+    "isFile": stat.S_ISREG(lstat_info.st_mode),
+    "isSymlink": False,
+    "linkCount": int(lstat_info.st_nlink),
+    "sizeBytes": int(lstat_info.st_size),
+}, separators=(",", ":")))`;
+
 const REMOTE_COMPARE_AND_WRITE_SCRIPT = String.raw`import hashlib, json, os, sys, tempfile
 path = sys.argv[1]
 expected_hash = sys.argv[2]
@@ -497,6 +515,75 @@ export async function compareAndWriteRepoPath(
     throw new Error(result.stderr.trim() || result.stdout.trim() || "Remote compare-and-write failed");
   }
   return parseCompareAndWriteResult(result.stdout);
+}
+
+function buildInspectRepoPathCommand(absolutePath: string): string {
+  return [
+    'if command -v python3 >/dev/null 2>&1; then PI_PY=python3',
+    'elif command -v python >/dev/null 2>&1; then PI_PY=python',
+    'else echo "pi-diff-review repo-path inspect requires python3 or python on the remote host" >&2; exit 127',
+    'fi',
+    `"$PI_PY" -c ${shellQuote(REMOTE_REPO_PATH_INSPECT_SCRIPT)} ${shellQuote(absolutePath)}`,
+  ].join("\n");
+}
+
+function parseInspectRepoPathResult(stdout: string): { exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null } {
+  const raw = stdout.trim();
+  if (!raw) {
+    throw new Error("Remote repo-path inspect returned no output");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Remote repo-path inspect returned invalid JSON: ${error.message}`
+        : "Remote repo-path inspect returned invalid JSON",
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Remote repo-path inspect returned a non-object payload");
+  }
+
+  const value = parsed as Record<string, unknown>;
+  return {
+    exists: value.exists === true,
+    isFile: value.isFile === true,
+    isSymlink: value.isSymlink === true,
+    linkCount: typeof value.linkCount === "number" ? value.linkCount : null,
+    sizeBytes: typeof value.sizeBytes === "number" ? value.sizeBytes : null,
+  };
+}
+
+export async function inspectRepoPathForStage(
+  session: PiSshSession,
+  repoRoot: string,
+  repoRelPathInput: string,
+): Promise<{ exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null }> {
+  const repoRelPath = validateRepoRelPath(repoRelPathInput);
+  if (!repoRelPath) throw new Error("Invalid repo_rel_path");
+  const absolutePath = path.posix.join(repoRoot, repoRelPath);
+  const result = await session.execCapture(buildInspectRepoPathCommand(absolutePath), {
+    timeoutSeconds: 30,
+  });
+  const stdout = normalizeText(result.stdout);
+  const stderr = normalizeText(result.stderr);
+  if (result.aborted || result.timedOut) {
+    throwExecFailure("remote repo-path inspect failed", {
+      stdout,
+      stderr,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      aborted: result.aborted,
+    });
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(stderr.trim() || stdout.trim() || "Remote repo-path inspect failed");
+  }
+  return parseInspectRepoPathResult(stdout);
 }
 
 export async function statRepoPath(
