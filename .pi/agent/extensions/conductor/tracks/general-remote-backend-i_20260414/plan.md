@@ -12,6 +12,76 @@
 > - note which behavior/scenario each snippet satisfies
 > - keep it lean: snippets, not whole files
 
+## Planned API shape (draft)
+
+Default target unless implementation reveals a cleaner equivalent:
+
+- module: `pi-ssh/lib/pi-ssh-session-runtime.ts`
+- getter: `getActivePiSshSession(): PiSshSession | null`
+- internal setter/clear helpers for `pi-ssh` runtime ownership only
+- main type: `PiSshSession`
+
+Planned `PiSshSession` surface:
+- `getConnectionInfo()`
+- `createReadOps(signal?)`
+- `createWriteOps(signal?)`
+- `createEditOps(signal?)`
+- `createBashOps()`
+- `getRemoteContext(signal?)`
+- `mapLocalPathToRemote(localPath)`
+- `execCapture(command, options?)`
+- `exists(remotePath, signal?)`
+- `stat(remotePath, signal?)`
+
+The public surface should stay small. Expose narrow helpers, not the whole internal transport unless a current consumer needs it.
+
+## Behavior → planned tests
+
+### Behavior 1: no active `pi-ssh` session means local behavior
+- Planned proof:
+  - existing `skill-uri/test/backend-runtime.test.mjs` adapted to the new `pi-ssh` session runtime import surface
+  - existing self-checkpointing local-path behavior in `self-checkpointing/test/checkpoint-probe.test.mjs` kept green
+
+### Behavior 2: `skill-uri` delegates non-skill workspace reads through the active `pi-ssh` session
+- Planned proof:
+  - update `skill-uri/test/backend-runtime.test.mjs` to register/set a fake active SSH session and assert non-skill reads come from session-provided read ops
+
+### Behavior 3: `run_skill_script` keeps using remote staging/execution through the active `pi-ssh` session
+- Planned proof:
+  - keep `skill-uri/test/run-skill-script.test.mjs` green
+  - add or update a focused case proving remote session context is consumed from the new `pi-ssh` session runtime
+
+### Behavior 4: `self-checkpointing` still detects SSH mode through `pi-ssh` session data and validates remote checkpoints correctly
+- Planned proof:
+  - update `self-checkpointing/test/checkpoint-probe.test.mjs` to import the SSH connection/session types from `pi-ssh/lib/pi-ssh-session-runtime.ts`
+  - preserve the case that maps SSH connection info to remote checkpoint probing
+
+### Behavior 5: pending resume still respects remote-only checkpoints
+- Planned proof:
+  - keep `self-checkpointing/test/pending-resume.test.mjs` green
+
+### Behavior 6: local→remote workspace path mapping is exposed and correct for consumers
+- Planned proof:
+  - add `pi-ssh/test/session-runtime.test.mjs` with focused mapping cases for:
+    - local cwd path mapped to remote cwd
+    - local home path mapped to remote home
+    - already-remote absolute path passed through only where intended by the current mapper contract
+
+### Behavior 7: exact one-shot SSH exec capture preserves stdout, stderr, and exit code semantics
+- Planned proof:
+  - add `pi-ssh/test/session-runtime.test.mjs` with a fake exec/capture dependency proving:
+    - stdout and stderr stay separate
+    - nonzero exit codes survive
+    - helper is suitable for probe-style consumers instead of PTY-shell streaming
+
+### Behavior 8: shared exists/stat helper supports remote artifact validation
+- Planned proof:
+  - add `pi-ssh/test/session-runtime.test.mjs` with focused cases for:
+    - existing remote file
+    - missing remote file
+    - mtime propagation for freshness checks
+  - if self-checkpointing migrates to these helpers directly, expand `self-checkpointing/test/checkpoint-probe.test.mjs` to prove the real consumer path
+
 ## Change evidence (paths + snippets)
 
 Append entries as you go. Suggested format:
@@ -34,43 +104,58 @@ Default (Option A): capture only key checkpoints:
 - fix applied
 - final verification
 
-## Phase 1: Scope / impact alignment
-- [ ] Task: Confirm the approved spec captures the required acceptance criteria, expected behaviors, and scenario examples
-- [ ] Task: Identify affected modules / files / boundaries
-- [ ] Task: Choose the verification approach for each behavior slice
-- [ ] Task: Resolve all remaining ambiguity before implementation starts
+## Phase 1: Interface design and extraction boundary
+- [ ] Task: Finalize the `PiSshSession` public API shape from the draft above
+- [ ] Task: Decide which existing `pi-ssh/index.ts` helpers move into `pi-ssh-session-runtime.ts` versus stay internal
+- [ ] Task: Decide whether self-checkpointing keeps its own SSH probe implementation or should use the new shared exists/stat/exec helpers directly
+- [ ] Task: Confirm the runtime ownership model is singleton session state, not provider registration
+- [ ] Task: Record the chosen API and migration boundary in Change evidence
 
-## Phase 2: Behavior-driven implementation
-- [ ] Task: Identify the next behavior slice from the approved scenarios
-- [ ] Task: Write failing tests first when feasible for the current behavior slice (only tests that prove an approved behavior; no testing for its own sake)
-- [ ] Task: Link each new/changed test to an approved behavior/scenario (record mapping in Change evidence; when `lat.md/` exists, prefer `@lat:` refs to a test-spec section per the `lat-md` skill)
-- [ ] Task: Implement the minimum change needed to satisfy the approved behavior
-- [ ] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
-- [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
-- [ ] Task: Refactor while preserving the approved behavior and keeping tests green
-- [ ] Task: Repeat for remaining behavior slices
+## Phase 2: Tests first for the new session contract
+- [ ] Task: Add `pi-ssh/test/session-runtime.test.mjs` for singleton session lifecycle, path mapping, exec capture, and exists/stat helpers
+- [ ] Task: Update `skill-uri/test/backend-runtime.test.mjs` to use the `pi-ssh` session runtime instead of `skill-uri/lib/backend-runtime.ts`
+- [ ] Task: Update `skill-uri/test/run-skill-script.test.mjs` only as needed to prove the new session runtime hookup
+- [ ] Task: Update `self-checkpointing/test/checkpoint-probe.test.mjs` to use the new `pi-ssh` session runtime contract
+- [ ] Task: Keep `self-checkpointing/test/pending-resume.test.mjs` aligned and green
+- [ ] Task: Link each new/changed test to the approved behaviors in Change evidence
 
-## Phase 3: Verification
-- [ ] Task: Run targeted automated verification for touched behavior slices
-- [ ] Task: Run the smallest meaningful repo checks (tests / lint / typecheck / build) for touched areas
-- [ ] Task (when `lat.md/` exists): Run `lat check` (use `lat --dir <subproject-root> check` when working in a subtree that has its own `lat.md/`; follow the `lat-md` skill)
-- [ ] Task: Perform manual verification for user-visible or operational behavior (if relevant)
-- [ ] Task (optional): If `./evidence/showboat.md` exists, run `uvx showboat verify ./evidence/showboat.md` (or `showboat verify ...`)
+## Phase 3: Implementation
+- [ ] Task: Implement `pi-ssh/lib/pi-ssh-session-runtime.ts`
+- [ ] Task: Refactor `pi-ssh/index.ts` to publish/clear the active session through the new runtime module
+- [ ] Task: Expose narrow helpers for path mapping, exact exec capture, and exists/stat without leaking unnecessary transport internals
+- [ ] Task: Migrate `skill-uri/index.ts` and any helper modules to consume `getActivePiSshSession()`
+- [ ] Task: Migrate `self-checkpointing` checkpoint discovery/probing code to consume the `pi-ssh` session runtime directly
+- [ ] Task: Remove or retire `skill-uri/lib/backend-runtime.ts` and update imports/docs accordingly
+- [ ] Task: Update Change evidence for each behavior slice
 
-## Phase 4: Review
+## Phase 4: Verification
+- [ ] Task: Run `node --test pi-ssh/test/session-runtime.test.mjs`
+- [ ] Task: Run targeted `skill-uri` verification:
+  - `node --test skill-uri/test/backend-runtime.test.mjs skill-uri/test/run-skill-script.test.mjs skill-uri/test/skill-uris.test.mjs`
+- [ ] Task: Run targeted `self-checkpointing` verification:
+  - `node --test self-checkpointing/test/checkpoint-probe.test.mjs self-checkpointing/test/pending-resume.test.mjs self-checkpointing/test/footer-handler.test.mjs self-checkpointing/test/compaction-ui.test.mjs`
+- [ ] Task: Run relevant `pi-ssh` regression checks that could catch collateral damage:
+  - `node --test pi-ssh/test/remote-context.test.mjs pi-ssh/test/tool-signal-forwarding.test.mjs pi-ssh/test/abort-recovery.test.mjs`
+- [ ] Task: Run lattice verification for the extension workspace:
+  - `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all`
+- [ ] Task: Perform one manual reasoning pass over SSH-only behavior changes and note whether any live-session E2E check is still warranted
+
+## Phase 5: Review
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios
-- [ ] Task: Confirm every new/changed test maps to an approved behavior/scenario (delete or rewrite anything that doesn’t)
+- [ ] Task: Confirm every new/changed test maps to an approved behavior/scenario
 - [ ] Task: Review implementation against the approved `plan.md` and note any scope drift
-- [ ] Task: Ensure **Change evidence** is sufficient for precise review (paths + snippets map to scenarios)
-- [ ] Task: Run `codex-review.sh` with the relevant `spec.md`, `plan.md`, `resume.md`, and Change evidence context
+- [ ] Task: Ensure Change evidence is sufficient for precise review
+- [ ] Task: Run `codex-review.sh` with `spec.md`, `plan.md`, `resume.md`, Change evidence, and the touched files
 - [ ] Task: Fix straightforward review findings and rerun targeted verification if needed
 - [ ] Task: Record review outcome in `resume.md` (`pass`, `pass with minor notes`, or `fail`)
 
-## Phase 5: Completion sync
+## Phase 6: Completion sync
 - [ ] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
-- [ ] Task (when `lat.md/` exists): Append/update test specs in `lat.md/tests.md` (or the relevant module’s `lat.md/tests.md`) and ensure each new/changed test has a corresponding `@lat:` reference (follow the `lat-md` skill)
-- [ ] Task: Best-effort sync project docs (`project.md`, `tech-stack.md`, `workflow.md`) if the track changed them
+- [ ] Task: Update `lat-md/pi-ssh.md`, `lat-md/tests.md`, and any other touched lattice docs to describe the new `pi-ssh` session interface
+- [ ] Task: Update `pi-ssh/README.md`, `pi-ssh/extension-spec.md`, `skill-uri/README.md`, and `self-checkpointing` docs where the shared contract changed
+- [ ] Task: Best-effort sync project docs (`project.md`, `tech-stack.md`, `workflow.md`) if the completed track changed them materially
 - [ ] Task: Mark track complete in `conductor/tracks.md`
 
 ## Notes
-- 
+- Default implementation preference: keep the shared session API tight and explicit; avoid exposing raw transport unless a real consumer needs it.
+- Default testing preference: add focused `pi-ssh` session-runtime unit tests for the new helpers, and keep consumer tests anchored on actual behaviors rather than duplicating helper internals.

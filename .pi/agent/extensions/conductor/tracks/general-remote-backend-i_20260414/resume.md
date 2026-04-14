@@ -15,17 +15,18 @@ Track id: `general-remote-backend-i_20260414`
 The extension workspace audit is done at a high level. The current shared SSH contract lives in `skill-uri/lib/backend-runtime.ts`, `pi-ssh` registers into it, `skill-uri` consumes it directly, and `self-checkpointing` imports it only for backend discovery. The spec now narrows scope deliberately: this will become a documented `pi-ssh`-owned session interface, not a general remote-backend abstraction.
 
 ## Active phase / task
-- Phase: Spec approval
-- Task: Review and refine `spec.md` before writing `plan.md` or code
+- Phase: Plan approval
+- Task: Review and refine `plan.md` test and migration slices before code changes
 
 ## Last completed step
-- Drafted the initial track spec and project-context docs from the extension workspace audit
-- Revised the spec to an SSH-only `pi-ssh` session interface, dropped multi-provider logic, and added planned helpers for path mapping, exact exec capture, and file exists/stat probing
+- Drafted the behavior-driven implementation and test plan
 
 ## Progress log
 - 2026-04-14: Audited `package.json`, `lat-md/extensions.md`, `lat-md/tests.md`, `pi-ssh`, `skill-uri`, and `self-checkpointing` runtime/test files relevant to remote backend sharing
 - 2026-04-14: Created Conductor track `general-remote-backend-i_20260414`
-- 2026-04-14: Drafted `spec.md` for a neutral shared remote backend interface
+- 2026-04-14: Drafted the initial spec and project-context docs from the extension workspace audit
+- 2026-04-14: Revised the spec to an SSH-only `pi-ssh` session interface, dropped multi-provider logic, and added planned helpers for path mapping, exact exec capture, and file exists/stat probing
+- 2026-04-14: Drafted `plan.md` with targeted regression coverage for `pi-ssh`, `skill-uri`, and `self-checkpointing`
 
 ## Accepted behaviors currently in scope
 Pending user approval. The current draft keeps these behaviors in scope:
@@ -56,12 +57,14 @@ Pending user approval. The current draft keeps these behaviors in scope:
 - Git: `git --git-dir=$HOME/.dotfiles --work-tree=$HOME`
 
 ## Where to pick up (next steps)
-1) Review and approve or edit `spec.md`
-2) After approval, draft `plan.md` with concrete migration and verification steps for the `pi-ssh` session runtime
-3) Implement the session runtime, migrate consumers, and run targeted regression tests
+1) Review and approve or edit `plan.md`
+2) After approval, implement `pi-ssh/lib/pi-ssh-session-runtime.ts` and migrate consumers in small slices
+3) Run targeted regression tests for `pi-ssh`, `skill-uri`, and `self-checkpointing` after each meaningful slice
 
 ## Verification commands
-- Spec stage: read `conductor/tracks/general-remote-backend-i_20260414/spec.md`
+- Planning stage:
+  - `sed -n '1,260p' /home/tan/.pi/agent/extensions/conductor/tracks/general-remote-backend-i_20260414/spec.md`
+  - `sed -n '1,320p' /home/tan/.pi/agent/extensions/conductor/tracks/general-remote-backend-i_20260414/plan.md`
 - Audit references:
   - `sed -n '1,220p' /home/tan/.pi/agent/extensions/skill-uri/lib/backend-runtime.ts`
   - `sed -n '1540,1585p' /home/tan/.pi/agent/extensions/pi-ssh/index.ts`
