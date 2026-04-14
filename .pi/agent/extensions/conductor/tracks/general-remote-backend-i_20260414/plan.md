@@ -1,4 +1,4 @@
-# Track Plan: general remote backend interface
+# Track Plan: shared pi-ssh session interface
 
 > Status markers: `[ ]` not started, `[~]` in progress, `[x]` done
 >
