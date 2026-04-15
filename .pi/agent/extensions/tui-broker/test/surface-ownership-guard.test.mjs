@@ -20,8 +20,10 @@ const ALLOWED_EDITOR_OWNERS = new Set([
   "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/index.ts",
 ]);
 
-function astGrepPaths(pattern) {
-  const stdout = execFileSync("ast-grep", ["--lang", "ts", "--pattern", pattern, ...SEARCH_ROOTS], {
+const PI_FFF_INDEX = "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/index.ts";
+
+function astGrepPaths(pattern, roots = SEARCH_ROOTS) {
+  const stdout = execFileSync("ast-grep", ["--lang", "ts", "--pattern", pattern, ...roots], {
     encoding: "utf8",
   });
 
@@ -44,4 +46,11 @@ test("only approved local extensions call ctx.ui.setFooter directly", () => {
 test("only approved local extensions call ctx.ui.setEditorComponent directly", () => {
   const paths = astGrepPaths("ctx.ui.setEditorComponent($X)");
   assert.deepEqual(paths, [...ALLOWED_EDITOR_OWNERS].sort());
+});
+
+test("pi-fff keeps the broker interop handoff in its entrypoint", () => {
+  assert.deepEqual(astGrepPaths("applyFffEditorMode($X)", [PI_FFF_INDEX]), [PI_FFF_INDEX]);
+  assert.deepEqual(astGrepPaths("isTuiBrokerInstalled()", [PI_FFF_INDEX]), [PI_FFF_INDEX]);
+  assert.deepEqual(astGrepPaths("registerTuiBrokerAutocompleteProviderWrapper($X)", [PI_FFF_INDEX]), [PI_FFF_INDEX]);
+  assert.deepEqual(astGrepPaths("requestTuiBrokerEditorReinstall()", [PI_FFF_INDEX]), [PI_FFF_INDEX]);
 });

@@ -14,6 +14,8 @@ Behavior notes:
 
 Notes:
 - pi core stays unpatched; direct surface ownership is a local convention enforced by tests for the curated extension set, not a global runtime block
+- `pi-fff` is the main known package interop case. When broker is active, `pi-fff` must stay on the broker autocomplete-wrapper + editor-reinstall path instead of replacing the editor directly.
+- The concrete package patch point is `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/index.ts`. The broker-side tripwire for that contract lives in `tui-broker/test/interop.test.mjs`.
 
 Test with:
 

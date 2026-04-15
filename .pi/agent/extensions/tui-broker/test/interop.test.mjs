@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import tuiBroker from "../index.ts";
 import doNotStop from "../../do-not-stop/index.ts";
+import { applyFffEditorMode } from "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/editor-mode.ts";
 import {
   __resetTuiBrokerRuntimeForTests,
+  getTuiBrokerRuntimeSnapshot,
   isTuiBrokerInstalled,
   registerTuiBrokerAutocompleteProviderWrapper,
   registerTuiBrokerFooterPathProvider,
   requestTuiBrokerEditorReinstall,
+  unregisterTuiBrokerAutocompleteProviderWrapper,
 } from "../lib/runtime.ts";
 import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-not-stop-runtime.ts";
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
@@ -105,8 +108,9 @@ function createFakeCtx(options = {}) {
   };
 }
 
-function createEditorInstance(ctx) {
-  const editorFactory = ctx.calls.find((entry) => entry.type === "editor")?.value;
+function createEditorInstance(ctx, position = "first") {
+  const editorCalls = ctx.calls.filter((entry) => entry.type === "editor");
+  const editorFactory = (position === "last" ? editorCalls.at(-1) : editorCalls[0])?.value;
   assert.equal(typeof editorFactory, "function");
 
   return editorFactory(
@@ -262,6 +266,60 @@ test("tui-broker applies registered autocomplete-provider wrappers", async () =>
   editor.setAutocompleteProvider(baseProvider);
 
   assert.deepEqual(wrappedProvider, { provider: baseProvider, wrapped: true });
+});
+
+test("tui-broker keeps editor ownership when pi-fff uses broker composition hooks", async () => {
+  __resetTuiBrokerRuntimeForTests();
+  __resetDoNotStopRuntimeStoreForTests();
+
+  const pi = createFakePi();
+  tuiBroker(pi);
+
+  const ctx = createFakeCtx();
+  for (const handler of pi.events.get("session_start") ?? []) {
+    await handler({}, ctx);
+  }
+
+  let wrappedProvider = null;
+  const createWrappedProvider = (provider) => {
+    wrappedProvider = { provider, wrapped: true };
+    return wrappedProvider;
+  };
+
+  applyFffEditorMode({
+    mode: "both",
+    setEditorComponent: (factory) => ctx.ui.setEditorComponent(factory),
+    createEditorFactory: () => ({ constructor: { name: "FffEditor" } }),
+    broker: {
+      installed: true,
+      registerWrapper: () => registerTuiBrokerAutocompleteProviderWrapper("pi-fff", createWrappedProvider),
+      unregisterWrapper: () => unregisterTuiBrokerAutocompleteProviderWrapper("pi-fff"),
+      requestReinstall: () => requestTuiBrokerEditorReinstall(),
+    },
+  });
+
+  const editorCalls = ctx.calls.filter((entry) => entry.type === "editor");
+  assert.equal(editorCalls.length, 2);
+
+  const finalEditor = createEditorInstance(ctx, "last");
+  assert.equal(finalEditor.constructor.name, "ContextUsageEditor");
+
+  const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
+  assert.deepEqual(snapshot.autocompleteWrappers, ["pi-fff"]);
+
+  const baseProvider = {
+    getSuggestions() {
+      return null;
+    },
+    applyCompletion() {
+      return null;
+    },
+  };
+
+  finalEditor.setAutocompleteProvider(baseProvider);
+
+  assert.deepEqual(wrappedProvider, { provider: baseProvider, wrapped: true });
+  assert.match(finalEditor.render(60).at(-1) ?? "", /12\.2%\/272k/);
 });
 
 test("tui-broker renders the context usage label into the editor bottom border", async () => {
