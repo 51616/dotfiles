@@ -1,0 +1,238 @@
+From 3eb23b9412ec5bec755015ca4a3281844d7fe0aa Mon Sep 17 00:00:00 2001
+From: pi <pi@local>
+Date: Thu, 9 Apr 2026 18:17:00 +0900
+Subject: [PATCH] fix(coding-agent): run before_agent_start on triggerTurn
+ custom messages
+
+---
+ .../coding-agent/src/core/agent-session.ts    | 65 ++++++++++++++++++-
+ .../src/core/extensions/runner.ts             |  4 ++
+ .../coding-agent/src/core/extensions/types.ts |  9 ++-
+ .../agent-session-model-extension.test.ts     | 64 ++++++++++++++++++
+ 4 files changed, 138 insertions(+), 4 deletions(-)
+
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index 21364666..80cf4308 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -1020,11 +1020,12 @@ export class AgentSession {
+ 		if (currentImages) {
+ 			userContent.push(...currentImages);
+ 		}
+-		messages.push({
++		const userMessage: AgentMessage = {
+ 			role: "user",
+ 			content: userContent,
+ 			timestamp: Date.now(),
+-		});
++		};
++		messages.push(userMessage);
+ 
+ 		// Inject any pending "nextTurn" messages as context alongside the user message
+ 		for (const msg of this._pendingNextTurnMessages) {
+@@ -1038,6 +1039,7 @@ export class AgentSession {
+ 				expandedText,
+ 				currentImages,
+ 				this._baseSystemPrompt,
++				{ source: "user", triggerMessage: userMessage },
+ 			);
+ 			// Add all custom messages from extensions
+ 			if (result?.messages) {
+@@ -1252,7 +1254,64 @@ export class AgentSession {
+ 				this.agent.steer(appMessage);
+ 			}
+ 		} else if (options?.triggerTurn) {
+-			await this.agent.prompt(appMessage);
++			// Start a new LLM turn with the custom message as the trigger.
++			// Important: run the same extension lifecycle as normal prompt() so extensions
++			// can inject messages and/or modify the system prompt.
++			const messages: AgentMessage[] = [appMessage];
++
++			for (const msg of this._pendingNextTurnMessages) {
++				messages.push(msg);
++			}
++			this._pendingNextTurnMessages = [];
++
++			// Normalize content to text + optional images for before_agent_start.
++			let text = "";
++			let images: ImageContent[] | undefined;
++			if (typeof appMessage.content === "string") {
++				text = appMessage.content;
++			} else {
++				const textParts: string[] = [];
++				images = [];
++				for (const part of appMessage.content) {
++					if (part.type === "text") {
++						textParts.push(part.text);
++					} else {
++						images.push(part);
++					}
++				}
++				text = textParts.join("\n");
++				if (images.length === 0) images = undefined;
++			}
++
++			if (this._extensionRunner) {
++				const result = await this._extensionRunner.emitBeforeAgentStart(text, images, this._baseSystemPrompt, {
++					source: "customMessage",
++					triggerMessage: appMessage,
++				});
++
++				// Add all custom messages from extensions
++				if (result?.messages) {
++					for (const msg of result.messages) {
++						messages.push({
++							role: "custom",
++							customType: msg.customType,
++							content: msg.content,
++							display: msg.display,
++							details: msg.details,
++							timestamp: Date.now(),
++						});
++					}
++				}
++
++				// Apply extension-modified system prompt, or reset to base
++				if (result?.systemPrompt) {
++					this.agent.state.systemPrompt = result.systemPrompt;
++				} else {
++					this.agent.state.systemPrompt = this._baseSystemPrompt;
++				}
++			}
++
++			await this.agent.prompt(messages);
+ 		} else {
+ 			this.agent.state.messages.push(appMessage);
+ 			this.sessionManager.appendCustomMessageEntry(
+diff --git a/packages/coding-agent/src/core/extensions/runner.ts b/packages/coding-agent/src/core/extensions/runner.ts
+index 639cd034..cdd10f8c 100644
+--- a/packages/coding-agent/src/core/extensions/runner.ts
++++ b/packages/coding-agent/src/core/extensions/runner.ts
+@@ -12,6 +12,7 @@ import type { ModelRegistry } from "../model-registry.js";
+ import type { SessionManager } from "../session-manager.js";
+ import type {
+ 	BeforeAgentStartEvent,
++	BeforeAgentStartSource,
+ 	BeforeAgentStartEventResult,
+ 	BeforeProviderRequestEvent,
+ 	CompactOptions,
+@@ -783,6 +784,7 @@ export class ExtensionRunner {
+ 		prompt: string,
+ 		images: ImageContent[] | undefined,
+ 		systemPrompt: string,
++		options: { source: BeforeAgentStartSource; triggerMessage: AgentMessage },
+ 	): Promise<BeforeAgentStartCombinedResult | undefined> {
+ 		const ctx = this.createContext();
+ 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
+@@ -800,6 +802,8 @@ export class ExtensionRunner {
+ 						prompt,
+ 						images,
+ 						systemPrompt: currentSystemPrompt,
++						source: options.source,
++						triggerMessage: options.triggerMessage,
+ 					};
+ 					const handlerResult = await handler(event, ctx);
+ 
+diff --git a/packages/coding-agent/src/core/extensions/types.ts b/packages/coding-agent/src/core/extensions/types.ts
+index a8fa4c05..e1e7f99f 100644
+--- a/packages/coding-agent/src/core/extensions/types.ts
++++ b/packages/coding-agent/src/core/extensions/types.ts
+@@ -576,12 +576,19 @@ export interface BeforeProviderRequestEvent {
+ 	payload: unknown;
+ }
+ 
+-/** Fired after user submits prompt but before agent loop. */
++export type BeforeAgentStartSource = "user" | "customMessage";
++
++/** Fired after a turn-triggering message is prepared but before the agent loop starts. */
+ export interface BeforeAgentStartEvent {
+ 	type: "before_agent_start";
++	/** Normalized text for the triggering message. */
+ 	prompt: string;
+ 	images?: ImageContent[];
+ 	systemPrompt: string;
++	/** The source of the turn-triggering message. */
++	source: BeforeAgentStartSource;
++	/** The actual message that triggered the turn. */
++	triggerMessage: AgentMessage;
+ }
+ 
+ /** Fired when an agent loop starts */
+diff --git a/packages/coding-agent/test/suite/agent-session-model-extension.test.ts b/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
+index 1b207959..66705c86 100644
+--- a/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
++++ b/packages/coding-agent/test/suite/agent-session-model-extension.test.ts
+@@ -301,6 +301,70 @@ describe("AgentSession model and extension characterization", () => {
+ 		).toBe(true);
+ 	});
+ 
++
++	it("fires before_agent_start for triggerTurn custom messages", async () => {
++		let sawSource: string | undefined;
++		let sawTriggerRole: string | undefined;
++		let sawTriggerType: string | undefined;
++		const harness = await createHarness({
++			extensionFactories: [
++				(pi) => {
++					pi.on("before_agent_start", async (event) => {
++						sawSource = event.source;
++						sawTriggerRole = event.triggerMessage.role;
++						sawTriggerType = event.triggerMessage.role === "custom" ? event.triggerMessage.customType : undefined;
++						return {
++							message: {
++								customType: "before-start",
++								content: "injected",
++								display: true,
++								details: { injected: true },
++							},
++							systemPrompt: `${event.systemPrompt}\n\nextra instructions`,
++						};
++					});
++				},
++			],
++		});
++		harnesses.push(harness);
++
++		let providerSystemPrompt = "";
++		let sawInjectedUserMessage = false;
++		let sawTriggerUserMessage = false;
++		harness.setResponses([
++			(context) => {
++				providerSystemPrompt = context.systemPrompt ?? "";
++				sawInjectedUserMessage = context.messages.some(
++					(message) =>
++						message.role === "user" &&
++						typeof message.content !== "string" &&
++						message.content.some((part) => part.type === "text" && part.text === "injected"),
++				);
++				sawTriggerUserMessage = context.messages.some(
++					(message) =>
++						message.role === "user" &&
++						typeof message.content !== "string" &&
++						message.content.some((part) => part.type === "text" && part.text === "trigger custom"),
++				);
++				return fauxAssistantMessage("done");
++			},
++		]);
++
++		await harness.session.sendCustomMessage(
++			{ customType: "trigger", content: "trigger custom", display: true, details: { v: 1 } },
++			{ triggerTurn: true },
++		);
++
++		expect(sawSource).toBe("customMessage");
++		expect(sawTriggerRole).toBe("custom");
++		expect(sawTriggerType).toBe("trigger");
++		expect(providerSystemPrompt).toContain("extra instructions");
++		expect(sawInjectedUserMessage).toBe(true);
++		expect(sawTriggerUserMessage).toBe(true);
++		expect(
++			harness.session.messages.some((message) => message.role === "custom" && message.customType === "before-start"),
++		).toBe(true);
++	});
+ 	it("bindExtensions emits session_start and reload emits session_shutdown then session_start", async () => {
+ 		const lifecycleEvents: string[] = [];
+ 		const harness = await createHarness({
+-- 
+2.53.0
+

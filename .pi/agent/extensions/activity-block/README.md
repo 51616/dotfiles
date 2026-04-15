@@ -4,13 +4,19 @@ This extension depends on **pi core changes** before you use it for the intended
 
 Saved patch artifacts are **versioned by upstream pi-mono tag**.
 
+For **pi-mono v0.67.2** (current default for the live install):
+- `patches/v0.67.2/pi-core-live-transcript-mode.patch`
+- `patches/v0.67.2/pi-core-custom-message-turn-lifecycle.patch`
+- `patches/v0.67.2/pi-core-before-turn-response-lifecycle.patch`
+- `patches/v0.67.2/README.md`
+
 For **pi-mono v0.66.1**:
 - `patches/v0.66.1/pi-core-live-transcript-mode.patch`
 - `patches/v0.66.1/pi-core-custom-message-turn-lifecycle.patch`
 - `patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch`
 - `patches/v0.66.1/README.md`
 
-For **pi-mono v0.65.2** (current default for the installed 0.65.x stack):
+For **pi-mono v0.65.2**:
 - `patches/v0.65.2/pi-core-live-transcript-mode.patch`
 - `patches/v0.65.2/pi-core-custom-message-turn-lifecycle.patch`
 - `patches/v0.65.2/pi-core-before-turn-response-lifecycle.patch`
@@ -24,7 +30,7 @@ Legacy/older patch artifacts (kept for reference; may not apply to v0.65.0):
 - `patches/pi-core-live-transcript-mode.patch`
 - `patches/pi-core-custom-message-turn-lifecycle.patch`
 
-Important: the current extension again relies on `before_turn_response` for per-turn block creation, especially queued steering/follow-up/custom-message turns that must freeze the current block and start a fresh one under the queued trigger message. The saved `v0.66.1`, `v0.65.2`, and `v0.65.0` patch sets now all include that lifecycle patch.
+Important: the current extension again relies on `before_turn_response` for per-turn block creation, especially queued steering/follow-up/custom-message turns that must freeze the current block and start a fresh one under the queued trigger message. The saved `v0.67.2`, `v0.66.1`, `v0.65.2`, and `v0.65.0` patch sets all include that lifecycle patch.
 
 Patch notes:
 - `patches/pi-core-custom-message-turn-lifecycle.md`
@@ -66,7 +72,7 @@ The saved patch files in this directory cover three required concerns for the fu
 - the custom-message trigger fix so queued custom turns preserve the same trigger metadata/lifecycle
 - `before_turn_response` queued-turn boundaries so steering/follow-up/custom-message turns can spawn fresh blocks without extra tool-continuation blocks
 
-The saved `v0.66.1`, `v0.65.2`, and `v0.65.0` patch sets include that full stack today.
+The saved `v0.67.2`, `v0.66.1`, `v0.65.2`, and `v0.65.0` patch sets include that full stack today.
 
 Behavior covered by the total patch:
 - suppress live tool rows and live thinking placeholders while the block owns active-turn UX, while still allowing the stock working spinner row to remain visible
@@ -89,26 +95,27 @@ Extension-side lifecycle note:
 
 ## Apply steps
 
+For the current default saved patch artifacts (**pi-mono v0.67.2**):
+
+```bash
+cd ~/research/pi-mono
+git checkout v0.67.2
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-live-transcript-mode.patch
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-custom-message-turn-lifecycle.patch
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-before-turn-response-lifecycle.patch
+```
+
 For **pi-mono v0.66.1**:
 
 ```bash
 cd ~/research/pi-mono
 git checkout v0.66.1
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.66.1/pi-core-live-transcript-mode.patch
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.66.1/pi-core-custom-message-turn-lifecycle.patch
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-live-transcript-mode.patch
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-custom-message-turn-lifecycle.patch
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch
 ```
 
-For the current default saved patch artifacts (pi-mono **v0.65.2**):
-
-```bash
-cd ~/research/pi-mono
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.65.2/pi-core-live-transcript-mode.patch
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.65.2/pi-core-custom-message-turn-lifecycle.patch
-git apply /home/tan/vault/.pi/extensions/activity-block/patches/v0.65.2/pi-core-before-turn-response-lifecycle.patch
-```
-
-For a clean **v0.66.1** verification pass after applying the patches:
+For a clean **v0.67.2** verification pass after applying the patches:
 
 ```bash
 cd ~/research/pi-mono
@@ -132,8 +139,9 @@ Then start a fresh pi session. `/reload` refreshes extension code, but it does n
 - The extension’s transcript ordering fix (`user -> activity block -> assistant`) is extension-side and is **not** part of the core patch.
 - The extension currently inserts its block from `before_turn_response`, so each real trigger turn gets one block while tool-result continuation turns reuse the current block.
 - The extension must leave historical transcript suppression active across completed turns and keep live suppression active until the active block is finalized on `agent_end`, because tool-result continuations reuse that block.
-- The saved `v0.66.1` patch set now also includes the separate `before_turn_response` lifecycle patch required for queued steering/follow-up/custom-message turn boundaries.
+- The saved `v0.67.2` patch set keeps the same underlying change set as `v0.66.1`; the `before_turn_response` patch was rebased so it applies cleanly after the first two patches on `v0.67.2`.
+- The saved `v0.66.1` patch set also includes the separate `before_turn_response` lifecycle patch required for queued steering/follow-up/custom-message turn boundaries.
 - The same lifecycle patch remains part of the saved `v0.65.2` and `v0.65.0` stacks.
-- Patch generation commits (local `pi-mono v0.65.0` regen branches; the same patch bodies also apply cleanly to `v0.65.2`):
+- Patch generation commits (local `pi-mono v0.65.0` regen branches; the same underlying change set carries forward to `v0.67.2`, `v0.66.1`, and `v0.65.2`):
   - `b7653a4b` `feat(coding-agent): add extension transcript modes`
   - `e321d8ec` `fix(coding-agent): run before_agent_start on triggerTurn custom messages`
