@@ -35,12 +35,12 @@ export type RemoteCompareAndWriteResult = {
 const REMOTE_REPO_PATH_INSPECT_SCRIPT = String.raw`import json, os, stat, sys
 path = sys.argv[1]
 if not os.path.lexists(path):
-    print(json.dumps({"exists": False, "isFile": False, "isSymlink": False, "linkCount": None, "sizeBytes": None}, separators=(",", ":")))
+    print(json.dumps({"exists": False, "isFile": False, "isSymlink": False, "linkCount": None, "sizeBytes": None, "mtimeMs": None}, separators=(",", ":")))
     raise SystemExit(0)
 lstat_info = os.lstat(path)
 is_symlink = stat.S_ISLNK(lstat_info.st_mode)
 if is_symlink:
-    print(json.dumps({"exists": True, "isFile": False, "isSymlink": True, "linkCount": None, "sizeBytes": None}, separators=(",", ":")))
+    print(json.dumps({"exists": True, "isFile": False, "isSymlink": True, "linkCount": None, "sizeBytes": None, "mtimeMs": None}, separators=(",", ":")))
     raise SystemExit(0)
 print(json.dumps({
     "exists": True,
@@ -48,6 +48,7 @@ print(json.dumps({
     "isSymlink": False,
     "linkCount": int(lstat_info.st_nlink),
     "sizeBytes": int(lstat_info.st_size),
+    "mtimeMs": int(lstat_info.st_mtime_ns // 1000000),
 }, separators=(",", ":")))`;
 
 const REMOTE_COMPARE_AND_WRITE_SCRIPT = String.raw`import hashlib, json, os, sys, tempfile
@@ -264,20 +265,15 @@ async function getRemoteNoIndexPatch(session: PiSshSession, repoRoot: string, re
   return result.stdout.trim();
 }
 
-async function getRemoteWorkspacePaths(session: PiSshSession, repoRoot: string): Promise<string[]> {
-  const output = await runRemoteGit(session, repoRoot, ["ls-files", "--cached", "--others", "--exclude-standard"], {
+export async function listRemoteWorkspacePaths(session: PiSshSession, repoRoot: string): Promise<string[]> {
+  const output = await runRemoteGit(session, repoRoot, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
     allowFailure: true,
     timeoutSeconds: 30,
   });
-  const candidates = [...new Set(splitLines(output.stdout))].sort((left, right) => left.localeCompare(right));
-  const existing: string[] = [];
-  for (const repoRelPath of candidates) {
-    const absolutePath = path.posix.join(repoRoot, repoRelPath);
-    if (await session.exists(absolutePath)) {
-      existing.push(repoRelPath);
-    }
+  if (output.exitCode !== 0) {
+    throw new Error(output.stderr.trim() || output.stdout.trim() || `Could not list remote repo workspace paths for ${repoRoot}`);
   }
-  return existing;
+  return [...new Set(output.stdout.split("\0").filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 function resolveRemoteCwdForLocalPath(session: PiSshSession, localCwd: string): string {
@@ -370,7 +366,7 @@ export async function diffWorkspace(session: PiSshSession, repoRoot: string): Pr
     return { head, patchText, nameStatus };
   }
 
-  const workspacePaths = await getRemoteWorkspacePaths(session, repoRoot);
+  const workspacePaths = await listRemoteWorkspacePaths(session, repoRoot);
   const workspacePatches = await Promise.all(workspacePaths.map((repoRelPath) => getRemoteNoIndexPatch(session, repoRoot, repoRelPath)));
   return {
     head: null,
@@ -527,7 +523,7 @@ function buildInspectRepoPathCommand(absolutePath: string): string {
   ].join("\n");
 }
 
-function parseInspectRepoPathResult(stdout: string): { exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null } {
+function parseInspectRepoPathResult(stdout: string): { exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null; mtimeMs: number | null } {
   const raw = stdout.trim();
   if (!raw) {
     throw new Error("Remote repo-path inspect returned no output");
@@ -555,6 +551,7 @@ function parseInspectRepoPathResult(stdout: string): { exists: boolean; isFile: 
     isSymlink: value.isSymlink === true,
     linkCount: typeof value.linkCount === "number" ? value.linkCount : null,
     sizeBytes: typeof value.sizeBytes === "number" ? value.sizeBytes : null,
+    mtimeMs: typeof value.mtimeMs === "number" ? value.mtimeMs : null,
   };
 }
 
@@ -562,7 +559,7 @@ export async function inspectRepoPathForStage(
   session: PiSshSession,
   repoRoot: string,
   repoRelPathInput: string,
-): Promise<{ exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null }> {
+): Promise<{ exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null; mtimeMs: number | null }> {
   const repoRelPath = validateRepoRelPath(repoRelPathInput);
   if (!repoRelPath) throw new Error("Invalid repo_rel_path");
   const absolutePath = path.posix.join(repoRoot, repoRelPath);

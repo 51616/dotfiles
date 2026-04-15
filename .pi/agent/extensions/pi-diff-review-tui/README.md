@@ -16,7 +16,7 @@ Use a blocking editor command here (`nvim`, `vim`, `hx`, `code --wait`, etc.). I
 
 The hot remote git/text path now uses the shared `PiSshSession.execText()` helper, which is backed by `pi-ssh`'s persistent shell session. Exact-byte file reads/writes still use the safer one-shot transfer path.
 
-When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` opens in `t` mode by default and shows the most recent reviewable agent-touched patch for this session before falling back explicitly to `a` (`workspace vs HEAD`).
+When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` opens in `t` mode by default and shows the most recent reviewable repo snapshot patch for this session before falling back explicitly to `a` (`workspace vs HEAD`).
 
 When the tracker metadata also carries an advisory `agent_change_report`, `t` mode keeps runtime-observed rows canonical and may append repo-contained reported-only rows. Those reported-only rows are labeled explicitly, stay inspect-only in v1, and may either show a derived current repo diff or an explicit no-current-diff advisory placeholder.
 
@@ -70,4 +70,4 @@ Changed blocks are accepted by default. If you press `space` on changed diff lin
 
 Manual edits within or near a rejected block can make reverse-apply fail because `git apply -R` is context-sensitive. The intended recovery path is: `r` reload the current review mode, reselect the rejected blocks, then submit again.
 
-When the review source is `t`, the saved markdown and compact prompt also record that the review came from the last turn's agent-touched patch, along with the touched paths, canonical `observed_changed_paths`, and agent-report mismatch counts (and repo keys when the artifact is a combined multi-repo workspace patch).
+When the review source is `t`, the saved markdown and compact prompt also record that the review came from the last turn's repo snapshot patch, along with the touched paths, canonical `observed_changed_paths`, and agent-report mismatch counts (and repo keys when the artifact is a combined multi-repo workspace patch).

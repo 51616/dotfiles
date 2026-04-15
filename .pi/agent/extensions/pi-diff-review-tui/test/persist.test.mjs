@@ -125,19 +125,19 @@ test("phase 14: saveReviewToFile records last-turn source metadata", () => {
     ...sampleInput(repoRoot),
     scope: "t",
     sourceKind: "turn",
-    sourceLabel: "last turn (agent-touched)",
+    sourceLabel: "last turn (repo snapshot)",
     turnMetadata: {
       saved_at: new Date().toISOString(),
       session_id: "session-1",
       turn_id: "turn-14",
-      source: "last_turn_agent_touched",
-      review_source: "last turn (agent-touched)",
+      source: "last_turn_repo_snapshot",
+      review_source: "last turn (repo snapshot)",
       repo_root: repoRoot,
       repo_key: "repo-demo",
       touched_paths: ["src/a.ts", "src/b.ts"],
       observed_changed_paths: ["src/a.ts"],
       has_bash_calls: true,
-      note: "bash calls occurred; non-edit/write file changes may not be fully attributed.",
+      note: "No repo changes were observed during the last turn.",
       agent_change_report: {
         generated_at: new Date().toISOString(),
         generator: "codex/gpt-5.3-codex",
@@ -149,12 +149,12 @@ test("phase 14: saveReviewToFile records last-turn source metadata", () => {
     },
   });
   const saved = fs.readFileSync(result.outputPath, "utf8");
-  assert.match(saved, /- review_source: last turn \(agent-touched\)/);
+  assert.match(saved, /- review_source: last turn \(repo snapshot\)/);
   assert.match(saved, /- source_turn_id: turn-14/);
   assert.match(saved, /- touched_paths: src\/a.ts, src\/b.ts/);
   assert.match(saved, /- observed_changed_paths: src\/a.ts/);
   assert.match(saved, /- agent_report_generator: codex\/gpt-5.3-codex/);
-  assert.match(result.compactPrompt, /Review source: last turn \(agent-touched\)/);
+  assert.match(result.compactPrompt, /Review source: last turn \(repo snapshot\)/);
   assert.match(result.compactPrompt, /Touched paths: src\/a.ts, src\/b.ts/);
   assert.match(result.compactPrompt, /Observed changed paths: src\/a.ts/);
   assert.match(result.compactPrompt, /Agent report: 1 file\(s\), reported-only=0, missing-agent=0/);

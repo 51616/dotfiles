@@ -5,7 +5,7 @@ function uniqueCount(values: string[]): number {
 }
 
 export function buildTurnSourceSummary(metadata: TurnSourceMetadata | null | undefined): string {
-  if (!metadata) return "last turn (agent-touched)";
+  if (!metadata) return "last turn (repo snapshot)";
   const repos = metadata.workspace ? metadata.repos?.map((repo) => repo.repo_key).join(", ") : null;
   const parts = [
     `${metadata.observed_changed_paths.length} observed`,

@@ -62,3 +62,18 @@ export function resolveRepoPath(rawPath: string, cwd: string): { repoRoot: strin
 export function findCwdRepoRoot(cwd: string): string | null {
   return findRepoRoot(cwd);
 }
+
+export function listRepoWorkspacePaths(repoRoot: string): string[] {
+  const result = spawnSync("git", ["-C", repoRoot, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || result.stdout?.trim() || `Could not list repo workspace paths for ${repoRoot}`);
+  }
+
+  return [...new Set(result.stdout
+    .split("\0")
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+}

@@ -56,10 +56,11 @@ function sanitizeTurnMetadata(value: unknown): TurnSourceMetadata | null {
   const turnId = typeof (value as { turn_id?: unknown }).turn_id === "string" ? (value as { turn_id: string }).turn_id : "";
   const reviewSource = typeof (value as { review_source?: unknown }).review_source === "string"
     ? (value as { review_source: string }).review_source
-    : "last turn (agent-touched)";
+    : "last turn (repo snapshot)";
   const repoRoot = typeof (value as { repo_root?: unknown }).repo_root === "string" ? (value as { repo_root: string }).repo_root : "";
   const repoKey = typeof (value as { repo_key?: unknown }).repo_key === "string" ? (value as { repo_key: string }).repo_key : "";
-  const source = (value as { source?: unknown }).source === "last_turn_agent_touched" ? "last_turn_agent_touched" : "last_turn_agent_touched";
+  const rawSource = (value as { source?: unknown }).source;
+  const source = rawSource === "last_turn_repo_snapshot" ? "last_turn_repo_snapshot" : "last_turn_agent_touched";
   if (!sessionId || !turnId || !repoRoot || !repoKey) return null;
 
   const workspace = Boolean((value as { workspace?: unknown }).workspace);

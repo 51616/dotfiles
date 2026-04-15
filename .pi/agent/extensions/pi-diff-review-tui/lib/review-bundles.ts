@@ -6,7 +6,7 @@ import type { DiffReviewRepoIdentity } from "./backend.ts";
 import { getTurnBundleWithAgentReport, getWorkspaceBundle } from "./backend.ts";
 
 export function noTurnDiffMessage(): string {
-  return "No last-turn agent-touched diff was found for this session; falling back to workspace vs HEAD.";
+  return "No last-turn repo snapshot diff was found for this session; falling back to workspace vs HEAD.";
 }
 
 function localIdentityFromRepoRoot(repoRoot: string): DiffReviewRepoIdentity {

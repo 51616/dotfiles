@@ -791,7 +791,7 @@ export class DiffReviewApp implements Component, Focusable {
     }
     if (scope === "t" && !bundle.files.length && !initialize) {
       this.loadingMessage = "";
-      this.callbacks.notify(bundle.turnMetadata?.note || "No last-turn agent-touched diff is available for this session.", "info");
+      this.callbacks.notify(bundle.turnMetadata?.note || "No last-turn repo snapshot diff is available for this session.", "info");
       this.tui.requestRender();
       return;
     }

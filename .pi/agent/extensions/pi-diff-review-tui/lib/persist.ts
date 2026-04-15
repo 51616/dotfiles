@@ -138,7 +138,7 @@ function sourceSummaryLines({
   turnMetadata?: TurnSourceMetadata | null;
 }): string[] {
   if (sourceKind !== "turn") return [];
-  const lines = [`- review_source: ${sourceLabel ?? turnMetadata?.review_source ?? "last turn (agent-touched)"}`];
+  const lines = [`- review_source: ${sourceLabel ?? turnMetadata?.review_source ?? "last turn (repo snapshot)"}`];
   if (turnMetadata) {
     lines.push(`- source_session_id: ${turnMetadata.session_id}`);
     lines.push(`- source_turn_id: ${turnMetadata.turn_id}`);
@@ -301,7 +301,7 @@ export function buildCompactPrompt({
   lines.push(`HEAD at review start: ${headAtStart ?? "(none)"}`);
   lines.push(compactLegend());
   if (sourceKind === "turn") {
-    lines.push(`Review source: ${sourceLabel ?? turnMetadata?.review_source ?? "last turn (agent-touched)"}`);
+    lines.push(`Review source: ${sourceLabel ?? turnMetadata?.review_source ?? "last turn (repo snapshot)"}`);
     if (turnMetadata) {
       lines.push(`Touched paths: ${turnMetadata.touched_paths.length ? turnMetadata.touched_paths.join(", ") : "(none)"}`);
       lines.push(`Observed changed paths: ${turnMetadata.observed_changed_paths.length ? turnMetadata.observed_changed_paths.join(", ") : "(none)"}`);

@@ -8,7 +8,10 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { DiffReviewTurnTracker } from "../lib/tracker.ts";
+import { buildRepoPatch } from "../lib/artifacts.ts";
+import { captureFileImage } from "../lib/files.ts";
 import { safeSessionDirName } from "../lib/diff-review-paths.ts";
+import { MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO } from "../lib/types.ts";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -30,13 +33,96 @@ function turnsRootFor(repo) {
   return path.join(os.tmpdir(), "pi", "sessions", safeSessionDirName(repo), "diff-review", "turns");
 }
 
-test("tracker writes latest and latest-reviewable turn patches for edit/write touches", async () => {
+test("captureFileImage uses a stable non_file omission for directories", () => {
+  const repo = makeRepo();
+  fs.mkdirSync(path.join(repo, "vendor"), { recursive: true });
+  const repoState = { repoRoot: repo, repoKey: "repo-demo", capturedBytes: 0, baselineCapturedBytes: 0, touchedPaths: new Map() };
+
+  const pre = captureFileImage(repoState, path.join(repo, "vendor"), "pre");
+  const post = captureFileImage(repoState, path.join(repo, "vendor"), "post");
+
+  assert.equal(pre.kind, "omitted");
+  assert.equal(post.kind, "omitted");
+  assert.equal(pre.reason, "non_file");
+  assert.equal(post.reason, "non_file");
+});
+
+test("captureFileImage does not follow symlinks or broken symlinks", () => {
+  const repo = makeRepo();
+  const outside = path.join(path.dirname(repo), "outside.txt");
+  fs.writeFileSync(outside, "outside-secret\n", "utf8");
+  fs.symlinkSync(outside, path.join(repo, "src", "escape-link.txt"));
+  fs.symlinkSync(path.join(repo, "missing-target.txt"), path.join(repo, "src", "broken-link.txt"));
+  const repoState = { repoRoot: repo, repoKey: "repo-demo", capturedBytes: 0, baselineCapturedBytes: 0, touchedPaths: new Map() };
+
+  const escaped = captureFileImage(repoState, path.join(repo, "src", "escape-link.txt"), "pre");
+  const broken = captureFileImage(repoState, path.join(repo, "src", "broken-link.txt"), "pre");
+
+  assert.equal(escaped.kind, "omitted");
+  assert.equal(escaped.reason, "non_file");
+  assert.equal(broken.kind, "omitted");
+  assert.equal(broken.reason, "non_file");
+});
+
+test("captureFileImage enforces the total repo snapshot cap", () => {
+  const repo = makeRepo();
+  const smallPath = path.join(repo, "src", "small.txt");
+  fs.writeFileSync(smallPath, "small\n", "utf8");
+  const repoState = {
+    repoRoot: repo,
+    repoKey: "repo-demo",
+    capturedBytes: MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO,
+    baselineCapturedBytes: 0,
+    touchedPaths: new Map(),
+  };
+
+  const image = captureFileImage(repoState, smallPath, "pre");
+  assert.equal(image.kind, "omitted");
+  assert.equal(image.reason, "total_cap_exceeded");
+});
+
+test("buildRepoPatch does not fabricate add/delete diffs when one snapshot side is omitted", () => {
+  const repo = {
+    repoRoot: "/repo",
+    repoKey: "repo-demo",
+    capturedBytes: 0,
+    baselineCapturedBytes: 0,
+    touchedPaths: new Map([
+      ["src/large.ts", {
+        repoRelPath: "src/large.ts",
+        absolutePath: "/repo/src/large.ts",
+        baseline: {
+          kind: "content",
+          exists: true,
+          text: "export const value = 1;\n",
+          sizeBytes: 24,
+          mtimeMs: 1,
+          sha256: "pre",
+        },
+        final: {
+          kind: "omitted",
+          exists: true,
+          reason: "total_cap_exceeded",
+          sizeBytes: 24,
+          mtimeMs: 2,
+        },
+      }],
+    ]),
+  };
+
+  const built = buildRepoPatch(repo);
+  assert.match(built.patchText, /--- a\/src\/large.ts/);
+  assert.match(built.patchText, /\+\+\+ b\/src\/large.ts/);
+  assert.doesNotMatch(built.patchText, /@@/);
+  assert.match(built.patchText, /pi-diff-review: diff omitted/);
+  assert.deepEqual(built.observedChangedPaths, ["src/large.ts"]);
+});
+
+test("tracker writes latest and latest-reviewable turn patches from repo snapshots", async () => {
   const repo = makeRepo();
   const tracker = new DiffReviewTurnTracker();
-  tracker.startTurn({ sessionId: "session-1", turnId: "turn-1", cwd: repo });
-  tracker.touchPath("src/tracked.ts", repo);
+  await tracker.startTurn({ sessionId: "session-1", turnId: "turn-1", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
-  tracker.touchPath("src/new.ts", repo);
   fs.writeFileSync(path.join(repo, "src", "new.ts"), "export const newer = 1;\n", "utf8");
   await tracker.finalize(repo);
 
@@ -57,6 +143,8 @@ test("tracker writes latest and latest-reviewable turn patches for edit/write to
   assert.match(sessionReviewablePatch, /diff --git a\/src\/tracked.ts b\/src\/tracked.ts/);
   assert.equal(latestJson.session_id, "session-1");
   assert.equal(latestJson.turn_id, "turn-1");
+  assert.equal(latestJson.source, "last_turn_repo_snapshot");
+  assert.equal(latestJson.review_source, "last turn (repo snapshot)");
   assert.deepEqual(latestJson.touched_paths, ["src/new.ts", "src/tracked.ts"]);
   assert.deepEqual(latestJson.observed_changed_paths, ["src/new.ts", "src/tracked.ts"]);
   assert.equal(latestReviewableJson.turn_id, "turn-1");
@@ -74,13 +162,34 @@ test("tracker writes latest and latest-reviewable turn patches for edit/write to
 test("tracker counts empty added files in observed_changed_paths even when the patch body is header-only", async () => {
   const repo = makeRepo();
   const tracker = new DiffReviewTurnTracker();
-  tracker.startTurn({ sessionId: "session-empty-add", turnId: "turn-empty-add", cwd: repo });
-  tracker.touchPath("src/empty.txt", repo);
+  await tracker.startTurn({ sessionId: "session-empty-add", turnId: "turn-empty-add", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "empty.txt"), "", "utf8");
   await tracker.finalize(repo);
 
   const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRootFor(repo), "latest.json"), "utf8"));
   assert.deepEqual(latestJson.observed_changed_paths, ["src/empty.txt"]);
+});
+
+test("tracker keeps baseline total-cap omissions stable across later snapshots", async () => {
+  const repo = makeRepo();
+  const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
+  const blob = `${"a".repeat(1023)}\n`.repeat(256);
+  const fileCount = Math.floor(MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO / Buffer.byteLength(blob, "utf8")) + 1;
+  const overflowPath = `src/large-${String(fileCount - 1).padStart(3, "0")}.txt`;
+
+  for (let index = 0; index < fileCount; index += 1) {
+    fs.writeFileSync(path.join(repo, "src", `large-${String(index).padStart(3, "0")}.txt`), blob, "utf8");
+  }
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "large-fixtures");
+
+  await tracker.startTurn({ sessionId: "session-cap", turnId: "turn-cap", cwd: repo });
+  fs.writeFileSync(path.join(repo, "src", "large-000.txt"), `${"b".repeat(1023)}\n`.repeat(256), "utf8");
+  await tracker.finalize(repo);
+
+  const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRootFor(repo), "latest.json"), "utf8"));
+  assert.deepEqual(latestJson.observed_changed_paths, ["src/large-000.txt"]);
+  assert.equal(latestJson.omitted_paths?.[overflowPath], undefined);
 });
 
 test("tracker can disable advisory agent change reports even when a summarizer is provided", async () => {
@@ -95,8 +204,7 @@ test("tracker can disable advisory agent change reports even when a summarizer i
       missing_from_agent_report: [],
     }),
   });
-  tracker.startTurn({ sessionId: "session-disabled", turnId: "turn-disabled", cwd: repo });
-  tracker.touchPath("src/tracked.ts", repo);
+  await tracker.startTurn({ sessionId: "session-disabled", turnId: "turn-disabled", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
   await tracker.finalize(repo);
 
@@ -105,23 +213,20 @@ test("tracker can disable advisory agent change reports even when a summarizer i
   assert.equal("agent_change_report" in latestJson, false);
 });
 
-test("tracker attaches validated advisory agent change reports and computes exact mismatches", async () => {
+test("tracker attaches validated advisory agent change reports for snapshot-observed files", async () => {
   const repo = makeRepo();
   const tracker = new DiffReviewTurnTracker({
-    summarizeArtifact: async ({ metadata }) => ({
+    summarizeArtifact: async () => ({
       generated_at: "2026-03-31T00:00:00.000Z",
       generator: "mock-codex",
       files: [
         { path: "src/tracked.ts", summary: "Updated the exported value." },
-        { path: "docs/notes.md", summary: "Mentioned the change in docs." },
       ],
       missing_from_observed: ["ignored-by-runtime"],
       missing_from_agent_report: ["ignored-by-runtime"],
     }),
   });
-  tracker.startTurn({ sessionId: "session-report", turnId: "turn-report", cwd: repo });
-  tracker.touchPath("src/tracked.ts", repo);
-  tracker.touchPath("docs/notes.md", repo);
+  await tracker.startTurn({ sessionId: "session-report", turnId: "turn-report", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
   await tracker.finalize(repo);
 
@@ -129,9 +234,8 @@ test("tracker attaches validated advisory agent change reports and computes exac
   assert.deepEqual(latestJson.observed_changed_paths, ["src/tracked.ts"]);
   assert.deepEqual(latestJson.agent_change_report.files, [
     { path: "src/tracked.ts", summary: "Updated the exported value." },
-    { path: "docs/notes.md", summary: "Mentioned the change in docs." },
   ]);
-  assert.deepEqual(latestJson.agent_change_report.missing_from_observed, ["docs/notes.md"]);
+  assert.deepEqual(latestJson.agent_change_report.missing_from_observed, []);
   assert.deepEqual(latestJson.agent_change_report.missing_from_agent_report, []);
 });
 
@@ -139,13 +243,11 @@ test("empty later turns do not clobber the last reviewable artifact", async () =
   const repo = makeRepo();
   const tracker = new DiffReviewTurnTracker();
 
-  tracker.startTurn({ sessionId: "session-2", turnId: "turn-1", cwd: repo });
-  tracker.touchPath("src/tracked.ts", repo);
+  await tracker.startTurn({ sessionId: "session-2", turnId: "turn-1", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
   await tracker.finalize(repo);
 
-  tracker.startTurn({ sessionId: "session-2", turnId: "turn-2", cwd: repo });
-  tracker.recordBash("pwd", repo);
+  await tracker.startTurn({ sessionId: "session-2", turnId: "turn-2", cwd: repo });
   await tracker.finalize(repo);
 
   const turnsRoot = turnsRootFor(repo);
@@ -162,11 +264,11 @@ test("empty later turns do not clobber the last reviewable artifact", async () =
   assert.equal(latestPatch, "");
   assert.deepEqual(latestJson.touched_paths, []);
   assert.deepEqual(latestJson.observed_changed_paths, []);
-  assert.match(latestJson.note, /No agent-touched repo paths/);
+  assert.match(latestJson.note, /No repo changes were observed/);
   assert.equal(sessionPatch, "");
   assert.deepEqual(sessionJson.touched_paths, []);
   assert.deepEqual(sessionJson.observed_changed_paths, []);
-  assert.match(sessionJson.note, /No agent-touched repo paths/);
+  assert.match(sessionJson.note, /No repo changes were observed/);
 
   assert.match(latestReviewablePatch, /diff --git a\/src\/tracked.ts b\/src\/tracked.ts/);
   assert.equal(latestReviewableJson.turn_id, "turn-1");
@@ -189,7 +291,7 @@ test("empty observed-diff turns discard invalid non-empty agent reports", async 
       missing_from_agent_report: [],
     }),
   });
-  tracker.startTurn({ sessionId: "session-empty", turnId: "turn-empty", cwd: repo });
+  await tracker.startTurn({ sessionId: "session-empty", turnId: "turn-empty", cwd: repo });
   await tracker.finalize(repo);
 
   const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRootFor(repo), "latest.json"), "utf8"));
@@ -204,8 +306,7 @@ test("tracker fails open when the advisory report step throws", async () => {
       throw new Error("codex exploded");
     },
   });
-  tracker.startTurn({ sessionId: "session-fail-open", turnId: "turn-fail-open", cwd: repo });
-  tracker.touchPath("src/tracked.ts", repo);
+  await tracker.startTurn({ sessionId: "session-fail-open", turnId: "turn-fail-open", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
 
   await tracker.finalize(repo);
@@ -223,8 +324,7 @@ test("tracker finalizes artifacts only after the advisory report step finishes",
   const turnsRoot = turnsRootFor(repo);
 
   const first = new DiffReviewTurnTracker();
-  first.startTurn({ sessionId: "session-race", turnId: "turn-1", cwd: repo });
-  first.touchPath("src/tracked.ts", repo);
+  await first.startTurn({ sessionId: "session-race", turnId: "turn-1", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
   await first.finalize(repo);
 
@@ -242,8 +342,7 @@ test("tracker finalizes artifacts only after the advisory report step finishes",
       };
     },
   });
-  second.startTurn({ sessionId: "session-race", turnId: "turn-2", cwd: repo });
-  second.touchPath("src/tracked.ts", repo);
+  await second.startTurn({ sessionId: "session-race", turnId: "turn-2", cwd: repo });
   fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 3;\n", "utf8");
   await second.finalize(repo);
 

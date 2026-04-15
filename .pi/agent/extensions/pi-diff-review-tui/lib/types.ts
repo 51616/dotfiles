@@ -90,8 +90,8 @@ export interface TurnSourceMetadata {
   saved_at: string;
   session_id: string;
   turn_id: string;
-  source: "last_turn_agent_touched";
-  review_source: "last turn (agent-touched)";
+  source: "last_turn_repo_snapshot" | "last_turn_agent_touched";
+  review_source: "last turn (repo snapshot)" | "last turn (agent-touched)";
   repo_root: string;
   repo_key: string;
   touched_paths: string[];

@@ -37,60 +37,59 @@ export default function piDiffReviewTurnTracker(pi: ExtensionAPI) {
     const sessionId = String(ctx.sessionManager.getSessionId() ?? "").trim();
     const activeSession = getActivePiSshSession();
 
-    if (activeSession) {
-      const sshIdentity = await resolveDiffReviewSshIdentity(ctx.cwd).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[pi-diff-review-turn-tracker] ssh session repo root failed: ${message}`);
-        return null;
-      });
-      if (!sshIdentity) {
-        skipCurrentTurn = true;
-        tracker.reset();
+    try {
+      if (activeSession) {
+        const sshIdentity = await resolveDiffReviewSshIdentity(ctx.cwd).catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`[pi-diff-review-turn-tracker] ssh session repo root failed: ${message}`);
+          return null;
+        });
+        if (!sshIdentity) {
+          skipCurrentTurn = true;
+          tracker.reset();
+          return;
+        }
+
+        skipCurrentTurn = false;
+        await tracker.startTurn({
+          sessionId,
+          turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          cwd: ctx.cwd,
+          ssh: {
+            session: sshIdentity.session,
+            repoRoot: sshIdentity.repoRoot,
+            scopeKey: sshIdentity.scopeKey,
+          },
+        });
         return;
       }
 
       skipCurrentTurn = false;
-      tracker.startTurn({
+      await tracker.startTurn({
         sessionId,
         turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         cwd: ctx.cwd,
-        ssh: {
-          session: sshIdentity.session,
-          repoRoot: sshIdentity.repoRoot,
-          scopeKey: sshIdentity.scopeKey,
-        },
       });
-      return;
-    }
-
-    skipCurrentTurn = false;
-    tracker.startTurn({
-      sessionId,
-      turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      cwd: ctx.cwd,
-    });
-  });
-
-  pi.on("tool_call", async (event, ctx) => {
-    if (skipCurrentTurn) {
-      return;
-    }
-    if (event.toolName === "edit" || event.toolName === "write") {
-      const filePath = typeof event.input?.path === "string" ? event.input.path : "";
-      if (filePath) await tracker.touchPath(filePath, ctx.cwd);
-      return;
-    }
-    if (event.toolName === "bash") {
-      const command = typeof event.input?.command === "string" ? event.input.command : "";
-      if (command) await tracker.recordBash(command, ctx.cwd);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[pi-diff-review-turn-tracker] startTurn failed: ${message}`);
+      skipCurrentTurn = true;
+      tracker.reset();
     }
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    if (!skipCurrentTurn) {
-      await tracker.finalize(ctx.cwd);
+    try {
+      if (!skipCurrentTurn) {
+        await tracker.finalize(ctx.cwd);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[pi-diff-review-turn-tracker] finalize failed: ${message}`);
+      tracker.reset();
+    } finally {
+      pendingTurnId = null;
+      skipCurrentTurn = false;
     }
-    pendingTurnId = null;
-    skipCurrentTurn = false;
   });
 }

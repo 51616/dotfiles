@@ -235,7 +235,7 @@ export function buildBundleFromPatchText({
     fileHashes,
     loadedAt: new Date().toISOString(),
     sourceKind,
-    sourceLabel: sourceKind === "turn" ? "last turn (agent-touched)" : undefined,
+    sourceLabel: sourceKind === "turn" ? "last turn (repo snapshot)" : undefined,
     turnMetadata: turnMetadata ?? null,
   };
 }

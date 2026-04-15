@@ -10,8 +10,8 @@ function repoMetadata(overrides = {}) {
     saved_at: "2026-03-31T00:00:00.000Z",
     session_id: "session-1",
     turn_id: "turn-1",
-    source: "last_turn_agent_touched",
-    review_source: "last turn (agent-touched)",
+    source: "last_turn_repo_snapshot",
+    review_source: "last turn (repo snapshot)",
     repo_root: "/repo",
     repo_key: "repo-demo",
     touched_paths: ["src/a.ts", "src/b.ts"],
@@ -153,7 +153,7 @@ test("buildPersistedAgentChangeReport only accepts paths that survived payload b
 
 test("buildSummarizerPayload keeps input bounded and includes canonical context", () => {
   const payload = buildSummarizerPayload({
-    metadata: repoMetadata({ note: "Agent-touched paths had no net diff at turn end." }),
+    metadata: repoMetadata({ note: "No repo changes were observed during the last turn." }),
     patchText: [
       "diff --git a/src/a.ts b/src/a.ts",
       "index 1111111..2222222 100644",
@@ -170,5 +170,5 @@ test("buildSummarizerPayload keeps input bounded and includes canonical context"
   assert.deepEqual(payload.touched_paths, ["src/a.ts", "src/b.ts"]);
   assert.equal(payload.patch_sections.length, 1);
   assert.match(payload.patch_sections[0].patch, /diff --git a\/src\/a.ts b\/src\/a.ts/);
-  assert.match(payload.note, /no net diff|Agent-touched/);
+  assert.match(payload.note, /No repo changes were observed/);
 });

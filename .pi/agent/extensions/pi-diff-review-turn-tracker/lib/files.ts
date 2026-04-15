@@ -4,15 +4,19 @@ import { TextDecoder } from "node:util";
 import {
   MAX_FILE_BYTES_FOR_CONTENT,
   MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO,
-  MAX_TOUCHED_PATHS_PER_REPO,
   type FileImage,
   type OmitReason,
   type RepoTurnState,
 } from "./types.ts";
-import { readRepoPath, statRepoPath } from "../../lib/pi-diff-review-ssh.ts";
+import { inspectRepoPathForStage, readRepoPath } from "../../lib/pi-diff-review-ssh.ts";
 import type { PiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+type CaptureOptions = {
+  allowContentCapture?: boolean;
+  enforceTotalCap?: boolean;
+};
 
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
@@ -38,10 +42,15 @@ export function chooseOmittedInfo(pre: FileImage, post: FileImage): { reason: Om
   };
 }
 
-export function captureFileImage(repoState: RepoTurnState, absolutePath: string, phase: "pre" | "post"): FileImage {
+export function captureFileImage(
+  repoState: RepoTurnState,
+  absolutePath: string,
+  phase: "pre" | "post",
+  options?: CaptureOptions,
+): FileImage {
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(absolutePath);
+    stat = fs.lstatSync(absolutePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
       return { kind: "missing", exists: false };
@@ -50,11 +59,13 @@ export function captureFileImage(repoState: RepoTurnState, absolutePath: string,
   }
 
   if (!stat.isFile()) {
-    return omitted(phase === "pre" ? "read_error_pre" : "read_error_post", stat);
+    return omitted("non_file", stat);
   }
   if (stat.size > MAX_FILE_BYTES_FOR_CONTENT) return omitted("too_large", stat);
-  if (repoState.touchedPaths.size > MAX_TOUCHED_PATHS_PER_REPO) return omitted("total_cap_exceeded", stat);
-  if (repoState.capturedBytes + stat.size > MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO) return omitted("total_cap_exceeded", stat);
+  if (options?.allowContentCapture === false) return omitted("total_cap_exceeded", stat);
+  if ((options?.enforceTotalCap ?? true) && repoState.capturedBytes + stat.size > MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO) {
+    return omitted("total_cap_exceeded", stat);
+  }
 
   let bytes: Buffer;
   try {
@@ -74,7 +85,10 @@ export function captureFileImage(repoState: RepoTurnState, absolutePath: string,
     return omitted("binary", stat, sha256(bytes));
   }
 
-  repoState.capturedBytes += bytes.length;
+  if (options?.enforceTotalCap ?? true) {
+    repoState.capturedBytes += bytes.length;
+  }
+
   return {
     kind: "content",
     exists: true,
@@ -91,40 +105,42 @@ export async function captureFileImageRemote(
   repoRoot: string,
   repoRelPath: string,
   phase: "pre" | "post",
+  options?: CaptureOptions,
 ): Promise<FileImage> {
   const readErrorReason: OmitReason = phase === "pre" ? "read_error_pre" : "read_error_post";
 
-  let st: { exists: boolean; isFile: boolean; sizeBytes?: number; mtimeMs?: number };
+  let st: { exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null; mtimeMs: number | null };
   try {
-    st = await statRepoPath(session, repoRoot, repoRelPath);
+    st = await inspectRepoPathForStage(session, repoRoot, repoRelPath);
   } catch {
     return omitted(readErrorReason);
   }
 
   if (!st.exists) return { kind: "missing", exists: false };
-  if (!st.isFile) return omitted(readErrorReason);
-
   const size = typeof st.sizeBytes === "number" ? st.sizeBytes : undefined;
+  if (!st.isFile || st.isSymlink) {
+    return { kind: "omitted", exists: true, reason: "non_file", sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
+  }
   if (typeof size === "number" && size > MAX_FILE_BYTES_FOR_CONTENT) {
-    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs };
+    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
   }
-  if (repoState.touchedPaths.size > MAX_TOUCHED_PATHS_PER_REPO) {
-    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs };
+  if (options?.allowContentCapture === false) {
+    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
   }
-  if (typeof size === "number" && repoState.capturedBytes + size > MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO) {
-    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs };
+  if ((options?.enforceTotalCap ?? true) && typeof size === "number" && repoState.capturedBytes + size > MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO) {
+    return { kind: "omitted", exists: true, reason: "total_cap_exceeded", sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
   }
 
   let read: { exists: boolean; bytes: Buffer; truncated: boolean };
   try {
     read = await readRepoPath(session, repoRoot, repoRelPath, MAX_FILE_BYTES_FOR_CONTENT);
   } catch {
-    return { kind: "omitted", exists: true, reason: readErrorReason, sizeBytes: size, mtimeMs: st.mtimeMs };
+    return { kind: "omitted", exists: true, reason: readErrorReason, sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
   }
 
   if (!read.exists) return { kind: "missing", exists: false };
   if (read.truncated) {
-    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs };
+    return { kind: "omitted", exists: true, reason: "too_large", sizeBytes: size, mtimeMs: st.mtimeMs ?? undefined };
   }
 
   const bytes = read.bytes;
@@ -134,7 +150,7 @@ export async function captureFileImageRemote(
       exists: true,
       reason: "binary",
       sizeBytes: bytes.length,
-      mtimeMs: st.mtimeMs,
+      mtimeMs: st.mtimeMs ?? undefined,
       sha256: sha256(bytes),
     };
   }
@@ -148,12 +164,15 @@ export async function captureFileImageRemote(
       exists: true,
       reason: "binary",
       sizeBytes: bytes.length,
-      mtimeMs: st.mtimeMs,
+      mtimeMs: st.mtimeMs ?? undefined,
       sha256: sha256(bytes),
     };
   }
 
-  repoState.capturedBytes += bytes.length;
+  if (options?.enforceTotalCap ?? true) {
+    repoState.capturedBytes += bytes.length;
+  }
+
   return {
     kind: "content",
     exists: true,

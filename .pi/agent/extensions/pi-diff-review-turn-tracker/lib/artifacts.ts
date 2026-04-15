@@ -44,6 +44,20 @@ function postProcessNoIndexPatch(patchText: string, preTree: string, postTree: s
   return next;
 }
 
+function fileImagesEqual(pre: FileImage, post: FileImage): boolean {
+  if (pre.kind !== post.kind) return false;
+  if (pre.kind === "missing" && post.kind === "missing") return true;
+  if (pre.kind === "content" && post.kind === "content") return pre.sha256 === post.sha256;
+  if (pre.kind === "omitted" && post.kind === "omitted") {
+    return pre.exists === post.exists
+      && pre.reason === post.reason
+      && pre.sizeBytes === post.sizeBytes
+      && pre.sha256 === post.sha256
+      && pre.mtimeMs === post.mtimeMs;
+  }
+  return false;
+}
+
 function syntheticPatch(repoRelPath: string, pre: FileImage, post: FileImage): string | null {
   const omission = chooseOmittedInfo(pre, post);
   if (!omission) return null;
@@ -84,8 +98,12 @@ export function buildRepoPatch(repo: RepoTurnState): { patchText: string; observ
     for (const tracked of [...repo.touchedPaths.values()].sort((a, b) => a.repoRelPath.localeCompare(b.repoRelPath))) {
       const pre = tracked.baseline;
       const post = tracked.final ?? { kind: "missing", exists: false };
-      hasMaterialized = writeImageTree(preTree, tracked.repoRelPath, pre) || hasMaterialized;
-      hasMaterialized = writeImageTree(postTree, tracked.repoRelPath, post) || hasMaterialized;
+      if (fileImagesEqual(pre, post)) continue;
+      const canMaterialize = pre.kind !== "omitted" && post.kind !== "omitted";
+      if (canMaterialize) {
+        hasMaterialized = writeImageTree(preTree, tracked.repoRelPath, pre) || hasMaterialized;
+        hasMaterialized = writeImageTree(postTree, tracked.repoRelPath, post) || hasMaterialized;
+      }
       const synthetic = syntheticPatch(tracked.repoRelPath, pre, post);
       const omission = chooseOmittedInfo(pre, post);
       if (omission) omittedPaths[tracked.repoRelPath] = omission;
@@ -96,10 +114,14 @@ export function buildRepoPatch(repo: RepoTurnState): { patchText: string; observ
     if (hasMaterialized) {
       const result = spawnSync(
         "git",
-        ["diff", "--no-index", "-M", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", preTree, postTree],
+        ["diff", "--no-index", "--no-ext-diff", "-M", "--binary", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", preTree, postTree],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
-      if (result.status === 1 || result.status === 0) patch = postProcessNoIndexPatch(result.stdout.trim(), preTree, postTree);
+      if (result.status === 1 || result.status === 0) {
+        patch = postProcessNoIndexPatch(result.stdout.trim(), preTree, postTree);
+      } else {
+        throw new Error(result.stderr.trim() || result.stdout.trim() || "git diff --no-index failed while building the turn snapshot patch");
+      }
     }
 
     const joined = [patch, ...syntheticSections].filter(Boolean).join("\n\n").trim();
@@ -192,8 +214,8 @@ export function writeEmptyLatestArtifact({
     saved_at: savedAt,
     session_id: sessionId,
     turn_id: turnId,
-    source: "last_turn_agent_touched",
-    review_source: "last turn (agent-touched)",
+    source: "last_turn_repo_snapshot",
+    review_source: "last turn (repo snapshot)",
     repo_root: repoRoot,
     repo_key: repoKey,
     touched_paths: [],

@@ -1,8 +1,7 @@
 export const MAX_FILE_BYTES_FOR_CONTENT = 1_048_576;
 export const MAX_TOTAL_BYTES_FOR_CONTENT_PER_REPO = 20_971_520;
-export const MAX_TOUCHED_PATHS_PER_REPO = 500;
 
-export type OmitReason = "too_large" | "binary" | "read_error_pre" | "read_error_post" | "total_cap_exceeded";
+export type OmitReason = "too_large" | "binary" | "non_file" | "read_error_pre" | "read_error_post" | "total_cap_exceeded";
 
 export interface MissingImage {
   kind: "missing";
@@ -64,14 +63,15 @@ export interface RepoTurnState {
   repoKey: string;
   touchedPaths: Map<string, TrackedPathState>;
   capturedBytes: number;
+  baselineCapturedBytes: number;
 }
 
 export interface RepoTurnArtifactMetadata {
   saved_at: string;
   session_id: string;
   turn_id: string;
-  source: "last_turn_agent_touched";
-  review_source: "last turn (agent-touched)";
+  source: "last_turn_repo_snapshot";
+  review_source: "last turn (repo snapshot)";
   repo_root: string;
   repo_key: string;
   touched_paths: string[];
@@ -96,8 +96,8 @@ export interface WorkspaceTurnArtifactMetadata {
   saved_at: string;
   session_id: string;
   turn_id: string;
-  source: "last_turn_agent_touched";
-  review_source: "last turn (agent-touched)";
+  source: "last_turn_repo_snapshot";
+  review_source: "last turn (repo snapshot)";
   repo_root: "workspace";
   repo_key: "workspace";
   touched_paths: string[];
@@ -124,6 +124,5 @@ export interface TurnState {
   turnId: string;
   startedAt: string;
   cwdRepoRoot: string | null;
-  hasBashCalls: boolean;
   repos: Map<string, RepoTurnState>;
 }
