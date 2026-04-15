@@ -10,6 +10,8 @@ This extension is loaded automatically by the vault `./pi` wrapper because it li
 
 When `pi-ssh` is active, `/diff-review` now uses the shared `pi-ssh` session runtime instead of its own SSH flag parser/helper process. Repo-root lookup, remote workspace diffs, remote patch inspection, and remote reverse-apply all go through the active `PiSshSession`.
 
+`/diff-review` now opens the overlay immediately with a loading state instead of blocking on initial bundle resolution. In SSH mode the remote `workspace vs HEAD` bundle is fetched through the persistent remote shell as one batched command so the pre-overlay path does less round-trip work.
+
 In SSH mode, `e` / `g` stage the selected remote file into a local diff-review temp directory, open that local staged copy in your editor, and then sync it back to the remote checkout only if the remote file still matches the pre-edit baseline. The final writeback now happens as one remote compare-and-write step instead of a separate re-read plus write. If the remote file drifted while you were editing, diff-review fails closed, keeps the staged local file, and tells you where it is. If an older recovery copy already exists for the same file/session, diff-review allocates a fresh stage path instead of overwriting it. Binary-looking files and symlink/hardlink targets are refused in this flow.
 
 Use a blocking editor command here (`nvim`, `vim`, `hx`, `code --wait`, etc.). If `$EDITOR` returns immediately, diff-review will inspect the staged file before your edits are finished.
@@ -18,7 +20,7 @@ The hot remote git/text path now uses the shared `PiSshSession.execText()` helpe
 
 When `.pi/extensions/pi-diff-review-turn-tracker/` has a current-session artifact, `/diff-review` opens in `t` mode by default and shows the most recent reviewable repo snapshot patch for this session before falling back explicitly to `a` (`workspace vs HEAD`).
 
-When the tracker metadata also carries an advisory `agent_change_report`, `t` mode keeps runtime-observed rows canonical and may append repo-contained reported-only rows. Those reported-only rows are labeled explicitly, stay inspect-only in v1, and may either show a derived current repo diff or an explicit no-current-diff advisory placeholder.
+When the tracker metadata also carries an advisory `agent_change_report`, `t` mode keeps runtime-observed rows canonical and may append repo-contained reported-only rows. Those reported-only rows are labeled explicitly, stay inspect-only in v1, and may show one of three states: a deferred current-repo lookup, a derived current repo diff loaded on demand for the selected file, or an explicit no-current-diff advisory placeholder.
 
 ## Keybindings
 

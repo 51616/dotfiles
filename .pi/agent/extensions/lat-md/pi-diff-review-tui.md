@@ -4,13 +4,13 @@ This extension owns the interactive `/diff-review` overlay for reviewing repo di
 
 ## Responsibilities
 
-It resolves the repo root, chooses the initial review mode, opens the overlay app, and falls back from `t` (last turn) to `a` (`workspace vs HEAD`) when the session has no usable turn bundle.
+It resolves the repo root and opens the overlay immediately in a loading state. The app then picks the initial review mode, preferring `t` (last turn) and falling back explicitly to `a` (`workspace vs HEAD`) when needed.
 
-When `pi-ssh` is active it consumes the shared `pi-ssh` session runtime for remote repo-root lookup, remote workspace-vs-HEAD diffs, remote current-patch inspection, remote reverse-apply, and SSH edit mode. `/diff-review debug` prints a local-vs-remote backend report instead of opening the overlay.
+When `pi-ssh` is active it consumes the shared `pi-ssh` session runtime for remote repo-root lookup, remote workspace-vs-HEAD diffs, remote current-patch inspection, remote reverse-apply, and SSH edit mode. The remote workspace bundle should be fetched through the shared persistent shell in one batched command rather than a fanout of many git round trips. `/diff-review debug` prints a local-vs-remote backend report instead of opening the overlay.
 
 In SSH mode, external editing stages the remote file into a local diff-review temp path, opens that local copy in the user editor, and only writes it back to the remote checkout if the baseline still matches through a single remote compare-and-write step. Binary-looking files and symlink/hardlink targets should fail closed in this path, drift/conflict should preserve the staged local file, and a later retry should allocate a fresh stage path instead of overwriting the preserved recovery copy. Remote git/text commands should prefer the shared low-latency `PiSshSession.execText()` path; exact-byte file reads still belong on the transport read/write path.
 
-When the last-turn artifact includes advisory agent metadata, it enriches `t` mode with canonical observed rows, optional reported-only rows that still normalize inside the repo/workspace, and explicit mismatch/provenance state for the UI.
+When the last-turn artifact includes advisory agent metadata, it enriches `t` mode with canonical observed rows, optional reported-only rows that still normalize inside the repo/workspace, and explicit mismatch/provenance state for the UI. In SSH mode, reported-only rows should start as deferred inspect-only placeholders and only derive current repo diffs on demand for the selected file.
 
 It is the user-facing entrypoint for diff review, while the turn-history data source is owned by [[pi-diff-review-turn-tracker]].
 
@@ -22,7 +22,7 @@ When last-turn diff data exists, that is the preferred initial mode; when it doe
 
 Runtime-observed turn rows stay canonical. Reported-only rows are advisory only, must be labeled explicitly, and must never silently become the basis for canonical review counts or file-targeting semantics.
 
-If there is no diff in the chosen mode, the command should fail cleanly with a notification instead of opening an empty overlay.
+If there is no diff in the chosen mode, the overlay should close cleanly with a notification instead of leaving an empty review UI behind.
 
 ## Failure and recovery
 
@@ -30,7 +30,7 @@ If repo-root detection fails, surface the error and stop before opening the over
 
 If the turn bundle exists but is empty, prefer an explicit notification and deterministic fallback to `a` rather than guessing another mode silently.
 
-If an advisory reported-only row has no current repo diff, render an explicit inspect-only placeholder instead of fabricating a canonical patch.
+If an advisory reported-only row has no current repo diff, render an explicit inspect-only placeholder instead of fabricating a canonical patch. If the current repo diff has not been loaded yet, label that deferred state explicitly.
 
 ## Change guidance
 

@@ -140,16 +140,21 @@ function placeholderReportedOnlyFile({
   summary,
   resolvedRepoRoot,
   resolvedEditablePath,
+  diffState,
 }: {
   artifactPath: string;
   summary?: string;
   resolvedRepoRoot: string | null;
   resolvedEditablePath: string | null;
+  diffState: "no_current_repo_diff" | "deferred_current_repo_diff";
 }): ParsedFilePatch {
   const fileKey = buildFileKey("M", artifactPath, artifactPath);
+  const statusLine = diffState === "deferred_current_repo_diff"
+    ? "pi-diff-review: current repo diff not loaded yet for this reported-only path"
+    : "pi-diff-review: no current repo diff exists for this path";
   const lines = [
     `pi-diff-review: reported-only advisory file ${artifactPath}`,
-    "pi-diff-review: no current repo diff exists for this path",
+    statusLine,
     ...(summary ? [`pi-diff-review: agent summary ${summary}`] : []),
   ];
   return {
@@ -168,7 +173,7 @@ function placeholderReportedOnlyFile({
     agentMismatch: "missing_from_observed",
     agentSummary: summary ?? null,
     observedChangedPath: artifactPath,
-    reportedOnlyDiffState: "no_current_repo_diff",
+    reportedOnlyDiffState: diffState,
     resolvedRepoRoot,
     resolvedEditablePath,
   };
@@ -180,15 +185,27 @@ async function buildReportedOnlyFile({
   artifactPath,
   summary,
   currentPatch,
+  deferCurrentRepoDiff,
 }: {
   pi: ExtensionAPI;
   metadata: TurnSourceMetadata;
   artifactPath: string;
   summary?: string;
   currentPatch: (input: { repoRoot: string; repoRelPath: string }) => Promise<string>;
+  deferCurrentRepoDiff?: boolean;
 }): Promise<ParsedFilePatch | null> {
   const resolved = resolvedPathForArtifact(metadata, artifactPath);
   if (!resolved) return null;
+
+  if (deferCurrentRepoDiff) {
+    return placeholderReportedOnlyFile({
+      artifactPath,
+      summary,
+      resolvedRepoRoot: resolved.repoRoot,
+      resolvedEditablePath: resolved.repoRelPath,
+      diffState: "deferred_current_repo_diff",
+    });
+  }
 
   const patchText = await currentPatch({ repoRoot: resolved.repoRoot, repoRelPath: resolved.repoRelPath });
   if (!patchText.trim()) {
@@ -197,6 +214,7 @@ async function buildReportedOnlyFile({
       summary,
       resolvedRepoRoot: resolved.repoRoot,
       resolvedEditablePath: resolved.repoRelPath,
+      diffState: "no_current_repo_diff",
     });
   }
 
@@ -208,6 +226,7 @@ async function buildReportedOnlyFile({
       summary,
       resolvedRepoRoot: resolved.repoRoot,
       resolvedEditablePath: resolved.repoRelPath,
+      diffState: "no_current_repo_diff",
     });
   }
 
@@ -223,11 +242,72 @@ async function buildReportedOnlyFile({
   };
 }
 
+export function rebuildTurnBundleFiles(bundle: DiffBundle, files: ParsedFilePatch[]): DiffBundle {
+  const fileHashes = new Map(files.map((file) => [file.fileKey, sha256(JSON.stringify({
+    rawPatch: file.rawPatch,
+    provenance: file.reviewProvenance ?? "observed",
+    agentMismatch: file.agentMismatch ?? null,
+    agentSummary: file.agentSummary ?? null,
+    reportedOnlyDiffState: file.reportedOnlyDiffState ?? null,
+  }))]));
+  const fingerprint = sha256(JSON.stringify({
+    scope: bundle.scope,
+    sourceKind: bundle.sourceKind,
+    turnId: bundle.turnMetadata?.turn_id ?? null,
+    files: [...fileHashes.entries()],
+  }));
+
+  return {
+    ...bundle,
+    files,
+    fileHashes,
+    fingerprint,
+  };
+}
+
+export async function hydrateDeferredReportedOnlyBundleFile(
+  pi: ExtensionAPI,
+  bundle: DiffBundle,
+  fileKey: string,
+  options?: {
+    currentRepoPatchForPath?: (input: { repoRoot: string; repoRelPath: string }) => Promise<string>;
+  },
+): Promise<DiffBundle> {
+  if (bundle.sourceKind !== "turn" || !bundle.turnMetadata) return bundle;
+
+  const fileIndex = bundle.files.findIndex((file) => file.fileKey === fileKey);
+  if (fileIndex < 0) return bundle;
+  const file = bundle.files[fileIndex];
+  if (!file || file.reviewProvenance !== "reported_only" || file.reportedOnlyDiffState !== "deferred_current_repo_diff") {
+    return bundle;
+  }
+
+  const artifactPath = normalizeArtifactPath(file.observedChangedPath ?? file.displayPath);
+  if (!artifactPath) return bundle;
+
+  const currentPatch = options?.currentRepoPatchForPath
+    ? options.currentRepoPatchForPath
+    : ({ repoRoot, repoRelPath }: { repoRoot: string; repoRelPath: string }) => currentRepoPatchForPath(pi, repoRoot, repoRelPath);
+  const hydrated = await buildReportedOnlyFile({
+    pi,
+    metadata: bundle.turnMetadata,
+    artifactPath,
+    summary: file.agentSummary ?? undefined,
+    currentPatch,
+  });
+  if (!hydrated) return bundle;
+
+  const files = bundle.files.slice();
+  files[fileIndex] = hydrated;
+  return rebuildTurnBundleFiles(bundle, files);
+}
+
 export async function enrichTurnBundleWithAgentReport(
   pi: ExtensionAPI,
   bundle: DiffBundle,
   options?: {
     currentRepoPatchForPath?: (input: { repoRoot: string; repoRelPath: string }) => Promise<string>;
+    deferReportedOnlyFiles?: boolean;
   },
 ): Promise<DiffBundle> {
   if (bundle.sourceKind !== "turn" || !bundle.turnMetadata) return bundle;
@@ -274,28 +354,9 @@ export async function enrichTurnBundleWithAgentReport(
       artifactPath,
       summary: summaryByPath.get(artifactPath),
       currentPatch,
+      deferCurrentRepoDiff: options?.deferReportedOnlyFiles === true,
     })),
   )).filter((file): file is ParsedFilePatch => Boolean(file));
 
-  const files = [...observedFiles, ...reportedOnlyFiles];
-  const fileHashes = new Map(files.map((file) => [file.fileKey, sha256(JSON.stringify({
-    rawPatch: file.rawPatch,
-    provenance: file.reviewProvenance ?? "observed",
-    agentMismatch: file.agentMismatch ?? null,
-    agentSummary: file.agentSummary ?? null,
-    reportedOnlyDiffState: file.reportedOnlyDiffState ?? null,
-  }))]));
-  const fingerprint = sha256(JSON.stringify({
-    scope: bundle.scope,
-    sourceKind: bundle.sourceKind,
-    turnId: metadata.turn_id,
-    files: [...fileHashes.entries()],
-  }));
-
-  return {
-    ...bundle,
-    files,
-    fileHashes,
-    fingerprint,
-  };
+  return rebuildTurnBundleFiles(bundle, [...observedFiles, ...reportedOnlyFiles]);
 }

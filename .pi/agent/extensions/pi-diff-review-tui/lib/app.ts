@@ -9,6 +9,7 @@ import { getDiffBundle } from "./review-bundles.ts";
 import {
   applyReversePatch as applyReversePatchViaBackend,
   getSshReverseApplyConsent,
+  hydrateReportedOnlyTurnBundleFile,
   setSshReverseApplyConsent,
   type DiffReviewBackendKind,
   type DiffReviewRepoIdentity,
@@ -83,6 +84,7 @@ export class DiffReviewApp implements Component, Focusable {
     highlighted: Map<number, string>;
   } | null = null;
   private perfEnabled = false;
+  private readonly pendingReportedOnlyHydrations = new Set<string>();
   private readonly workflows: ReturnType<typeof createAppWorkflows>;
   private readonly rendering: ReturnType<typeof createAppRendering>;
   private perfStats: { render: PerfBucket; diffRows: PerfBucket; visibleRows: PerfBucket } = {
@@ -174,6 +176,7 @@ export class DiffReviewApp implements Component, Focusable {
       applyRejectedHunksBeforeSubmit: (submitMode, submitState) => this.applyRejectedHunksBeforeSubmit(submitMode, submitState),
       reloadCurrentScope: () => this.reloadCurrentScope(),
       changeSummary: (state) => this.changeSummary(state),
+      onSelectionChanged: () => this.maybeHydrateCurrentReportedOnlyFile(),
       finish: (result) => this.finish(result),
     });
     this.rendering = createAppRendering({
@@ -242,9 +245,41 @@ export class DiffReviewApp implements Component, Focusable {
       this.revalidateComments(scope);
       this.restoreScopeView(scope, true);
       this.tui.requestRender();
+      this.maybeHydrateCurrentReportedOnlyFile();
       return;
     }
     await this.loadScope(scope, true);
+  }
+
+  async initInitialSelection(loadInitialSelection: () => Promise<{ initialMode: ReviewMode; initialBundle: DiffBundle; notification?: string }>): Promise<void> {
+    this.loadingMessage = "Loading diff…";
+    this.tui.requestRender();
+
+    let selection;
+    try {
+      selection = await loadInitialSelection();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.loadingMessage = "";
+      this.callbacks.notify(`Failed to build initial diff bundle: ${message}`, "error");
+      this.finish({ submitted: false });
+      return;
+    }
+
+    const emptySelectionMessage = selection.notification || "No diff to review in last turn or workspace vs HEAD.";
+    if (selection.notification) {
+      this.callbacks.notify(selection.notification, "info");
+    }
+    if (!selection.initialBundle.files.length) {
+      if (!selection.notification) {
+        this.callbacks.notify(emptySelectionMessage, "info");
+      }
+      this.loadingMessage = "";
+      this.finish({ submitted: false });
+      return;
+    }
+
+    await this.init(selection.initialMode, selection.initialBundle);
   }
 
   invalidate(): void {}
@@ -770,6 +805,54 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffScroll = restoredDiffScroll({ view, restoredRow });
   }
 
+  private maybeHydrateCurrentReportedOnlyFile(): void {
+    if (this.backendKind !== "ssh") return;
+    const state = this.scopeStates.get(this.scope);
+    if (!state || state.bundle.sourceKind !== "turn" || !state.bundle.turnMetadata) return;
+    const file = state.bundle.files[Math.max(0, Math.min(state.bundle.files.length - 1, this.selectedFileIndex))] ?? null;
+    if (!file || file.reviewProvenance !== "reported_only" || file.reportedOnlyDiffState !== "deferred_current_repo_diff") {
+      return;
+    }
+
+    const hydrationKey = `${this.scope}:${state.bundle.fingerprint}:${file.fileKey}`;
+    if (this.pendingReportedOnlyHydrations.has(hydrationKey)) return;
+    this.pendingReportedOnlyHydrations.add(hydrationKey);
+    void this.hydrateReportedOnlyBundleFile(this.scope, state.bundle.fingerprint, file.fileKey, file.displayPath, hydrationKey);
+  }
+
+  private async hydrateReportedOnlyBundleFile(scope: ReviewMode, bundleFingerprint: string, fileKey: string, displayPath: string, hydrationKey: string): Promise<void> {
+    try {
+      const state = this.scopeStates.get(scope);
+      if (!state || state.bundle.fingerprint !== bundleFingerprint) return;
+
+      const nextBundle = await hydrateReportedOnlyTurnBundleFile(this.pi, this.repoIdentity(), state.bundle, fileKey);
+      const current = this.scopeStates.get(scope);
+      if (!current || current.bundle.fingerprint !== bundleFingerprint || nextBundle.fingerprint === current.bundle.fingerprint) {
+        return;
+      }
+
+      current.bundle = nextBundle;
+      current.startFingerprint = nextBundle.fingerprint;
+      current.startFileHashes = new Map(nextBundle.fileHashes);
+      current.lastReloadFingerprint = nextBundle.fingerprint;
+      current.previousFileHashes = new Map(nextBundle.fileHashes);
+      this.syntaxHighlightCache = null;
+      this.rowMarkerCache = null;
+      this.diffRowRenderCache = null;
+      this.diffViewportCache = null;
+      this.revalidateComments(scope);
+      this.tui.requestRender();
+    } catch (error) {
+      const current = this.scopeStates.get(scope);
+      if (current?.bundle.fingerprint === bundleFingerprint) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.callbacks.notify(`Could not load the advisory repo diff for ${displayPath}: ${message}`, "warning");
+      }
+    } finally {
+      this.pendingReportedOnlyHydrations.delete(hydrationKey);
+    }
+  }
+
   private async loadScope(scope: ReviewMode, initialize = false): Promise<void> {
     if (!initialize) this.rememberCurrentViewState();
     this.loadingMessage = `Loading ${scope} diff…`;
@@ -806,6 +889,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.revalidateComments(scope);
     this.restoreScopeView(scope, initialize);
     this.tui.requestRender();
+    this.maybeHydrateCurrentReportedOnlyFile();
   }
 
   private revalidateComments(scope: ReviewMode): void {
@@ -834,7 +918,12 @@ export class DiffReviewApp implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (this.loadingMessage) return;
+    if (this.loadingMessage) {
+      if (data === "q" || data === "\u001b") {
+        this.finish({ submitted: false });
+      }
+      return;
+    }
     const bodyHeight = Math.max(8, Math.floor(this.tui.terminal.rows * 0.8) - 10);
     const action = resolveInputAction({ data, focusMode: this.focusMode, hasFile: !!this.currentFile(), bodyHeight });
 
@@ -916,6 +1005,7 @@ export class DiffReviewApp implements Component, Focusable {
         this.selectedFileIndex = nextIndex;
         this.setCursorToRow(0);
         this.ensureFileVisible(bodyHeight);
+        this.maybeHydrateCurrentReportedOnlyFile();
         this.tui.requestRender();
         return;
       }

@@ -75,6 +75,27 @@ function baseMetadata(repoRoot, overrides = {}) {
   };
 }
 
+async function mountDiffReviewOverlay(factory) {
+  const doneCalls = [];
+  const app = await factory(
+    {
+      terminal: { rows: 40 },
+      requestRender() {},
+      showOverlay() { return { hide() {} }; },
+    },
+    {
+      fg: (_color, text) => text,
+      bg: (_color, text) => text,
+      bold: (text) => text,
+      dim: (text) => text,
+    },
+    {},
+    (result) => doneCalls.push(result),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  return { app, doneCalls };
+}
+
 test("entrypoint declares /diff-review command", () => {
   const filePath = new URL("../index.ts", import.meta.url);
   const source = fs.readFileSync(filePath, "utf8");
@@ -128,7 +149,7 @@ test("entrypoint falls back to workspace vs HEAD with an explicit notification",
         notices.push({ message, type });
       },
       async custom(factory, options) {
-        customCalls.push({ factory, options });
+        customCalls.push({ options, ...(await mountDiffReviewOverlay(factory)) });
       },
       setEditorText() {},
     },
@@ -136,6 +157,7 @@ test("entrypoint falls back to workspace vs HEAD with an explicit notification",
 
   assert.equal(customCalls.length, 1, "workspace fallback should still open the review overlay");
   assert.match(notices[0]?.message ?? "", /falling back to workspace vs HEAD/i);
+  assert.equal(customCalls[0]?.doneCalls.length ?? 0, 0);
 });
 
 test("entrypoint runs debug mode without opening the overlay", async () => {
@@ -184,7 +206,7 @@ test("entrypoint does not open the overlay when neither last-turn nor workspace 
   assert.ok(handler, "diff-review handler should be registered");
 
   const notices = [];
-  let customCalled = false;
+  const customCalls = [];
   await handler([], {
     hasUI: true,
     cwd: repo,
@@ -193,13 +215,15 @@ test("entrypoint does not open the overlay when neither last-turn nor workspace 
       notify(message, type) {
         notices.push({ message, type });
       },
-      async custom() {
-        customCalled = true;
+      async custom(factory, options) {
+        customCalls.push({ options, ...(await mountDiffReviewOverlay(factory)) });
       },
       setEditorText() {},
     },
   });
 
-  assert.equal(customCalled, false);
+  assert.equal(customCalls.length, 1);
+  assert.equal(customCalls[0]?.doneCalls.length, 1);
+  assert.deepEqual(customCalls[0]?.doneCalls[0], { submitted: false });
   assert.match(notices[0]?.message ?? "", /No diff to review in last turn or workspace vs HEAD/i);
 });

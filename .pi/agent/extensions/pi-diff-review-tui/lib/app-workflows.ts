@@ -109,6 +109,7 @@ export interface AppWorkflowContext {
   ) => Promise<ApplyRejectedBeforeSubmitResult | { ok: false }>;
   reloadCurrentScope: () => Promise<void>;
   changeSummary: (state: ScopeState) => { sinceStart: ChangeSummary; sinceLastReload: ChangeSummary };
+  onSelectionChanged?: () => void;
   finish: (result: { submitted: boolean; outputPath?: string }) => void;
 }
 
@@ -257,6 +258,7 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
       if (rowIndex != null) ctx.setCursorToRow(rowIndex);
       ctx.setFocusMode("diff");
       ctx.setPendingRangeSelection(null);
+      ctx.onSelectionChanged?.();
       ctx.requestRender();
     },
 
@@ -623,6 +625,7 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
         ctx.setCursorToRow(0);
       }
       ctx.setFocusMode("diff");
+      ctx.onSelectionChanged?.();
       ctx.requestRender();
     },
   };

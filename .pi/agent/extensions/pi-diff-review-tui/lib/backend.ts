@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { buildBundleFromPatchText, getRepoRoot as getLocalRepoRoot, parseNameStatus } from "./git.ts";
 import { getWorkspaceReviewBundle as getLocalWorkspaceBundle } from "./live-repo-bundle.ts";
 import type { DiffBundle } from "./types.ts";
-import { enrichTurnBundleWithAgentReport } from "./turn-agent-report.ts";
+import { enrichTurnBundleWithAgentReport, hydrateDeferredReportedOnlyBundleFile } from "./turn-agent-report.ts";
 import {
   applyReverse as applyRemoteReverse,
   diffWorkspace as getRemoteWorkspaceDiff,
@@ -83,28 +83,44 @@ export async function getWorkspaceBundle(pi: ExtensionAPI, identity: DiffReviewR
   });
 }
 
+function currentRepoPatchProvider(pi: ExtensionAPI, identity: DiffReviewRepoIdentity) {
+  if (identity.backend === "ssh") {
+    const ssh = identity.ssh;
+    if (!ssh) {
+      return null;
+    }
+    return ({ repoRoot, repoRelPath }: { repoRoot: string; repoRelPath: string }) => getRemotePatchForPath(ssh.session, repoRoot, repoRelPath);
+  }
+
+  return undefined;
+}
+
 export async function getTurnBundleWithAgentReport(
   pi: ExtensionAPI,
   identity: DiffReviewRepoIdentity,
   bundle: DiffBundle,
 ): Promise<DiffBundle> {
+  const currentRepoPatchForPath = currentRepoPatchProvider(pi, identity);
   if (identity.backend === "ssh") {
-    const ssh = identity.ssh;
-    if (!ssh) {
-      return bundle;
-    }
+    if (!currentRepoPatchForPath) return bundle;
     return enrichTurnBundleWithAgentReport(pi, bundle, {
-      currentRepoPatchForPath: async ({ repoRoot, repoRelPath }) => {
-        try {
-          return await getRemotePatchForPath(ssh.session, repoRoot, repoRelPath);
-        } catch {
-          return "";
-        }
-      },
+      currentRepoPatchForPath,
+      deferReportedOnlyFiles: true,
     });
   }
 
-  return enrichTurnBundleWithAgentReport(pi, bundle);
+  return enrichTurnBundleWithAgentReport(pi, bundle, currentRepoPatchForPath ? { currentRepoPatchForPath } : undefined);
+}
+
+export async function hydrateReportedOnlyTurnBundleFile(
+  pi: ExtensionAPI,
+  identity: DiffReviewRepoIdentity,
+  bundle: DiffBundle,
+  fileKey: string,
+): Promise<DiffBundle> {
+  const currentRepoPatchForPath = currentRepoPatchProvider(pi, identity);
+  if (!currentRepoPatchForPath) return bundle;
+  return hydrateDeferredReportedOnlyBundleFile(pi, bundle, fileKey, { currentRepoPatchForPath });
 }
 
 export async function applyReversePatch(

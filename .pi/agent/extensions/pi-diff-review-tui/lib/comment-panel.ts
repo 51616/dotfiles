@@ -131,7 +131,9 @@ function renderFileView(theme: Theme, width: number, height: number, view: Extra
   if (view.file.reviewProvenance === "reported_only") {
     lines.push(theme.fg("warning", view.file.reportedOnlyDiffState === "derived_current_repo_diff"
       ? "Advisory diff: derived from the current repo state, not the canonical last-turn artifact."
-      : "Advisory diff: no current repo diff exists for this reported-only path."));
+      : view.file.reportedOnlyDiffState === "deferred_current_repo_diff"
+        ? "Advisory diff: current repo diff loads on demand for this reported-only path."
+        : "Advisory diff: no current repo diff exists for this reported-only path."));
   } else if (view.file.agentMismatch === "missing_from_agent_report") {
     lines.push(theme.fg("warning", "Agent report missed this canonical observed file."));
   }

@@ -31,6 +31,9 @@ export function diffTitleForFile(file: ParsedFilePatch | null): string {
   if (file.reportedOnlyDiffState === "derived_current_repo_diff") {
     return `${file.displayPath} (reported-only · derived repo diff)`;
   }
+  if (file.reportedOnlyDiffState === "deferred_current_repo_diff") {
+    return `${file.displayPath} (reported-only · loading repo diff on demand)`;
+  }
   return `${file.displayPath} (reported-only · no current repo diff)`;
 }
 

@@ -239,6 +239,120 @@ function mergeNameStatusOutputs(primaryOutput: string, supplementOutput: string)
   return merged.join("\n");
 }
 
+const REMOTE_WORKSPACE_HEAD_START = "__PI_DIFF_REVIEW_REMOTE_HEAD_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_HEAD_END = "__PI_DIFF_REVIEW_REMOTE_HEAD_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_WORKTREE_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_WORKTREE_PATCH_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_WORKTREE_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_WORKTREE_PATCH_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_CACHED_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_CACHED_PATCH_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_CACHED_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_CACHED_PATCH_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_UNTRACKED_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_UNTRACKED_PATCH_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_UNTRACKED_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_UNTRACKED_PATCH_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_START = "__PI_DIFF_REVIEW_REMOTE_WORKTREE_NAME_STATUS_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_END = "__PI_DIFF_REVIEW_REMOTE_WORKTREE_NAME_STATUS_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_CACHED_NAME_STATUS_START = "__PI_DIFF_REVIEW_REMOTE_CACHED_NAME_STATUS_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_CACHED_NAME_STATUS_END = "__PI_DIFF_REVIEW_REMOTE_CACHED_NAME_STATUS_END_7f4d0d6d__";
+const REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_START = "__PI_DIFF_REVIEW_REMOTE_UNTRACKED_NAME_STATUS_START_7f4d0d6d__";
+const REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_END = "__PI_DIFF_REVIEW_REMOTE_UNTRACKED_NAME_STATUS_END_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_WORKTREE_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_PATH_WORKTREE_PATCH_START_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_WORKTREE_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_PATH_WORKTREE_PATCH_END_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_CACHED_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_PATH_CACHED_PATCH_START_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_CACHED_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_PATH_CACHED_PATCH_END_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_UNTRACKED_PATCH_START = "__PI_DIFF_REVIEW_REMOTE_PATH_UNTRACKED_PATCH_START_7f4d0d6d__";
+const REMOTE_SINGLE_PATH_UNTRACKED_PATCH_END = "__PI_DIFF_REVIEW_REMOTE_PATH_UNTRACKED_PATCH_END_7f4d0d6d__";
+
+function extractMarkedSection(output: string, startMarker: string, endMarker: string): string {
+  const start = output.indexOf(startMarker);
+  const end = output.indexOf(endMarker);
+  if (start < 0 || end < 0 || end < start) {
+    const preview = output.trim().split("\n").slice(0, 8).join("\n");
+    const detail = preview ? `; output preview:\n${preview}` : "; output preview: (empty)";
+    throw new Error(`Remote diff output is missing expected markers (${startMarker} .. ${endMarker})${detail}`);
+  }
+  return output.slice(start + startMarker.length, end).replace(/^\n/, "").replace(/\n$/, "");
+}
+
+function buildRemoteWorkspaceBatchCommand(repoRoot: string): string {
+  return [
+    `cd -- ${shellQuote(repoRoot)} || { echo "pi-diff-review remote workspace diff could not cd into ${repoRoot}"; exit 2; }`,
+    'command -v git >/dev/null 2>&1 || { echo "pi-diff-review remote workspace diff requires git on the remote host"; exit 127; }',
+    'git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "pi-diff-review remote workspace diff requires a git worktree"; exit 2; }',
+    "export GIT_PAGER=cat PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true",
+    'head="$(git rev-parse --verify HEAD 2>/dev/null || true)"',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_HEAD_START}'`,
+    'printf "%s\\n" "$head"',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_HEAD_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_WORKTREE_PATCH_START}'`,
+    'if [ -n "$head" ]; then git diff --no-color --find-renames -M --binary "$head" -- || { echo "pi-diff-review remote workspace diff failed while reading worktree changes"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_WORKTREE_PATCH_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_CACHED_PATCH_START}'`,
+    'if [ -n "$head" ]; then git diff --cached --no-color --find-renames -M --binary "$head" -- || { echo "pi-diff-review remote workspace diff failed while reading index changes"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_CACHED_PATCH_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_UNTRACKED_PATCH_START}'`,
+    'if [ -n "$head" ]; then',
+    '  git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r repo_rel_path; do',
+    '    [ -n "$repo_rel_path" ] || continue',
+    '    git diff --no-index --no-color --binary -- /dev/null "$repo_rel_path" 2>/dev/null || true',
+    '  done',
+    'else',
+    '  git ls-files --cached --others --exclude-standard 2>/dev/null | while IFS= read -r repo_rel_path; do',
+    '    [ -n "$repo_rel_path" ] || continue',
+    '    git diff --no-index --no-color --binary -- /dev/null "$repo_rel_path" 2>/dev/null || true',
+    '  done',
+    'fi',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_UNTRACKED_PATCH_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_START}'`,
+    'if [ -n "$head" ]; then git diff --name-status --find-renames -M "$head" -- || { echo "pi-diff-review remote workspace diff failed while reading worktree status"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_CACHED_NAME_STATUS_START}'`,
+    'if [ -n "$head" ]; then git diff --cached --name-status --find-renames -M "$head" -- || { echo "pi-diff-review remote workspace diff failed while reading index status"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_WORKSPACE_CACHED_NAME_STATUS_END}'`,
+    `printf '%s\\n' '${REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_START}'`,
+    "if [ -n \"$head\" ]; then git ls-files --others --exclude-standard 2>/dev/null | sed 's/^/A\\t/'; fi",
+    "if [ -z \"$head\" ]; then git ls-files --cached --others --exclude-standard 2>/dev/null | sed 's/^/A\\t/'; fi",
+    `printf '%s\\n' '${REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_END}'`,
+  ].join("\n");
+}
+
+function parseRemoteWorkspaceBatchOutput(output: string): RemoteWorkspaceDiff {
+  const head = extractMarkedSection(output, REMOTE_WORKSPACE_HEAD_START, REMOTE_WORKSPACE_HEAD_END).trim() || null;
+  const worktreePatch = extractMarkedSection(output, REMOTE_WORKSPACE_WORKTREE_PATCH_START, REMOTE_WORKSPACE_WORKTREE_PATCH_END);
+  const cachedPatch = extractMarkedSection(output, REMOTE_WORKSPACE_CACHED_PATCH_START, REMOTE_WORKSPACE_CACHED_PATCH_END);
+  const untrackedPatch = extractMarkedSection(output, REMOTE_WORKSPACE_UNTRACKED_PATCH_START, REMOTE_WORKSPACE_UNTRACKED_PATCH_END);
+  const worktreeNameStatus = extractMarkedSection(output, REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_START, REMOTE_WORKSPACE_WORKTREE_NAME_STATUS_END);
+  const cachedNameStatus = extractMarkedSection(output, REMOTE_WORKSPACE_CACHED_NAME_STATUS_START, REMOTE_WORKSPACE_CACHED_NAME_STATUS_END);
+  const untrackedNameStatus = extractMarkedSection(output, REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_START, REMOTE_WORKSPACE_UNTRACKED_NAME_STATUS_END);
+  return {
+    head,
+    patchText: [mergePatchTexts(worktreePatch, cachedPatch), untrackedPatch.trim()].filter(Boolean).join("\n").trim(),
+    nameStatus: [mergeNameStatusOutputs(worktreeNameStatus, cachedNameStatus), untrackedNameStatus.trim()].filter(Boolean).join("\n").trim(),
+  };
+}
+
+function buildRemoteSinglePathPatchCommand(repoRoot: string, repoRelPath: string): string {
+  return [
+    `cd -- ${shellQuote(repoRoot)} || { echo "pi-diff-review remote file patch could not cd into ${repoRoot}"; exit 2; }`,
+    'command -v git >/dev/null 2>&1 || { echo "pi-diff-review remote file patch requires git on the remote host"; exit 127; }',
+    'git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "pi-diff-review remote file patch requires a git worktree"; exit 2; }',
+    "export GIT_PAGER=cat PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true",
+    `repo_rel_path=${shellQuote(repoRelPath)}`,
+    'head="$(git rev-parse --verify HEAD 2>/dev/null || true)"',
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_WORKTREE_PATCH_START}'`,
+    'if [ -n "$head" ]; then git diff --no-color --find-renames -M --binary "$head" -- "$repo_rel_path" || { echo "pi-diff-review remote file patch failed while reading worktree changes"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_WORKTREE_PATCH_END}'`,
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_CACHED_PATCH_START}'`,
+    'if [ -n "$head" ]; then git diff --cached --no-color --find-renames -M --binary "$head" -- "$repo_rel_path" || { echo "pi-diff-review remote file patch failed while reading index changes"; exit 3; }; fi',
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_CACHED_PATCH_END}'`,
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_UNTRACKED_PATCH_START}'`,
+    'if [ -n "$head" ] && git ls-files --others --exclude-standard -- "$repo_rel_path" 2>/dev/null | grep -Fx -- "$repo_rel_path" >/dev/null 2>&1; then',
+    '  git diff --no-index --no-color --binary -- /dev/null "$repo_rel_path" 2>/dev/null || true',
+    'fi',
+    'if [ -z "$head" ] && git ls-files --cached --others --exclude-standard -- "$repo_rel_path" 2>/dev/null | grep -Fx -- "$repo_rel_path" >/dev/null 2>&1; then',
+    '  git diff --no-index --no-color --binary -- /dev/null "$repo_rel_path" 2>/dev/null || true',
+    'fi',
+    `printf '%s\\n' '${REMOTE_SINGLE_PATH_UNTRACKED_PATCH_END}'`,
+  ].join("\n");
+}
+
 async function getRemoteHeadHash(session: PiSshSession, repoRoot: string): Promise<string | null> {
   const result = await runRemoteGit(session, repoRoot, ["rev-parse", "--verify", "HEAD"], {
     allowFailure: true,
@@ -341,60 +455,25 @@ export function resolveRemoteRepoPathFromLocalInput(
 }
 
 export async function diffWorkspace(session: PiSshSession, repoRoot: string): Promise<RemoteWorkspaceDiff> {
-  const head = await getRemoteHeadHash(session, repoRoot);
-
-  if (head) {
-    const [headTracked, stagedOnlyTracked, headNameStatus, stagedNameStatus, untrackedPaths] = await Promise.all([
-      runRemoteGit(session, repoRoot, ["diff", "--no-color", "--find-renames", "-M", "--binary", head, "--"], { allowFailure: true, timeoutSeconds: 60 }),
-      runRemoteGit(session, repoRoot, ["diff", "--cached", "--no-color", "--find-renames", "-M", "--binary", head, "--"], { allowFailure: true, timeoutSeconds: 60 }),
-      runRemoteGit(session, repoRoot, ["diff", "--name-status", "--find-renames", "-M", head, "--"], { allowFailure: true, timeoutSeconds: 30 }),
-      runRemoteGit(session, repoRoot, ["diff", "--cached", "--name-status", "--find-renames", "-M", head, "--"], { allowFailure: true, timeoutSeconds: 30 }),
-      getRemoteUntrackedPaths(session, repoRoot),
-    ]);
-
-    const untrackedPatches = await Promise.all(untrackedPaths.map((repoRelPath) => getRemoteNoIndexPatch(session, repoRoot, repoRelPath)));
-    const patchText = [
-      mergePatchTexts(headTracked.stdout, stagedOnlyTracked.stdout),
-      ...untrackedPatches.map((value) => value.trim()).filter(Boolean),
-    ].filter(Boolean).join("\n");
-    const untrackedNameStatus = untrackedPaths.map((repoRelPath) => `A\t${repoRelPath}`).join("\n");
-    const nameStatus = [
-      mergeNameStatusOutputs(headNameStatus.stdout, stagedNameStatus.stdout),
-      untrackedNameStatus,
-    ].filter(Boolean).join("\n");
-
-    return { head, patchText, nameStatus };
-  }
-
-  const workspacePaths = await listRemoteWorkspacePaths(session, repoRoot);
-  const workspacePatches = await Promise.all(workspacePaths.map((repoRelPath) => getRemoteNoIndexPatch(session, repoRoot, repoRelPath)));
-  return {
-    head: null,
-    patchText: workspacePatches.map((value) => value.trim()).filter(Boolean).join("\n"),
-    nameStatus: workspacePaths.map((repoRelPath) => `A\t${repoRelPath}`).join("\n"),
-  };
+  const output = await runRemoteCommand(session, buildRemoteWorkspaceBatchCommand(repoRoot), {
+    allowFailure: false,
+    timeoutSeconds: 90,
+  });
+  return parseRemoteWorkspaceBatchOutput(output.stdout);
 }
 
 export async function patchForPath(session: PiSshSession, repoRoot: string, repoRelPathInput: string): Promise<string> {
   const repoRelPath = validateRepoRelPath(repoRelPathInput);
   if (!repoRelPath) throw new Error("Invalid repo_rel_path");
 
-  const head = await getRemoteHeadHash(session, repoRoot);
-  if (head) {
-    const [headPatch, stagedPatch] = await Promise.all([
-      runRemoteGit(session, repoRoot, ["diff", "--no-color", "--find-renames", "-M", "--binary", head, "--", repoRelPath], { allowFailure: true, timeoutSeconds: 60 }),
-      runRemoteGit(session, repoRoot, ["diff", "--cached", "--no-color", "--find-renames", "-M", "--binary", head, "--", repoRelPath], { allowFailure: true, timeoutSeconds: 60 }),
-    ]);
-    const merged = mergePatchTexts(headPatch.stdout, stagedPatch.stdout).trim();
-    if (merged) return merged;
-  }
-
-  const untracked = await getRemoteUntrackedPaths(session, repoRoot, repoRelPath);
-  if (untracked.includes(repoRelPath)) {
-    return getRemoteNoIndexPatch(session, repoRoot, repoRelPath);
-  }
-
-  return "";
+  const output = await runRemoteCommand(session, buildRemoteSinglePathPatchCommand(repoRoot, repoRelPath), {
+    allowFailure: false,
+    timeoutSeconds: 60,
+  });
+  const worktreePatch = extractMarkedSection(output.stdout, REMOTE_SINGLE_PATH_WORKTREE_PATCH_START, REMOTE_SINGLE_PATH_WORKTREE_PATCH_END);
+  const cachedPatch = extractMarkedSection(output.stdout, REMOTE_SINGLE_PATH_CACHED_PATCH_START, REMOTE_SINGLE_PATH_CACHED_PATCH_END);
+  const untrackedPatch = extractMarkedSection(output.stdout, REMOTE_SINGLE_PATH_UNTRACKED_PATCH_START, REMOTE_SINGLE_PATH_UNTRACKED_PATCH_END);
+  return [mergePatchTexts(worktreePatch, cachedPatch), untrackedPatch.trim()].filter(Boolean).join("\n").trim();
 }
 
 export async function applyReverse(
