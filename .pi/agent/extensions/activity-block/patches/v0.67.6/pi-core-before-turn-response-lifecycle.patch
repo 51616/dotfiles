@@ -1,0 +1,464 @@
+From 061b8a165153319c37c405e32b1404cbdec87bd0 Mon Sep 17 00:00:00 2001
+From: pi <pi@local>
+Date: Fri, 17 Apr 2026 15:23:05 +0900
+Subject: [PATCH] feat(agent): add before_turn_response lifecycle hook
+
+---
+ packages/agent/src/agent-loop.ts   |  59 +++++++--
+ packages/agent/src/agent.ts        |   6 +
+ packages/agent/src/types.ts        |  23 ++++
+ packages/agent/test/agent.test.ts  | 204 ++++++++++++++++++++++++++++-
+ packages/coding-agent/src/index.ts |   4 +
+ 5 files changed, 286 insertions(+), 10 deletions(-)
+
+diff --git a/packages/agent/src/agent-loop.ts b/packages/agent/src/agent-loop.ts
+index 586a1b7d..25920839 100644
+--- a/packages/agent/src/agent-loop.ts
++++ b/packages/agent/src/agent-loop.ts
+@@ -113,7 +113,7 @@ export async function runAgentLoop(
+ 		await emit({ type: "message_end", message: prompt });
+ 	}
+ 
+-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
++	await runLoop(currentContext, newMessages, config, signal, emit, streamFn, prompts);
+ 	return newMessages;
+ }
+ 
+@@ -138,7 +138,7 @@ export async function runAgentLoopContinue(
+ 	await emit({ type: "agent_start" });
+ 	await emit({ type: "turn_start" });
+ 
+-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
++	await runLoop(currentContext, newMessages, config, signal, emit, streamFn, []);
+ 	return newMessages;
+ }
+ 
+@@ -149,6 +149,47 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
+ 	);
+ }
+ 
++async function appendMessages(
++	messages: AgentMessage[],
++	context: AgentContext,
++	newMessages: AgentMessage[],
++	emit: AgentEventSink,
++): Promise<void> {
++	for (const message of messages) {
++		await emit({ type: "message_start", message });
++		await emit({ type: "message_end", message });
++		context.messages.push(message);
++		newMessages.push(message);
++	}
++}
++
++async function runBeforeTurn(
++	context: AgentContext,
++	newMessages: AgentMessage[],
++	config: AgentLoopConfig,
++	signal: AbortSignal | undefined,
++	emit: AgentEventSink,
++	triggerMessages: AgentMessage[],
++): Promise<void> {
++	if (!config.beforeTurn) {
++		return;
++	}
++
++	const result = await config.beforeTurn(
++		{
++			context,
++			triggerMessages: [...triggerMessages],
++		},
++		signal,
++	);
++
++	if (!result?.messages || result.messages.length === 0) {
++		return;
++	}
++
++	await appendMessages(result.messages, context, newMessages, emit);
++}
++
+ /**
+  * Main loop logic shared by agentLoop and agentLoopContinue.
+  */
+@@ -158,7 +199,8 @@ async function runLoop(
+ 	config: AgentLoopConfig,
+ 	signal: AbortSignal | undefined,
+ 	emit: AgentEventSink,
+-	streamFn?: StreamFn,
++	streamFn: StreamFn | undefined,
++	initialTriggerMessages: AgentMessage[],
+ ): Promise<void> {
+ 	let firstTurn = true;
+ 	// Check for steering messages at start (user may have typed while waiting)
+@@ -170,6 +212,8 @@ async function runLoop(
+ 
+ 		// Inner loop: process tool calls and steering messages
+ 		while (hasMoreToolCalls || pendingMessages.length > 0) {
++			const triggerMessages = firstTurn ? [...initialTriggerMessages, ...pendingMessages] : pendingMessages;
++
+ 			if (!firstTurn) {
+ 				await emit({ type: "turn_start" });
+ 			} else {
+@@ -178,15 +222,12 @@ async function runLoop(
+ 
+ 			// Process pending messages (inject before next assistant response)
+ 			if (pendingMessages.length > 0) {
+-				for (const message of pendingMessages) {
+-					await emit({ type: "message_start", message });
+-					await emit({ type: "message_end", message });
+-					currentContext.messages.push(message);
+-					newMessages.push(message);
+-				}
++				await appendMessages(pendingMessages, currentContext, newMessages, emit);
+ 				pendingMessages = [];
+ 			}
+ 
++			await runBeforeTurn(currentContext, newMessages, config, signal, emit, triggerMessages);
++
+ 			// Stream assistant response
+ 			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+ 			newMessages.push(message);
+diff --git a/packages/agent/src/agent.ts b/packages/agent/src/agent.ts
+index 1017239b..3b33cc2b 100644
+--- a/packages/agent/src/agent.ts
++++ b/packages/agent/src/agent.ts
+@@ -20,6 +20,8 @@ import type {
+ 	AgentTool,
+ 	BeforeToolCallContext,
+ 	BeforeToolCallResult,
++	BeforeTurnContext,
++	BeforeTurnResult,
+ 	StreamFn,
+ 	ToolExecutionMode,
+ } from "./types.js";
+@@ -101,6 +103,7 @@ export interface AgentOptions {
+ 	onResponse?: SimpleStreamOptions["onResponse"];
+ 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
+ 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
++	beforeTurn?: (context: BeforeTurnContext, signal?: AbortSignal) => Promise<BeforeTurnResult | undefined>;
+ 	steeringMode?: QueueMode;
+ 	followUpMode?: QueueMode;
+ 	sessionId?: string;
+@@ -175,6 +178,7 @@ export class Agent {
+ 		context: AfterToolCallContext,
+ 		signal?: AbortSignal,
+ 	) => Promise<AfterToolCallResult | undefined>;
++	public beforeTurn?: (context: BeforeTurnContext, signal?: AbortSignal) => Promise<BeforeTurnResult | undefined>;
+ 	private activeRun?: ActiveRun;
+ 	/** Session identifier forwarded to providers for cache-aware backends. */
+ 	public sessionId?: string;
+@@ -197,6 +201,7 @@ export class Agent {
+ 		this.onResponse = options.onResponse;
+ 		this.beforeToolCall = options.beforeToolCall;
+ 		this.afterToolCall = options.afterToolCall;
++		this.beforeTurn = options.beforeTurn;
+ 		this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? "one-at-a-time");
+ 		this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? "one-at-a-time");
+ 		this.sessionId = options.sessionId;
+@@ -421,6 +426,7 @@ export class Agent {
+ 			toolExecution: this.toolExecution,
+ 			beforeToolCall: this.beforeToolCall,
+ 			afterToolCall: this.afterToolCall,
++			beforeTurn: this.beforeTurn,
+ 			convertToLlm: this.convertToLlm,
+ 			transformContext: this.transformContext,
+ 			getApiKey: this.getApiKey,
+diff --git a/packages/agent/src/types.ts b/packages/agent/src/types.ts
+index b1214c9a..9b73fb09 100644
+--- a/packages/agent/src/types.ts
++++ b/packages/agent/src/types.ts
+@@ -93,6 +93,20 @@ export interface AfterToolCallContext {
+ 	context: AgentContext;
+ }
+ 
++/** Context passed to `beforeTurn`. */
++export interface BeforeTurnContext {
++	/** Current agent context for the upcoming assistant response. */
++	context: AgentContext;
++	/** Messages that triggered this response turn. Empty for tool-result continuations. */
++	triggerMessages: AgentMessage[];
++}
++
++/** Result returned from `beforeTurn`. */
++export interface BeforeTurnResult {
++	/** Additional messages to inject before the assistant response is requested. */
++	messages?: AgentMessage[];
++}
++
+ export interface AgentLoopConfig extends SimpleStreamOptions {
+ 	model: Model<any>;
+ 
+@@ -146,6 +160,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
+ 	 */
+ 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+ 
++	/**
++	 * Called before each assistant response turn.
++	 *
++	 * This fires after any trigger messages for the turn have been added to the
++	 * context, but before the provider request is started. Tool-result
++	 * continuations call this with `triggerMessages = []`.
++	 */
++	beforeTurn?: (context: BeforeTurnContext, signal?: AbortSignal) => Promise<BeforeTurnResult | undefined>;
++
+ 	/**
+ 	 * Resolves an API key dynamically for each LLM call.
+ 	 *
+diff --git a/packages/agent/test/agent.test.ts b/packages/agent/test/agent.test.ts
+index 94be88cb..9582fb29 100644
+--- a/packages/agent/test/agent.test.ts
++++ b/packages/agent/test/agent.test.ts
+@@ -1,6 +1,7 @@
+ import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@mariozechner/pi-ai";
++import { Type } from "@sinclair/typebox";
+ import { describe, expect, it } from "vitest";
+-import { Agent } from "../src/index.js";
++import { Agent, type AgentTool } from "../src/index.js";
+ 
+ // Mock stream that mimics AssistantMessageEventStream
+ class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
+@@ -36,6 +37,40 @@ function createAssistantMessage(text: string): AssistantMessage {
+ 	};
+ }
+ 
++function createToolCallAssistantMessage(
++	toolCallId: string,
++	toolName: string,
++	args: Record<string, unknown>,
++): AssistantMessage {
++	return {
++		role: "assistant",
++		content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: args }],
++		api: "openai-responses",
++		provider: "openai",
++		model: "mock",
++		usage: {
++			input: 0,
++			output: 0,
++			cacheRead: 0,
++			cacheWrite: 0,
++			totalTokens: 0,
++			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++		},
++		stopReason: "toolUse",
++		timestamp: Date.now(),
++	};
++}
++
++function getMessageText(message: { content: string | Array<{ type: string; text?: string }> }): string {
++	if (typeof message.content === "string") {
++		return message.content;
++	}
++	return message.content
++		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
++		.map((part) => part.text)
++		.join("\n");
++}
++
+ function createDeferred(): {
+ 	promise: Promise<void>;
+ 	resolve: () => void;
+@@ -353,6 +388,173 @@ describe("Agent", () => {
+ 		await firstPrompt.catch(() => {});
+ 	});
+ 
++	it("calls beforeTurn with initial prompt trigger messages and injects messages before the response", async () => {
++		const triggerSnapshots: string[][] = [];
++		let providerSawInjectedMessage = false;
++		const agent = new Agent({
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(
++					triggerMessages.map((message) =>
++						getMessageText(message as { content: string | Array<{ type: string; text?: string }> }),
++					),
++				);
++				return {
++					messages: [
++						{
++							role: "user",
++							content: [{ type: "text", text: "injected before response" }],
++							timestamp: Date.now(),
++						},
++					],
++				};
++			},
++			streamFn: (_model, context) => {
++				providerSawInjectedMessage = context.messages.some(
++					(message) => message.role === "user" && getMessageText(message) === "injected before response",
++				);
++				const stream = new MockAssistantStream();
++				queueMicrotask(() => {
++					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
++				});
++				return stream;
++			},
++		});
++
++		await agent.prompt("hello");
++
++		expect(triggerSnapshots).toEqual([["hello"]]);
++		expect(providerSawInjectedMessage).toBe(true);
++		expect(
++			agent.state.messages.some(
++				(message) => message.role === "user" && getMessageText(message) === "injected before response",
++			),
++		).toBe(true);
++	});
++
++	it("calls beforeTurn with empty triggerMessages for tool-result continuations", async () => {
++		const triggerSnapshots: string[][] = [];
++		const echoTool: AgentTool = {
++			name: "echo",
++			label: "Echo",
++			description: "Echo text back",
++			parameters: Type.Object({ text: Type.String() }),
++			execute: async (_toolCallId, params) => {
++				const text = typeof params === "object" && params !== null && "text" in params ? String(params.text) : "";
++				return {
++					content: [{ type: "text", text }],
++					details: { text },
++				};
++			},
++		};
++		const agent = new Agent({
++			initialState: { tools: [echoTool] },
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(
++					triggerMessages.map((message) =>
++						getMessageText(message as { content: string | Array<{ type: string; text?: string }> }),
++					),
++				);
++				return undefined;
++			},
++			streamFn: (() => {
++				let callCount = 0;
++				return () => {
++					const stream = new MockAssistantStream();
++					queueMicrotask(() => {
++						if (callCount === 0) {
++							stream.push({
++								type: "done",
++								reason: "toolUse",
++								message: createToolCallAssistantMessage("tool-1", "echo", { text: "hello" }),
++							});
++						} else {
++							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("done") });
++						}
++						callCount++;
++					});
++					return stream;
++				};
++			})(),
++		});
++
++		await agent.prompt("start");
++
++		expect(triggerSnapshots).toEqual([["start"], []]);
++	});
++
++	it("calls beforeTurn with queued steering messages for interrupted turns", async () => {
++		const triggerSnapshots: string[][] = [];
++		let releaseToolExecution: (() => void) | undefined;
++		const waitForRelease = new Promise<void>((resolve) => {
++			releaseToolExecution = resolve;
++		});
++		const waitTool: AgentTool = {
++			name: "wait",
++			label: "Wait",
++			description: "Wait for release",
++			parameters: Type.Object({}),
++			execute: async () => {
++				await waitForRelease;
++				return {
++					content: [{ type: "text", text: "released" }],
++					details: {},
++				};
++			},
++		};
++		let toolStartedResolve = () => {};
++		const toolStarted = new Promise<void>((resolve) => {
++			toolStartedResolve = resolve;
++		});
++		const agent = new Agent({
++			initialState: { tools: [waitTool] },
++			beforeTurn: async ({ triggerMessages }) => {
++				triggerSnapshots.push(
++					triggerMessages.map((message) =>
++						getMessageText(message as { content: string | Array<{ type: string; text?: string }> }),
++					),
++				);
++				return undefined;
++			},
++			streamFn: (() => {
++				let callCount = 0;
++				return () => {
++					const stream = new MockAssistantStream();
++					queueMicrotask(() => {
++						if (callCount === 0) {
++							stream.push({
++								type: "done",
++								reason: "toolUse",
++								message: createToolCallAssistantMessage("tool-1", "wait", {}),
++							});
++						} else {
++							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("handled steer") });
++						}
++						callCount++;
++					});
++					return stream;
++				};
++			})(),
++		});
++
++		agent.subscribe((event) => {
++			if (event.type === "tool_execution_start" && event.toolName === "wait") {
++				toolStartedResolve();
++			}
++		});
++
++		const promptPromise = agent.prompt("start");
++		await toolStarted;
++		agent.steer({
++			role: "user",
++			content: [{ type: "text", text: "steer now" }],
++			timestamp: Date.now(),
++		});
++		releaseToolExecution?.();
++		await promptPromise;
++
++		expect(triggerSnapshots).toEqual([["start"], ["steer now"]]);
++	});
++
+ 	it("continue() should process queued follow-up messages after an assistant turn", async () => {
+ 		const agent = new Agent({
+ 			streamFn: () => {
+diff --git a/packages/coding-agent/src/index.ts b/packages/coding-agent/src/index.ts
+index 75720b2f..d1277a7b 100644
+--- a/packages/coding-agent/src/index.ts
++++ b/packages/coding-agent/src/index.ts
+@@ -58,6 +58,8 @@ export type {
+ 	BeforeAgentStartEvent,
+ 	BeforeProviderRequestEvent,
+ 	BeforeProviderRequestEventResult,
++	BeforeTurnResponseEvent,
++	BeforeTurnResponseEventResult,
+ 	CompactOptions,
+ 	ContextEvent,
+ 	ContextUsage,
+@@ -84,10 +86,12 @@ export type {
+ 	ExtensionWidgetOptions,
+ 	FindToolCallEvent,
+ 	GrepToolCallEvent,
++	HistoricalTranscriptMode,
+ 	InputEvent,
+ 	InputEventResult,
+ 	InputSource,
+ 	KeybindingsManager,
++	LiveTranscriptMode,
+ 	LoadExtensionsResult,
+ 	LsToolCallEvent,
+ 	MessageRenderer,
+-- 
+2.53.0
+
