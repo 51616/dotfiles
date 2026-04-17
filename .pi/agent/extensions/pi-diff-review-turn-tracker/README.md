@@ -4,6 +4,8 @@ Always-loaded helper for `/diff-review` phase 14.
 
 It watches the current agent turn, captures a synthetic git workspace tree at `agent_start`, captures another at `agent_end`, and diffs those two trees to isolate the net repo delta for that turn.
 
+The capture backend uses a temporary git index plus `git add -A -- .` and `git write-tree`. That keeps ignored files excluded, isolates per-turn changes from pre-existing dirty state, and avoids the old remote file-by-file crawl that made SSH turns stall.
+
 When `pi-ssh` is active, the tracker reads the active `PiSshSession` from `pi-ssh/lib/pi-ssh-session-runtime.ts`, maps the local cwd onto the remote repo through that shared session contract, and captures remote workspace trees without crawling remote files path-by-path.
 
 Artifacts land under the first writable location in this order:

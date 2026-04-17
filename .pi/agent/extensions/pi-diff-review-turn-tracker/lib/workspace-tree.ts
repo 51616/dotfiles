@@ -1,3 +1,5 @@
+// @lat: [[pi-diff-review-turn-tracker#Workspace-tree capture]]
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

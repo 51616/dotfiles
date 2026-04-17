@@ -1,3 +1,5 @@
+// @lat: [[pi-diff-review-turn-tracker#Turn lifecycle and artifact contract]]
+
 import { buildPersistedAgentChangeReport, summarizeAgentChangeArtifact } from "./agent-change-report.ts";
 import { writeEmptyLatestArtifact, writeRepoArtifacts } from "./artifacts.ts";
 import { findCwdRepoRoot, repoKeyForRoot } from "./repo.ts";

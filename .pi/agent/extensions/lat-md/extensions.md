@@ -44,7 +44,7 @@ Entrypoint: [[pi-diff-review-tui/index.ts]].
 
 ## pi-diff-review-turn-tracker
 
-Captures per-turn diff-review evidence so review sessions stay inspectable and recoverable.
+Captures per-turn diff-review evidence by diffing start-vs-end synthetic workspace trees, so review sessions stay inspectable and SSH turn startup does not depend on remote file crawling.
 
 See also [[pi-diff-review-turn-tracker]].
 

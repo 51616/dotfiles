@@ -36,6 +36,7 @@ What this proves:
 Owned by:
 - `.pi/extensions/pi-diff-review-turn-tracker/test/artifacts.test.mjs`
 - `.pi/extensions/pi-diff-review-turn-tracker/test/ssh-turn-tracker.test.mjs`
+- `.pi/extensions/pi-diff-review-turn-tracker/test/workspace-tree.test.mjs`
 
 What this proves:
 - `latest.json` and `latest-reviewable.json` include `observed_changed_paths`
@@ -44,7 +45,21 @@ What this proves:
 - empty later turns do not clobber the latest reviewable artifact
 - empty/no-observed-diff turns discard invalid non-empty advisory reports
 - artifact publication waits until the advisory step finishes for the current turn
-- the SSH path uses the shared `pi-ssh` session runtime, including local→remote path mapping for touched files
+- the SSH path uses the shared `pi-ssh` session runtime and isolates the per-turn delta without remote file crawling
+- pre-existing dirty workspace state is excluded because the tracker diffs start-vs-end workspace trees instead of diffing against `HEAD`
+
+## Diff-review tracker workspace-tree capture stays SSH-safe and dirty-state-safe
+
+Owned by:
+- `.pi/extensions/pi-diff-review-turn-tracker/test/workspace-tree.test.mjs`
+- `.pi/extensions/pi-diff-review-turn-tracker/test/ssh-turn-tracker.test.mjs`
+
+What this proves:
+- the local workspace-tree backend captures the current worktree through a temporary git index instead of reading repo files directly
+- ignored files stay excluded because the temporary index respects gitignore rules
+- rename/name-status parsing prefers the destination path and stays deduplicated
+- the SSH path does not need remote `readFile()` crawling to capture turn state
+- the SSH path still records net symlink changes without dereferencing the target contents
 
 ## Agent change report validation keeps canonical-vs-advisory boundaries exact
 
