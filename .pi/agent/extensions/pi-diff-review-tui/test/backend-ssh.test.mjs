@@ -181,6 +181,46 @@ test("resolveRepoIdentity falls back to the session remote cwd when the mapped c
   assert.equal(identity.repoRoot, repo);
 });
 
+test("resolveRepoIdentity fails closed when an active SSH session cannot resolve its repo root", async () => {
+  __resetPiSshSessionForTests();
+  const pi = makePiStub();
+
+  __publishActivePiSshSessionForTests(createPiSshSession({
+    connection: {
+      remote: "user@example.com",
+      port: 2222,
+      remoteCwd: "/remote/demo-repo",
+      remoteHome: "/remote",
+      localCwd: "/local/demo-repo",
+      localHome: "/local",
+    },
+    transport: {
+      exec: async () => ({ exitCode: 0 }),
+      readFile: async () => Buffer.alloc(0),
+      ensureReadable: async () => {},
+      ensureReadableWritable: async () => {},
+      detectImageMimeType: async () => null,
+      mkdir: async () => {},
+      writeFile: async () => {},
+    },
+    execText: async () => {
+      throw new Error("Remote shell disposed");
+    },
+    execCapture: async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false,
+      aborted: false,
+    }),
+  }));
+
+  await assert.rejects(
+    () => resolveRepoIdentity(pi, "/local/demo-repo"),
+    /Could not resolve remote SSH repo root: Remote shell disposed/,
+  );
+});
+
 test("SSH turn bundles defer reported-only repo diffs until a file is selected", async () => {
   __resetPiSshSessionForTests();
   const repo = makeRepo("pi-diff-review-turn-bundle-ssh-");

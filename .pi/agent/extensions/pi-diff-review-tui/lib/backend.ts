@@ -6,10 +6,11 @@ import { enrichTurnBundleWithAgentReport, hydrateDeferredReportedOnlyBundleFile 
 import {
   applyReverse as applyRemoteReverse,
   diffWorkspace as getRemoteWorkspaceDiff,
+  makeSshScopeKey,
   patchForPath as getRemotePatchForPath,
-  resolveDiffReviewSshIdentity,
   type DiffReviewSshIdentity,
 } from "../../lib/pi-diff-review-ssh.ts";
+import { resolveActivePiSshRepoIdentity } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 export type DiffReviewBackendKind = "local" | "ssh";
 
@@ -32,6 +33,20 @@ function summarizeBundle(bundle: DiffBundle): string {
   return `${bundle.sourceKind}:${fileCount} file${fileCount === 1 ? "" : "s"}${headLabel}`;
 }
 
+async function resolveDiffReviewSshIdentityFromSession(localCwd: string): Promise<DiffReviewSshIdentity | null> {
+  const ssh = await resolveActivePiSshRepoIdentity(localCwd);
+  if (!ssh) return null;
+  const portSuffix = ssh.connection.port && ssh.connection.port !== 22 ? `:${ssh.connection.port}` : "";
+  return {
+    session: ssh.session,
+    connection: ssh.connection,
+    remoteCwd: ssh.remoteCwd,
+    repoRoot: ssh.repoRoot,
+    scopeKey: makeSshScopeKey(ssh.connection, ssh.repoRoot),
+    repoLabel: `SSH ${ssh.connection.remote}${portSuffix} ${ssh.repoRoot}`,
+  };
+}
+
 function requireSshIdentity(identity: DiffReviewRepoIdentity): DiffReviewSshIdentity {
   if (!identity.ssh) {
     throw new Error("SSH backend unavailable: missing resolved pi-ssh session identity.");
@@ -40,7 +55,7 @@ function requireSshIdentity(identity: DiffReviewRepoIdentity): DiffReviewSshIden
 }
 
 export async function resolveRepoIdentity(_pi: ExtensionAPI, localCwd: string): Promise<DiffReviewRepoIdentity> {
-  const ssh = await resolveDiffReviewSshIdentity(localCwd);
+  const ssh = await resolveDiffReviewSshIdentityFromSession(localCwd);
   if (ssh) {
     return {
       backend: "ssh",
@@ -158,7 +173,7 @@ export async function buildDiffReviewDebugReport(pi: ExtensionAPI, localCwd: str
     lines.push(`local behavior: error (${message})`);
   }
 
-  const ssh = await resolveDiffReviewSshIdentity(localCwd).catch((error) => {
+  const ssh = await resolveDiffReviewSshIdentityFromSession(localCwd).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     lines.push(`remote behavior: error (${message})`);
     return null;

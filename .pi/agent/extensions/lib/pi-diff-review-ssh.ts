@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { buildFileKey, parseSingleFilePatch, splitPatchIntoFileSections } from "../pi-diff-review-tui/lib/diff-parser.ts";
-import { getActivePiSshSession, type PiSshConnectionInfo, type PiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
+import { resolveActivePiSshRepoIdentity, type PiSshConnectionInfo, type PiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 export type DiffReviewSshIdentity = {
   session: PiSshSession;
@@ -398,38 +398,23 @@ function resolveRemoteCwdForLocalPath(session: PiSshSession, localCwd: string): 
   return session.getConnectionInfo().remoteCwd;
 }
 
-async function tryResolveRepoRoot(session: PiSshSession, remoteCwd: string): Promise<string | null> {
-  try {
-    return await session.repoRoot(remoteCwd);
-  } catch {
-    return null;
-  }
-}
-
 export function makeSshScopeKey(connection: Pick<PiSshConnectionInfo, "remote" | "port">, repoRoot: string): string {
   const remote = connection.port && connection.port !== 22 ? `${connection.remote}:${connection.port}` : connection.remote;
   return `ssh:${remote}:${repoRoot}`;
 }
 
 export async function resolveDiffReviewSshIdentity(localCwd: string): Promise<DiffReviewSshIdentity | null> {
-  const session = getActivePiSshSession();
-  if (!session) return null;
+  const ssh = await resolveActivePiSshRepoIdentity(localCwd);
+  if (!ssh) return null;
 
-  const connection = session.getConnectionInfo();
-  const remoteCwd = resolveRemoteCwdForLocalPath(session, localCwd);
-  const repoRoot = await tryResolveRepoRoot(session, remoteCwd) ?? await tryResolveRepoRoot(session, connection.remoteCwd);
-  if (!repoRoot) {
-    throw new Error("Remote SSH workspace is not inside a git repository.");
-  }
-
-  const portSuffix = connection.port && connection.port !== 22 ? `:${connection.port}` : "";
+  const portSuffix = ssh.connection.port && ssh.connection.port !== 22 ? `:${ssh.connection.port}` : "";
   return {
-    session,
-    connection,
-    remoteCwd,
-    repoRoot,
-    scopeKey: makeSshScopeKey(connection, repoRoot),
-    repoLabel: `SSH ${connection.remote}${portSuffix} ${repoRoot}`,
+    session: ssh.session,
+    connection: ssh.connection,
+    remoteCwd: ssh.remoteCwd,
+    repoRoot: ssh.repoRoot,
+    scopeKey: makeSshScopeKey(ssh.connection, ssh.repoRoot),
+    repoLabel: `SSH ${ssh.connection.remote}${portSuffix} ${ssh.repoRoot}`,
   };
 }
 

@@ -2,8 +2,8 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DiffReviewTurnTracker } from "./lib/tracker.ts";
-import { resolveDiffReviewSshIdentity } from "../lib/pi-diff-review-ssh.ts";
-import { getActivePiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
+import { makeSshScopeKey } from "../lib/pi-diff-review-ssh.ts";
+import { getActivePiSshSession, resolveActivePiSshRepoIdentity } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function turnIdFromInput(text: string): string {
   const discord = text.match(/^\[from discord\][^\n]*\bmsg_id=([^\s]+)/m);
@@ -45,7 +45,7 @@ export default function piDiffReviewTurnTracker(pi: ExtensionAPI) {
       requireSsh: Boolean(activeSession),
       sshResolver: activeSession
         ? async () => {
-          const sshIdentity = await resolveDiffReviewSshIdentity(ctx.cwd).catch((error) => {
+          const sshIdentity = await resolveActivePiSshRepoIdentity(ctx.cwd).catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.warn(`[pi-diff-review-turn-tracker] ssh session repo root failed: ${message}`);
             return null;
@@ -56,7 +56,7 @@ export default function piDiffReviewTurnTracker(pi: ExtensionAPI) {
           return {
             session: sshIdentity.session,
             repoRoot: sshIdentity.repoRoot,
-            scopeKey: sshIdentity.scopeKey,
+            scopeKey: makeSshScopeKey(sshIdentity.connection, sshIdentity.repoRoot),
           };
         }
         : undefined,

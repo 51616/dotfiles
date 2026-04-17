@@ -64,6 +64,13 @@ export type PiSshConnectionInfo = {
   remoteCwd: string;
 };
 
+export type PiSshResolvedRepoIdentity = {
+  session: PiSshSession;
+  connection: PiSshConnectionInfo;
+  remoteCwd: string;
+  repoRoot: string;
+};
+
 export type PiSshRemoteStatKind = "file" | "directory" | "other" | null;
 
 export interface PiSshRemoteStat {
@@ -87,6 +94,8 @@ export interface PiSshSession {
   stat(remotePath: string, signal?: AbortSignal): Promise<PiSshRemoteStat>;
   repoRoot(remoteCwd?: string, signal?: AbortSignal): Promise<string | null>;
 }
+
+const REPO_ROOT_CACHE = new WeakMap<PiSshSession, Map<string, string | null>>();
 
 const REMOTE_STAT_SCRIPT = String.raw`import json, os, stat, sys
 path = sys.argv[1]
@@ -393,6 +402,91 @@ export function clearPublishedPiSshSession(): void {
 
 export function __publishActivePiSshSessionForTests(session: PiSshSession | null): void {
   publishActivePiSshSession(session);
+}
+
+function normalizeRemotePath(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+function resolveRemoteCwdForLocalPath(session: PiSshSession, localCwd: string): string {
+  const mapped = normalizeRemotePath(session.mapLocalPathToRemote(localCwd));
+  if (mapped && mapped !== normalizeRemotePath(localCwd) && mapped.startsWith("/")) {
+    return mapped;
+  }
+  return session.getConnectionInfo().remoteCwd;
+}
+
+function getOrCreateRepoRootCache(session: PiSshSession): Map<string, string | null> {
+  let cache = REPO_ROOT_CACHE.get(session);
+  if (!cache) {
+    cache = new Map<string, string | null>();
+    REPO_ROOT_CACHE.set(session, cache);
+  }
+  return cache;
+}
+
+function setCachedRepoRoot(session: PiSshSession, remotePath: string, repoRoot: string | null): void {
+  const cache = getOrCreateRepoRootCache(session);
+  const normalizedRemotePath = normalizeRemotePath(remotePath);
+  cache.set(normalizedRemotePath, repoRoot ? normalizeRemotePath(repoRoot) : null);
+  if (repoRoot) {
+    const normalizedRepoRoot = normalizeRemotePath(repoRoot);
+    cache.set(normalizedRepoRoot, normalizedRepoRoot);
+  }
+}
+
+async function resolveCachedRepoRoot(session: PiSshSession, remoteCwd: string): Promise<string | null> {
+  const normalizedRemoteCwd = normalizeRemotePath(remoteCwd);
+  const cache = getOrCreateRepoRootCache(session);
+  if (cache.has(normalizedRemoteCwd)) {
+    return cache.get(normalizedRemoteCwd) ?? null;
+  }
+  for (const [cachedPath, cachedRepoRoot] of cache.entries()) {
+    if (!cachedRepoRoot) continue;
+    if (normalizedRemoteCwd === cachedPath || normalizedRemoteCwd.startsWith(`${cachedPath}/`)) {
+      return cachedRepoRoot;
+    }
+  }
+  const repoRoot = await session.repoRoot(normalizedRemoteCwd);
+  setCachedRepoRoot(session, normalizedRemoteCwd, repoRoot ?? null);
+  return repoRoot ?? null;
+}
+
+export async function resolvePiSshRepoIdentity(session: PiSshSession, localCwd: string): Promise<PiSshResolvedRepoIdentity> {
+  const connection = session.getConnectionInfo();
+  const remoteCwd = resolveRemoteCwdForLocalPath(session, localCwd);
+  const candidates = [remoteCwd, connection.remoteCwd]
+    .map((value) => normalizeRemotePath(value))
+    .filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
+
+  let lastError: Error | null = null;
+  for (const candidate of candidates) {
+    try {
+      const repoRoot = await resolveCachedRepoRoot(session, candidate);
+      if (!repoRoot) continue;
+      setCachedRepoRoot(session, remoteCwd, repoRoot);
+      setCachedRepoRoot(session, connection.remoteCwd, repoRoot);
+      return {
+        session,
+        connection,
+        remoteCwd,
+        repoRoot,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`Could not resolve remote SSH repo root: ${lastError.message}`);
+  }
+  throw new Error("Remote SSH workspace is not inside a git repository.");
+}
+
+export async function resolveActivePiSshRepoIdentity(localCwd: string): Promise<PiSshResolvedRepoIdentity | null> {
+  const session = getActivePiSshSession();
+  if (!session) return null;
+  return resolvePiSshRepoIdentity(session, localCwd);
 }
 
 export function __resetPiSshSessionForTests(): void {

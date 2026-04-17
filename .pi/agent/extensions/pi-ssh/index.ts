@@ -11,6 +11,7 @@ import {
   createRemoteWriteOps,
   mapLocalPathToRemote,
   publishActivePiSshSession,
+  resolveActivePiSshRepoIdentity,
   type PiSshConnection,
 } from "./lib/pi-ssh-session-runtime.ts";
 import {
@@ -1566,6 +1567,14 @@ export default function piSshExtension(pi: ExtensionAPI): void {
         },
       });
       publishActivePiSshSession(activeSession);
+      try {
+        await resolveActivePiSshRepoIdentity(ctx.sessionManager.getCwd());
+      } catch (error) {
+        logPiSshDebug("repo-root-cache-warm.failed", {
+          remoteCwd: sessionConnection.remoteCwd,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       activeUiContext = ctx.hasUI ? ctx : null;
       remoteFooterCwd = mapLocalPathToRemote(ctx.sessionManager.getCwd(), connection);
       remoteFooterBranch = null;

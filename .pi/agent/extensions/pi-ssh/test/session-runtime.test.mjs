@@ -7,6 +7,7 @@ import {
   clearPublishedPiSshSession,
   createPiSshSession,
   getActivePiSshSession,
+  resolveActivePiSshRepoIdentity,
 } from "../lib/pi-ssh-session-runtime.ts";
 
 function makeConnection() {
@@ -225,4 +226,38 @@ test("PiSshSession exists/stat helpers distinguish present and missing remote pa
   });
   assert.equal(calls.filter(({ command }) => command.startsWith("test -e")).length, 2);
   assert.equal(calls.filter(({ command }) => command.includes("pi-ssh session stat requires python3 or python on the remote host")).length, 2);
+});
+
+test("resolveActivePiSshRepoIdentity caches the repo root after the first successful lookup", async () => {
+  __resetPiSshSessionForTests();
+  let repoRootCalls = 0;
+  const session = makeSession(
+    async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false,
+      aborted: false,
+    }),
+    async (command) => {
+      if (!command.includes("git --no-optional-locks rev-parse --show-toplevel")) {
+        return { output: "", exitCode: 0, timedOut: false, aborted: false };
+      }
+      repoRootCalls += 1;
+      if (repoRootCalls === 1) {
+        return { output: "/remote/repo\n", exitCode: 0, timedOut: false, aborted: false };
+      }
+      throw new Error("Remote shell disposed");
+    },
+  );
+
+  __publishActivePiSshSessionForTests(session);
+  const first = await resolveActivePiSshRepoIdentity("/local/worktree/src/app.ts");
+  const second = await resolveActivePiSshRepoIdentity("/local/worktree/src/other.ts");
+
+  assert.ok(first);
+  assert.ok(second);
+  assert.equal(first.repoRoot, "/remote/repo");
+  assert.equal(second.repoRoot, "/remote/repo");
+  assert.equal(repoRootCalls, 1);
 });
