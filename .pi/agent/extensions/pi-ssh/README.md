@@ -126,6 +126,7 @@ The helper uploads `scripts/pi-ssh-logger.remote.sh`, backs up the existing remo
 - Canonical `skill://...` handling now lives in the separate `skill-uri` extension so the same skill interface works in both local and SSH sessions.
 - `pi-ssh` publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`.
 - `skill-uri`, `self-checkpointing`, and `pi-diff-review-*` consume that session directly for remote workspace ops, remote diff inspection, local staged editor flows, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
+- Consumers that need SSH repo identity should use the shared `resolveActivePiSshRepoIdentity(localCwd)` helper instead of doing ad hoc late `session.repoRoot(...)` lookups. That helper caches the resolved remote repo root for the active session and preserves SSH-specific failures instead of masking them as local fallback behavior.
 - The shared session helpers currently assume `git` is present for `repoRoot()` and `python3` or `python` is present for `stat()`.
 - `PiSshSession.execText()` is the shared low-latency text-command path backed by the persistent remote shell. Use it for git/text workflows where combined PTY output is acceptable.
 - `PiSshSession.stat()` still uses stdout-only exact capture under the hood so callers do not have to parse PTY noise around JSON payloads.

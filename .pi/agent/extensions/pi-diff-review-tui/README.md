@@ -10,6 +10,8 @@ This extension is loaded automatically by the vault `./pi` wrapper because it li
 
 When `pi-ssh` is active, `/diff-review` now uses the shared `pi-ssh` session runtime instead of its own SSH flag parser/helper process. Repo-root lookup, remote workspace diffs, remote patch inspection, and remote reverse-apply all go through the active `PiSshSession`.
 
+`/diff-review` now resolves SSH repo identity through the shared `resolveActivePiSshRepoIdentity(localCwd)` helper in `pi-ssh`. That keeps repo-root resolution on one canonical codepath, reuses the session-level repo-root cache warmed at SSH startup, and fails closed when an active SSH session cannot prove its remote repo identity.
+
 `/diff-review` now opens the overlay immediately with a loading state instead of blocking on initial bundle resolution. In SSH mode the remote `workspace vs HEAD` bundle is fetched through the persistent remote shell as one batched command so the pre-overlay path does less round-trip work.
 
 In SSH mode, `e` / `g` stage the selected remote file into a local diff-review temp directory, open that local staged copy in your editor, and then sync it back to the remote checkout only if the remote file still matches the pre-edit baseline. The final writeback now happens as one remote compare-and-write step instead of a separate re-read plus write. If the remote file drifted while you were editing, diff-review fails closed, keeps the staged local file, and tells you where it is. If an older recovery copy already exists for the same file/session, diff-review allocates a fresh stage path instead of overwriting it. Binary-looking files and symlink/hardlink targets are refused in this flow.
