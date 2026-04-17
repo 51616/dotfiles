@@ -1,11 +1,13 @@
-import path from "node:path";
-
-import { captureFileImage, captureFileImageRemote } from "./files.ts";
-import { buildRepoPatch, writeEmptyLatestArtifact, writeRepoArtifacts } from "./artifacts.ts";
 import { buildPersistedAgentChangeReport, summarizeAgentChangeArtifact } from "./agent-change-report.ts";
-import { findCwdRepoRoot, listRepoWorkspacePaths, repoKeyForRoot } from "./repo.ts";
-import type { AgentChangeReport, FileImage, RepoTurnArtifact, RepoTurnState, TurnArtifactMetadata, TurnState } from "./types.ts";
-import { listRemoteWorkspacePaths } from "../../lib/pi-diff-review-ssh.ts";
+import { writeEmptyLatestArtifact, writeRepoArtifacts } from "./artifacts.ts";
+import { findCwdRepoRoot, repoKeyForRoot } from "./repo.ts";
+import {
+  captureLocalWorkspaceTree,
+  captureRemoteWorkspaceTree,
+  diffLocalWorkspaceTrees,
+  diffRemoteWorkspaceTrees,
+} from "./workspace-tree.ts";
+import type { AgentChangeReport, RepoTurnArtifact, TurnArtifactMetadata } from "./types.ts";
 import type { PiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function noteForTurn(changedPaths: number): string | undefined {
@@ -29,35 +31,14 @@ type SshTurnContext = {
   scopeKey: string;
 };
 
-function missingImage(): FileImage {
-  return { kind: "missing", exists: false };
-}
-
-function fileImageEquals(left: FileImage, right: FileImage): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === "missing" && right.kind === "missing") return true;
-  if (left.kind === "content" && right.kind === "content") {
-    return left.sha256 === right.sha256;
-  }
-  if (left.kind === "omitted" && right.kind === "omitted") {
-    return left.exists === right.exists
-      && left.reason === right.reason
-      && left.sizeBytes === right.sizeBytes
-      && left.sha256 === right.sha256
-      && left.mtimeMs === right.mtimeMs;
-  }
-  return false;
-}
-
-function changedTrackedPaths(repo: RepoTurnState): Map<string, (typeof repo.touchedPaths extends Map<string, infer V> ? V : never)> {
-  const changed = new Map<string, (typeof repo.touchedPaths extends Map<string, infer V> ? V : never)>();
-  for (const [repoRelPath, tracked] of repo.touchedPaths.entries()) {
-    if (!fileImageEquals(tracked.baseline, tracked.final ?? missingImage())) {
-      changed.set(repoRelPath, tracked);
-    }
-  }
-  return changed;
-}
+type TurnState = {
+  sessionId: string;
+  turnId: string;
+  startedAt: string;
+  cwdRepoRoot: string | null;
+  repoKey: string | null;
+  startTree: string | null;
+};
 
 export class DiffReviewTurnTracker {
   private current: TurnState | null = null;
@@ -91,26 +72,20 @@ export class DiffReviewTurnTracker {
 
     try {
       const cwdRepoRoot = ssh?.repoRoot ?? findCwdRepoRoot(cwd);
-      const repos = new Map<string, RepoTurnState>();
-
-      if (cwdRepoRoot) {
-        const repoState: RepoTurnState = {
-          repoRoot: cwdRepoRoot,
-          repoKey: repoKeyForRoot(cwdRepoRoot),
-          touchedPaths: new Map(),
-          capturedBytes: 0,
-          baselineCapturedBytes: 0,
-        };
-        repos.set(cwdRepoRoot, repoState);
-        await this.captureBaselineSnapshot(repoState);
-      }
+      const repoKey = cwdRepoRoot ? repoKeyForRoot(cwdRepoRoot) : null;
+      const startTree = cwdRepoRoot
+        ? (ssh
+          ? await captureRemoteWorkspaceTree(ssh.session, cwdRepoRoot)
+          : captureLocalWorkspaceTree(cwdRepoRoot))
+        : null;
 
       this.current = {
         sessionId,
         turnId,
         startedAt: new Date().toISOString(),
         cwdRepoRoot,
-        repos,
+        repoKey,
+        startTree,
       };
     } catch (error) {
       this.reset();
@@ -123,83 +98,6 @@ export class DiffReviewTurnTracker {
     this.ssh = null;
     this.scopeKey = undefined;
     this.allowRepoRootWrites = true;
-  }
-
-  private async captureBaselineSnapshot(repo: RepoTurnState): Promise<void> {
-    const ssh = this.ssh;
-    if (ssh) {
-      for (const repoRelPath of await listRemoteWorkspacePaths(ssh.session, ssh.repoRoot)) {
-        repo.touchedPaths.set(repoRelPath, {
-          repoRelPath,
-          absolutePath: path.posix.join(ssh.repoRoot, repoRelPath),
-          baseline: await captureFileImageRemote(repo, ssh.session, ssh.repoRoot, repoRelPath, "pre"),
-        });
-      }
-      repo.baselineCapturedBytes = repo.capturedBytes;
-      return;
-    }
-
-    for (const repoRelPath of listRepoWorkspacePaths(repo.repoRoot)) {
-      const absolutePath = path.join(repo.repoRoot, repoRelPath);
-      repo.touchedPaths.set(repoRelPath, {
-        repoRelPath,
-        absolutePath,
-        baseline: captureFileImage(repo, absolutePath, "pre"),
-      });
-    }
-    repo.baselineCapturedBytes = repo.capturedBytes;
-  }
-
-  private async captureFinalSnapshot(repo: RepoTurnState): Promise<void> {
-    repo.capturedBytes = repo.baselineCapturedBytes;
-    const ssh = this.ssh;
-    if (ssh) {
-      const currentPaths = new Set(await listRemoteWorkspacePaths(ssh.session, ssh.repoRoot));
-      for (const repoRelPath of currentPaths) {
-        if (!repo.touchedPaths.has(repoRelPath)) {
-          repo.touchedPaths.set(repoRelPath, {
-            repoRelPath,
-            absolutePath: path.posix.join(ssh.repoRoot, repoRelPath),
-            baseline: missingImage(),
-          });
-        }
-      }
-
-      for (const tracked of repo.touchedPaths.values()) {
-        const existedAtBaseline = tracked.baseline.kind !== "missing";
-        const baselineWasCapOmitted = tracked.baseline.kind === "omitted" && tracked.baseline.reason === "total_cap_exceeded";
-        tracked.final = currentPaths.has(tracked.repoRelPath)
-          ? await captureFileImageRemote(repo, ssh.session, ssh.repoRoot, tracked.repoRelPath, "post", {
-            allowContentCapture: !baselineWasCapOmitted,
-            enforceTotalCap: !existedAtBaseline,
-          })
-          : missingImage();
-      }
-      return;
-    }
-
-    const currentPaths = new Set(listRepoWorkspacePaths(repo.repoRoot));
-    for (const repoRelPath of currentPaths) {
-      if (!repo.touchedPaths.has(repoRelPath)) {
-        const absolutePath = path.join(repo.repoRoot, repoRelPath);
-        repo.touchedPaths.set(repoRelPath, {
-          repoRelPath,
-          absolutePath,
-          baseline: missingImage(),
-        });
-      }
-    }
-
-    for (const tracked of repo.touchedPaths.values()) {
-      const existedAtBaseline = tracked.baseline.kind !== "missing";
-      const baselineWasCapOmitted = tracked.baseline.kind === "omitted" && tracked.baseline.reason === "total_cap_exceeded";
-      tracked.final = currentPaths.has(tracked.repoRelPath)
-        ? captureFileImage(repo, tracked.absolutePath, "post", {
-          allowContentCapture: !baselineWasCapOmitted,
-          enforceTotalCap: !existedAtBaseline,
-        })
-        : missingImage();
-    }
   }
 
   private async attachAgentChangeReport<T extends TurnArtifactMetadata>(
@@ -237,49 +135,45 @@ export class DiffReviewTurnTracker {
       return;
     }
 
-    const repoArtifacts: RepoTurnArtifact[] = [];
-    for (const repo of turn.repos.values()) {
-      if (turn.cwdRepoRoot && repo.repoRoot !== turn.cwdRepoRoot) continue;
+    try {
+      if (turn.cwdRepoRoot && turn.repoKey && turn.startTree) {
+        const diff = this.ssh
+          ? await diffRemoteWorkspaceTrees(this.ssh.session, turn.cwdRepoRoot, turn.startTree, await captureRemoteWorkspaceTree(this.ssh.session, turn.cwdRepoRoot))
+          : diffLocalWorkspaceTrees(turn.cwdRepoRoot, turn.startTree, captureLocalWorkspaceTree(turn.cwdRepoRoot));
 
-      await this.captureFinalSnapshot(repo);
-      repo.touchedPaths = changedTrackedPaths(repo);
+        const metadata = await this.attachAgentChangeReport({
+          saved_at: new Date().toISOString(),
+          session_id: turn.sessionId,
+          turn_id: turn.turnId,
+          source: "last_turn_repo_snapshot",
+          review_source: "last turn (repo snapshot)",
+          repo_root: turn.cwdRepoRoot,
+          repo_key: turn.repoKey,
+          touched_paths: diff.touchedPaths,
+          observed_changed_paths: diff.touchedPaths,
+          has_bash_calls: false,
+          note: noteForTurn(diff.touchedPaths.length),
+          workspace: false as const,
+        }, diff.patchText);
 
-      const built = buildRepoPatch(repo);
-      const changedPaths = [...repo.touchedPaths.keys()].sort();
-      const metadata = await this.attachAgentChangeReport({
-        saved_at: new Date().toISOString(),
-        session_id: turn.sessionId,
-        turn_id: turn.turnId,
-        source: "last_turn_repo_snapshot",
-        review_source: "last turn (repo snapshot)",
-        repo_root: repo.repoRoot,
-        repo_key: repo.repoKey,
-        touched_paths: changedPaths,
-        observed_changed_paths: built.observedChangedPaths,
-        has_bash_calls: false,
-        note: noteForTurn(changedPaths.length),
-        omitted_paths: built.omittedPaths,
-        workspace: false as const,
-      }, built.patchText);
+        const artifact: RepoTurnArtifact = {
+          repoRoot: turn.cwdRepoRoot,
+          repoKey: turn.repoKey,
+          patchText: diff.patchText,
+          metadata,
+        };
 
-      repoArtifacts.push({
-        repoRoot: repo.repoRoot,
-        repoKey: repo.repoKey,
-        patchText: built.patchText,
-        metadata,
-      });
-    }
+        writeRepoArtifacts({
+          repoArtifact: artifact,
+          scopeKey: this.scopeKey,
+          allowRepoRoot: this.allowRepoRootWrites,
+        });
+        return;
+      }
 
-    for (const artifact of repoArtifacts) {
-      writeRepoArtifacts({
-        repoArtifact: artifact,
-        scopeKey: this.scopeKey,
-        allowRepoRoot: this.allowRepoRootWrites,
-      });
-    }
+      const cwdRepoRoot = turn.cwdRepoRoot ?? findCwdRepoRoot(cwd);
+      if (!cwdRepoRoot) return;
 
-    const cwdRepoRoot = turn.cwdRepoRoot ?? findCwdRepoRoot(cwd);
-    if (cwdRepoRoot && !turn.repos.has(cwdRepoRoot)) {
       const emptyMetadata = await this.attachAgentChangeReport({
         saved_at: new Date().toISOString(),
         session_id: turn.sessionId,
@@ -306,11 +200,11 @@ export class DiffReviewTurnTracker {
         scopeKey: this.scopeKey,
         allowRepoRoot: this.allowRepoRootWrites,
       });
+    } finally {
+      this.current = null;
+      this.ssh = null;
+      this.scopeKey = undefined;
+      this.allowRepoRootWrites = true;
     }
-
-    this.current = null;
-    this.ssh = null;
-    this.scopeKey = undefined;
-    this.allowRepoRootWrites = true;
   }
 }

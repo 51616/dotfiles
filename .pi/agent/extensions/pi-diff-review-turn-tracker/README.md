@@ -2,9 +2,9 @@
 
 Always-loaded helper for `/diff-review` phase 14.
 
-It watches the current agent turn, snapshots the current repo at `agent_start`, snapshots it again at `agent_end`, and writes turn artifacts under the first writable location in this order.
+It watches the current agent turn, captures a synthetic git workspace tree at `agent_start`, captures another at `agent_end`, and diffs those two trees to isolate the net repo delta for that turn.
 
-When `pi-ssh` is active, the tracker reads the active `PiSshSession` from `pi-ssh/lib/pi-ssh-session-runtime.ts`, maps the local cwd onto the remote repo through that shared session contract, and captures remote repo snapshots without its own SSH helper process.
+When `pi-ssh` is active, the tracker reads the active `PiSshSession` from `pi-ssh/lib/pi-ssh-session-runtime.ts`, maps the local cwd onto the remote repo through that shared session contract, and captures remote workspace trees without crawling remote files path-by-path.
 
 Artifacts land under the first writable location in this order:
 
@@ -21,21 +21,20 @@ Files written there:
 
 Key metadata fields in `*.json` include:
 
-- `touched_paths`: currently mirrors the repo snapshot changed-path set for compatibility with existing consumers
-- `observed_changed_paths`: the canonical changed-path set derived from the persisted diff identity, including omitted/binary stub identities
+- `touched_paths`: the canonical changed-path set for the per-turn workspace delta
+- `observed_changed_paths`: currently mirrors `touched_paths`
 - optional `agent_change_report`: an advisory external summary with exact mismatch arrays (`missing_from_observed`, `missing_from_agent_report`)
 
 Per-session details are also written under:
 
 - `.../turns/sessions/<sessionId>/...`
 
-Snapshot behavior in the current version:
+Workspace-tree behavior in the current version:
 
 - the tracker does not watch individual `edit`, `write`, or `bash` tool calls
-- the turn artifact reflects the net repo diff between the start-of-turn snapshot and the end-of-turn snapshot
-- large / binary / unreadable files are recorded as omitted stubs instead of full content
-- regular-file content capture is bounded by a per-repo total snapshot budget; when the baseline already consumed that budget, newly-created files in the same turn are persisted as `total_cap_exceeded` omission stubs instead of more content
-- symlinks and other non-regular files are treated as `non_file` omissions so the snapshot never follows link targets during turn capture
+- the turn artifact reflects the net repo diff between the start-of-turn workspace tree and the end-of-turn workspace tree
+- pre-existing dirty state is excluded automatically because the diff is between those two captured workspace trees, not against `HEAD`
+- ignored files stay excluded because the synthetic tree is built with `git add -A` into a temporary index
 - the diff is written once at `agent_end`
 - the external summarizer is fail-open and advisory only; canonical diff metadata is still usable when summarization fails
 - empty/no-observed-diff turns still run the summarizer, but any non-empty reported file list is rejected before persistence

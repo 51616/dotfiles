@@ -170,6 +170,23 @@ test("tracker counts empty added files in observed_changed_paths even when the p
   assert.deepEqual(latestJson.observed_changed_paths, ["src/empty.txt"]);
 });
 
+test("tracker isolates per-turn diffs from pre-existing dirty workspace state", async () => {
+  const repo = makeRepo();
+  const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
+
+  fs.writeFileSync(path.join(repo, "src", "preexisting.ts"), "export const dirty = true;\n", "utf8");
+  await tracker.startTurn({ sessionId: "session-dirty", turnId: "turn-dirty", cwd: repo });
+  fs.writeFileSync(path.join(repo, "src", "tracked.ts"), "export const value = 2;\n", "utf8");
+  await tracker.finalize(repo);
+
+  const latestPatch = fs.readFileSync(path.join(turnsRootFor(repo), "latest.patch"), "utf8");
+  const latestJson = JSON.parse(fs.readFileSync(path.join(turnsRootFor(repo), "latest.json"), "utf8"));
+  assert.match(latestPatch, /diff --git a\/src\/tracked.ts b\/src\/tracked.ts/);
+  assert.doesNotMatch(latestPatch, /preexisting.ts/);
+  assert.deepEqual(latestJson.touched_paths, ["src/tracked.ts"]);
+  assert.deepEqual(latestJson.observed_changed_paths, ["src/tracked.ts"]);
+});
+
 test("tracker keeps baseline total-cap omissions stable across later snapshots", async () => {
   const repo = makeRepo();
   const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });

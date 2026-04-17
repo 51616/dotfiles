@@ -31,7 +31,7 @@ function firstExistingCandidate(candidates) {
   return null;
 }
 
-function makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot }) {
+function makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot, onReadFile }) {
   const mapRemotePath = (remotePath) => remotePath.startsWith(remoteRoot) ? `${actualRemoteRoot}${remotePath.slice(remoteRoot.length)}` : remotePath;
   const mapRemoteCommand = (command) => command.split(remoteRoot).join(actualRemoteRoot);
 
@@ -46,7 +46,10 @@ function makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot }) {
     },
     transport: {
       exec: async () => ({ exitCode: 0 }),
-      readFile: async (remotePath) => fs.promises.readFile(mapRemotePath(remotePath)),
+      readFile: async (remotePath) => {
+        onReadFile?.(remotePath);
+        return fs.promises.readFile(mapRemotePath(remotePath));
+      },
       ensureReadable: async () => {},
       ensureReadableWritable: async () => {},
       detectImageMimeType: async () => null,
@@ -70,10 +73,11 @@ function makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot }) {
   });
 }
 
-test("turn-tracker: ssh mode uses the shared pi-ssh session mapping and writes a reviewable patch", async () => {
+test("turn-tracker: ssh mode isolates the per-turn delta without remote file crawling", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-turn-ssh-test-"));
   const localRoot = "/local/demo-repo";
   const remoteRoot = "/remote/demo-repo";
+  let readFileCalls = 0;
 
   try {
     sh(tmp, ["git", "init", "-q"]);
@@ -81,23 +85,33 @@ test("turn-tracker: ssh mode uses the shared pi-ssh session mapping and writes a
     sh(tmp, ["git", "config", "user.name", "pi"]);
 
     const filePath = path.join(tmp, "file.txt");
+    const otherPath = path.join(tmp, "other.txt");
     fs.writeFileSync(filePath, "hello\n", "utf8");
-    sh(tmp, ["git", "add", "file.txt"]);
+    fs.writeFileSync(otherPath, "before\n", "utf8");
+    sh(tmp, ["git", "add", "."]);
     sh(tmp, ["git", "commit", "-m", "init", "-q"]);
 
-    const session = makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot: tmp });
+    fs.writeFileSync(otherPath, "dirty before turn\n", "utf8");
+
+    const session = makeLocalPiSshSession({
+      localRoot,
+      remoteRoot,
+      actualRemoteRoot: tmp,
+      onReadFile: () => {
+        readFileCalls += 1;
+      },
+    });
     const connection = session.getConnectionInfo();
-    const repoRoot = remoteRoot;
-    const scopeKey = makeSshScopeKey(connection, repoRoot);
+    const scopeKey = makeSshScopeKey(connection, remoteRoot);
 
     const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
-    await tracker.startTurn({ sessionId: "s1", turnId: "t1", cwd: localRoot, ssh: { session, repoRoot, scopeKey } });
+    await tracker.startTurn({ sessionId: "s1", turnId: "t1", cwd: localRoot, ssh: { session, repoRoot: remoteRoot, scopeKey } });
 
     fs.writeFileSync(filePath, "hello world\n", "utf8");
     await tracker.finalize(localRoot);
 
     const candidates = resolveTurnLatestCandidates({
-      repoRoot,
+      repoRoot: remoteRoot,
       scopeKey,
       allowRepoRoot: false,
       sessionId: "s1",
@@ -106,25 +120,18 @@ test("turn-tracker: ssh mode uses the shared pi-ssh session mapping and writes a
     assert.ok(found, `expected at least one turn artifact to exist; tried: ${candidates.map((c) => c.patchPath).join(", ")}`);
 
     const patchText = fs.readFileSync(found.patchPath, "utf8");
-    assert.ok(patchText.includes("diff --git a/file.txt b/file.txt"));
-    assert.ok(patchText.includes("-hello") || patchText.includes("-hello\n"));
-    assert.ok(patchText.includes("+hello world"));
-
     const metadata = JSON.parse(fs.readFileSync(found.jsonPath, "utf8"));
-    assert.equal(fs.existsSync(repoRoot), false);
-    assert.equal(metadata.session_id, "s1");
-    assert.equal(metadata.turn_id, "t1");
-    assert.equal(metadata.repo_root, repoRoot);
-    assert.equal(metadata.source, "last_turn_repo_snapshot");
-    assert.equal(metadata.review_source, "last turn (repo snapshot)");
-    assert.ok(Array.isArray(metadata.touched_paths));
+    assert.equal(readFileCalls, 0);
+    assert.match(patchText, /diff --git a\/file.txt b\/file.txt/);
+    assert.doesNotMatch(patchText, /other.txt/);
     assert.deepEqual(metadata.touched_paths, ["file.txt"]);
+    assert.deepEqual(metadata.observed_changed_paths, ["file.txt"]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("turn-tracker: ssh mode does not follow added symlinks when snapshotting", async () => {
+test("turn-tracker: ssh mode records symlink changes without reading the target file contents", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-turn-ssh-link-test-"));
   const localRoot = "/local/demo-repo";
   const remoteRoot = "/remote/demo-repo";
@@ -138,22 +145,21 @@ test("turn-tracker: ssh mode does not follow added symlinks when snapshotting", 
     sh(tmp, ["git", "add", "tracked.txt"]);
     sh(tmp, ["git", "commit", "-m", "init", "-q"]);
 
-    const outside = path.join(path.dirname(tmp), "ssh-snapshot-outside.txt");
+    const outside = path.join(path.dirname(tmp), "ssh-tree-outside.txt");
     fs.writeFileSync(outside, "outside-secret\n", "utf8");
 
     const session = makeLocalPiSshSession({ localRoot, remoteRoot, actualRemoteRoot: tmp });
     const connection = session.getConnectionInfo();
-    const repoRoot = remoteRoot;
-    const scopeKey = makeSshScopeKey(connection, repoRoot);
+    const scopeKey = makeSshScopeKey(connection, remoteRoot);
 
     const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
-    await tracker.startTurn({ sessionId: "s-link", turnId: "t-link", cwd: localRoot, ssh: { session, repoRoot, scopeKey } });
+    await tracker.startTurn({ sessionId: "s-link", turnId: "t-link", cwd: localRoot, ssh: { session, repoRoot: remoteRoot, scopeKey } });
 
     fs.symlinkSync(outside, path.join(tmp, "escape-link.txt"));
     await tracker.finalize(localRoot);
 
     const candidates = resolveTurnLatestCandidates({
-      repoRoot,
+      repoRoot: remoteRoot,
       scopeKey,
       allowRepoRoot: false,
       sessionId: "s-link",
@@ -164,16 +170,15 @@ test("turn-tracker: ssh mode does not follow added symlinks when snapshotting", 
     const patchText = fs.readFileSync(found.patchPath, "utf8");
     const metadata = JSON.parse(fs.readFileSync(found.jsonPath, "utf8"));
     assert.match(patchText, /diff --git a\/escape-link.txt b\/escape-link.txt/);
-    assert.match(patchText, /pi-diff-review: diff omitted/);
+    assert.match(patchText, /new file mode 120000/);
     assert.doesNotMatch(patchText, /outside-secret/);
     assert.deepEqual(metadata.touched_paths, ["escape-link.txt"]);
-    assert.equal(metadata.omitted_paths["escape-link.txt"].reason, "non_file");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("turn-tracker: ssh mode fails closed when remote workspace listing fails", async () => {
+test("turn-tracker: ssh mode fails closed when remote workspace tree capture fails", async () => {
   const session = createPiSshSession({
     connection: {
       remote: "user@example.com",
@@ -185,7 +190,9 @@ test("turn-tracker: ssh mode fails closed when remote workspace listing fails", 
     },
     transport: {
       exec: async () => ({ exitCode: 0 }),
-      readFile: async () => Buffer.alloc(0),
+      readFile: async () => {
+        throw new Error("readFile should not be used");
+      },
       ensureReadable: async () => {},
       ensureReadableWritable: async () => {},
       detectImageMimeType: async () => null,
@@ -194,7 +201,7 @@ test("turn-tracker: ssh mode fails closed when remote workspace listing fails", 
     },
     execCapture: async () => ({
       stdout: Buffer.from(""),
-      stderr: Buffer.from("git ls-files failed"),
+      stderr: Buffer.from("git write-tree failed"),
       exitCode: 23,
       timedOut: false,
       aborted: false,
@@ -209,6 +216,6 @@ test("turn-tracker: ssh mode fails closed when remote workspace listing fails", 
       cwd: "/local/demo-repo",
       ssh: { session, repoRoot: "/remote/demo-repo", scopeKey: "ssh:user@example.com:/remote/demo-repo" },
     }),
-    /git ls-files failed|Could not list remote repo workspace paths/,
+    /git write-tree failed|remote snapshot failed/i,
   );
 });
