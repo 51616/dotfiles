@@ -9,6 +9,7 @@ test("turn tracker listens to turn lifecycle hooks without creating follow-up tu
   assert.match(source, /pi\.on\("agent_end"/);
   assert.match(source, /turnIdFromInput/);
   assert.match(source, /enableAgentChangeReport:\s*false/);
+  assert.doesNotMatch(source, /await tracker\.startTurn/);
   assert.doesNotMatch(source, /sendUserMessage|triggerTurn/);
   assert.doesNotMatch(tracker, /sendUserMessage|triggerTurn/);
 });

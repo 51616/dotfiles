@@ -37,45 +37,30 @@ export default function piDiffReviewTurnTracker(pi: ExtensionAPI) {
     const sessionId = String(ctx.sessionManager.getSessionId() ?? "").trim();
     const activeSession = getActivePiSshSession();
 
-    try {
-      if (activeSession) {
-        const sshIdentity = await resolveDiffReviewSshIdentity(ctx.cwd).catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(`[pi-diff-review-turn-tracker] ssh session repo root failed: ${message}`);
-          return null;
-        });
-        if (!sshIdentity) {
-          skipCurrentTurn = true;
-          tracker.reset();
-          return;
-        }
-
-        skipCurrentTurn = false;
-        await tracker.startTurn({
-          sessionId,
-          turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          cwd: ctx.cwd,
-          ssh: {
+    skipCurrentTurn = false;
+    tracker.startTurn({
+      sessionId,
+      turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      cwd: ctx.cwd,
+      requireSsh: Boolean(activeSession),
+      sshResolver: activeSession
+        ? async () => {
+          const sshIdentity = await resolveDiffReviewSshIdentity(ctx.cwd).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[pi-diff-review-turn-tracker] ssh session repo root failed: ${message}`);
+            return null;
+          });
+          if (!sshIdentity) {
+            return null;
+          }
+          return {
             session: sshIdentity.session,
             repoRoot: sshIdentity.repoRoot,
             scopeKey: sshIdentity.scopeKey,
-          },
-        });
-        return;
-      }
-
-      skipCurrentTurn = false;
-      await tracker.startTurn({
-        sessionId,
-        turnId: pendingTurnId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        cwd: ctx.cwd,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[pi-diff-review-turn-tracker] startTurn failed: ${message}`);
-      skipCurrentTurn = true;
-      tracker.reset();
-    }
+          };
+        }
+        : undefined,
+    });
   });
 
   pi.on("agent_end", async (_event, ctx) => {

@@ -4,7 +4,7 @@ This extension records per-turn bundles so later tooling can answer what changed
 
 ## Responsibilities
 
-It derives a turn id from the incoming prompt when possible, captures one workspace-tree snapshot at `agent_start`, captures a second at `agent_end`, and writes the net diff as the canonical turn artifact.
+It derives a turn id from the incoming prompt when possible, kicks off one workspace-tree snapshot in the background at `agent_start`, captures a second at `agent_end`, and writes the net diff as the canonical turn artifact.
 
 When `pi-ssh` is active it consumes the shared `pi-ssh` session runtime, maps the local cwd onto the remote repo through that session, and runs the same workspace-tree algorithm remotely through bounded git commands instead of path-by-path remote file reads.
 
@@ -14,9 +14,9 @@ Its output is the `t`-mode history source used by [[pi-diff-review-tui]] and any
 
 ## Turn lifecycle and artifact contract
 
-`index.ts` owns lifecycle wiring only: derive a stable turn id, resolve the shared SSH identity when present, start capture on `agent_start`, finalize on `agent_end`, and reset on session boundaries.
+`index.ts` owns lifecycle wiring only: derive a stable turn id, start capture on `agent_start` without blocking the model, finalize on `agent_end`, and reset on session boundaries.
 
-`lib/tracker.ts` owns the artifact contract. It stores the start-tree oid, captures the end-tree oid, diffs those two trees, and writes `latest.patch`, `latest.json`, and `latest-reviewable.*` through the shared artifact writer.
+`lib/tracker.ts` owns the artifact contract. It stores the start-tree oid once background preparation finishes, captures the end-tree oid, diffs those two trees, and writes `latest.patch`, `latest.json`, and `latest-reviewable.*` through the shared artifact writer. If preparation is still running when the turn ends, `agent_end` waits there instead of delaying model startup.
 
 The tracker is repo-scoped. It captures only the current cwd repo (or the resolved remote repo in SSH mode), not arbitrary files outside that repo.
 

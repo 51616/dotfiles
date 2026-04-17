@@ -209,13 +209,119 @@ test("turn-tracker: ssh mode fails closed when remote workspace tree capture fai
   });
 
   const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
-  await assert.rejects(
-    () => tracker.startTurn({
-      sessionId: "s-fail",
-      turnId: "t-fail",
-      cwd: "/local/demo-repo",
-      ssh: { session, repoRoot: "/remote/demo-repo", scopeKey: "ssh:user@example.com:/remote/demo-repo" },
-    }),
-    /git write-tree failed|remote snapshot failed/i,
-  );
+  tracker.startTurn({
+    sessionId: "s-fail",
+    turnId: "t-fail",
+    cwd: "/local/demo-repo",
+    ssh: { session, repoRoot: "/remote/demo-repo", scopeKey: "ssh:user@example.com:/remote/demo-repo" },
+  });
+  await tracker.finalize("/local/demo-repo");
+});
+
+test("turn-tracker: ssh start capture runs in the background and finalize waits for it", async () => {
+  let releaseStartCapture;
+  const startCaptureGate = new Promise((resolve) => {
+    releaseStartCapture = resolve;
+  });
+  let writeTreeCalls = 0;
+  const remoteRoot = "/remote/demo-repo";
+  const scopeKey = "ssh:user@example.com:/remote/demo-repo";
+
+  const session = createPiSshSession({
+    connection: {
+      remote: "user@example.com",
+      port: 2222,
+      remoteCwd: remoteRoot,
+      remoteHome: "/remote",
+      localCwd: "/local/demo-repo",
+      localHome: "/local",
+    },
+    transport: {
+      exec: async () => ({ exitCode: 0 }),
+      readFile: async () => {
+        throw new Error("readFile should not be used");
+      },
+      ensureReadable: async () => {},
+      ensureReadableWritable: async () => {},
+      detectImageMimeType: async () => null,
+      mkdir: async () => {},
+      writeFile: async () => {},
+    },
+    execCapture: async (command) => {
+      if (command.includes("git write-tree")) {
+        writeTreeCalls += 1;
+        if (writeTreeCalls === 1) {
+          await startCaptureGate;
+          return {
+            stdout: Buffer.from("1111111111111111111111111111111111111111\n"),
+            stderr: Buffer.alloc(0),
+            exitCode: 0,
+            timedOut: false,
+            aborted: false,
+          };
+        }
+        return {
+          stdout: Buffer.from("2222222222222222222222222222222222222222\n"),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      if (command.includes("'git' 'diff'") && command.includes("--name-status")) {
+        return {
+          stdout: Buffer.from("M\tfile.txt\n"),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      if (command.includes("'git' 'diff'") && command.includes("--binary")) {
+        return {
+          stdout: Buffer.from("diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      throw new Error(`unexpected remote command: ${command}`);
+    },
+  });
+
+  const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
+  const start = Date.now();
+  tracker.startTurn({
+    sessionId: "s-bg",
+    turnId: "t-bg",
+    cwd: "/local/demo-repo",
+    ssh: { session, repoRoot: remoteRoot, scopeKey },
+  });
+  assert.ok(Date.now() - start < 200, "startTurn should return immediately while remote capture continues in the background");
+
+  let finalized = false;
+  const finalizePromise = tracker.finalize("/local/demo-repo").then(() => {
+    finalized = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(finalized, false);
+
+  releaseStartCapture();
+  await finalizePromise;
+
+  const candidates = resolveTurnLatestCandidates({
+    repoRoot: remoteRoot,
+    scopeKey,
+    allowRepoRoot: false,
+    sessionId: "s-bg",
+  });
+  const found = firstExistingCandidate(candidates);
+  assert.ok(found, `expected at least one turn artifact to exist; tried: ${candidates.map((c) => c.patchPath).join(", ")}`);
+
+  const patchText = fs.readFileSync(found.patchPath, "utf8");
+  const metadata = JSON.parse(fs.readFileSync(found.jsonPath, "utf8"));
+  assert.match(patchText, /diff --git a\/file.txt b\/file.txt/);
+  assert.deepEqual(metadata.touched_paths, ["file.txt"]);
+  assert.ok(writeTreeCalls >= 2);
 });

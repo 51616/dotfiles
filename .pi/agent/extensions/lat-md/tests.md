@@ -45,7 +45,7 @@ What this proves:
 - empty later turns do not clobber the latest reviewable artifact
 - empty/no-observed-diff turns discard invalid non-empty advisory reports
 - artifact publication waits until the advisory step finishes for the current turn
-- the SSH path uses the shared `pi-ssh` session runtime and isolates the per-turn delta without remote file crawling
+- the SSH path uses the shared `pi-ssh` session runtime, isolates the per-turn delta without remote file crawling, and starts capture in the background so model startup is not blocked
 - pre-existing dirty workspace state is excluded because the tracker diffs start-vs-end workspace trees instead of diffing against `HEAD`
 
 ## Diff-review tracker workspace-tree capture stays SSH-safe and dirty-state-safe

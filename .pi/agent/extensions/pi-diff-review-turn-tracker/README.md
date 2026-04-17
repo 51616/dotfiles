@@ -2,7 +2,7 @@
 
 Always-loaded helper for `/diff-review` phase 14.
 
-It watches the current agent turn, captures a synthetic git workspace tree at `agent_start`, captures another at `agent_end`, and diffs those two trees to isolate the net repo delta for that turn.
+It watches the current agent turn, starts synthetic git workspace-tree capture in the background at `agent_start`, captures another tree at `agent_end`, and diffs those two trees to isolate the net repo delta for that turn.
 
 The capture backend uses a temporary git index plus `git add -A -- .` and `git write-tree`. That keeps ignored files excluded, isolates per-turn changes from pre-existing dirty state, and avoids the old remote file-by-file crawl that made SSH turns stall.
 
@@ -37,6 +37,7 @@ Workspace-tree behavior in the current version:
 - the turn artifact reflects the net repo diff between the start-of-turn workspace tree and the end-of-turn workspace tree
 - pre-existing dirty state is excluded automatically because the diff is between those two captured workspace trees, not against `HEAD`
 - ignored files stay excluded because the synthetic tree is built with `git add -A` into a temporary index
+- the start-of-turn capture is kicked off without blocking model startup; `agent_end` waits for any still-running capture before writing artifacts
 - the diff is written once at `agent_end`
 - the external summarizer is fail-open and advisory only; canonical diff metadata is still usable when summarization fails
 - empty/no-observed-diff turns still run the summarizer, but any non-empty reported file list is rejected before persistence

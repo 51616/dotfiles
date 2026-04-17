@@ -40,7 +40,13 @@ type TurnState = {
   cwdRepoRoot: string | null;
   repoKey: string | null;
   startTree: string | null;
+  prepError: Error | null;
+  prepPromise: Promise<void>;
 };
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 export class DiffReviewTurnTracker {
   private current: TurnState | null = null;
@@ -56,42 +62,79 @@ export class DiffReviewTurnTracker {
     this.enableAgentChangeReport = options?.enableAgentChangeReport ?? true;
   }
 
-  async startTurn({
+  startTurn({
     sessionId,
     turnId,
     cwd,
     ssh,
+    sshResolver,
+    requireSsh,
   }: {
     sessionId: string;
     turnId: string;
     cwd: string;
     ssh?: SshTurnContext;
-  }): Promise<void> {
+    sshResolver?: () => Promise<SshTurnContext | null>;
+    requireSsh?: boolean;
+  }): void {
     this.reset();
-    this.ssh = ssh ?? null;
-    this.scopeKey = ssh?.scopeKey;
-    this.allowRepoRootWrites = !ssh;
+    const turn: TurnState = {
+      sessionId,
+      turnId,
+      startedAt: new Date().toISOString(),
+      cwdRepoRoot: null,
+      repoKey: null,
+      startTree: null,
+      prepError: null,
+      prepPromise: Promise.resolve(),
+    };
+    this.current = turn;
+    turn.prepPromise = this.prepareTurn(turn, {
+      cwd,
+      ssh,
+      sshResolver,
+      requireSsh: requireSsh ?? false,
+    });
+  }
 
+  private async prepareTurn(
+    turn: TurnState,
+    options: {
+      cwd: string;
+      ssh?: SshTurnContext;
+      sshResolver?: () => Promise<SshTurnContext | null>;
+      requireSsh: boolean;
+    },
+  ): Promise<void> {
     try {
-      const cwdRepoRoot = ssh?.repoRoot ?? findCwdRepoRoot(cwd);
+      const resolvedSsh = options.sshResolver
+        ? await options.sshResolver()
+        : (options.ssh ?? null);
+      if (this.current !== turn) return;
+      if (options.requireSsh && !resolvedSsh) {
+        turn.prepError = new Error("SSH diff-review tracking could not resolve the remote repo.");
+        return;
+      }
+
+      this.ssh = resolvedSsh;
+      this.scopeKey = resolvedSsh?.scopeKey;
+      this.allowRepoRootWrites = !resolvedSsh;
+
+      const cwdRepoRoot = resolvedSsh?.repoRoot ?? findCwdRepoRoot(options.cwd);
       const repoKey = cwdRepoRoot ? repoKeyForRoot(cwdRepoRoot) : null;
       const startTree = cwdRepoRoot
-        ? (ssh
-          ? await captureRemoteWorkspaceTree(ssh.session, cwdRepoRoot)
+        ? (resolvedSsh
+          ? await captureRemoteWorkspaceTree(resolvedSsh.session, cwdRepoRoot)
           : captureLocalWorkspaceTree(cwdRepoRoot))
         : null;
+      if (this.current !== turn) return;
 
-      this.current = {
-        sessionId,
-        turnId,
-        startedAt: new Date().toISOString(),
-        cwdRepoRoot,
-        repoKey,
-        startTree,
-      };
+      turn.cwdRepoRoot = cwdRepoRoot;
+      turn.repoKey = repoKey;
+      turn.startTree = startTree;
     } catch (error) {
-      this.reset();
-      throw error;
+      if (this.current !== turn) return;
+      turn.prepError = asError(error);
     }
   }
 
@@ -138,6 +181,12 @@ export class DiffReviewTurnTracker {
     }
 
     try {
+      await turn.prepPromise;
+      if (turn.prepError) {
+        console.warn(`[pi-diff-review-turn-tracker] startTurn failed: ${turn.prepError.message}`);
+        return;
+      }
+
       if (turn.cwdRepoRoot && turn.repoKey && turn.startTree) {
         const diff = this.ssh
           ? await diffRemoteWorkspaceTrees(this.ssh.session, turn.cwdRepoRoot, turn.startTree, await captureRemoteWorkspaceTree(this.ssh.session, turn.cwdRepoRoot))
