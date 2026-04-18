@@ -21,7 +21,13 @@ import {
   updateCommentBody,
 } from "./comment-resolution.ts";
 import { openExternalEditor } from "./external-editor.ts";
-import { editRemoteFileViaLocalStage, SshStagedEditorError } from "./ssh-staged-editor.ts";
+import {
+  disposePreparedSshEditorStage,
+  editRemoteFileViaLocalStage,
+  prepareRemoteFileStage,
+  type PreparedSshEditorStage,
+  SshStagedEditorError,
+} from "./ssh-staged-editor.ts";
 import { commentDisabledReason } from "./agent-report-ui.ts";
 import {
   renderCommentsOverlay,
@@ -113,13 +119,130 @@ export interface AppWorkflowContext {
   finish: (result: { submitted: boolean; outputPath?: string }) => void;
 }
 
+let SSH_EDITOR_PRESTAGE_DELAY_MS = 2000;
+
+export function __setSshEditorPrestageDelayMsForTests(delayMs: number): void {
+  SSH_EDITOR_PRESTAGE_DELAY_MS = Math.max(0, Math.floor(delayMs));
+}
+
 export function createAppWorkflows(ctx: AppWorkflowContext) {
   const hasActiveOverlay = (): boolean => ctx.getActiveOverlayHandle() != null;
+  let sshPrestageTimer: NodeJS.Timeout | null = null;
+  let sshPrestageTargetKey: string | null = null;
+  let sshPrestageDisposed = false;
+  const preparedSshStages = new Map<string, PreparedSshEditorStage>();
+  const pendingPreparedSshStages = new Map<string, Promise<PreparedSshEditorStage | null>>();
 
   const closeOverlay = (requestRender = true): void => {
     ctx.getActiveOverlayHandle()?.hide();
     ctx.setActiveOverlayHandle(null);
     if (requestRender) ctx.requestRender();
+  };
+
+  const clearSshPrestageTimer = (): void => {
+    if (!sshPrestageTimer) return;
+    clearTimeout(sshPrestageTimer);
+    sshPrestageTimer = null;
+    sshPrestageTargetKey = null;
+  };
+
+  const sshPrestageFileKey = (repoRoot: string, repoRelPath: string): string => `${repoRoot}::${repoRelPath}`;
+
+  const currentSshPrestageTarget = (): { repoRoot: string; repoRelPath: string; cacheKey: string } | null => {
+    if (ctx.backendKind !== "ssh" || ctx.getFocusMode() !== "diff") return null;
+    const file = ctx.getCurrentFile();
+    if (!file) return null;
+    const repoRoot = file.resolvedRepoRoot ?? ctx.repoRoot;
+    const repoRelPath = file.resolvedEditablePath ?? file.editablePath;
+    if (!repoRelPath) return null;
+    return {
+      repoRoot,
+      repoRelPath,
+      cacheKey: sshPrestageFileKey(repoRoot, repoRelPath),
+    };
+  };
+
+  const dropPreparedSshStage = async (cacheKey: string): Promise<void> => {
+    const prepared = preparedSshStages.get(cacheKey);
+    preparedSshStages.delete(cacheKey);
+    pendingPreparedSshStages.delete(cacheKey);
+    await disposePreparedSshEditorStage(prepared);
+  };
+
+  const consumePreparedSshStage = async (cacheKey: string): Promise<PreparedSshEditorStage | undefined> => {
+    const prepared = preparedSshStages.get(cacheKey);
+    if (prepared) {
+      preparedSshStages.delete(cacheKey);
+      pendingPreparedSshStages.delete(cacheKey);
+      return prepared;
+    }
+    const pending = pendingPreparedSshStages.get(cacheKey);
+    if (!pending) {
+      return undefined;
+    }
+    pendingPreparedSshStages.delete(cacheKey);
+    const resolved = await pending;
+    preparedSshStages.delete(cacheKey);
+    return resolved ?? undefined;
+  };
+
+  const warmPreparedSshStage = async (cacheKey: string, repoRelPath: string): Promise<PreparedSshEditorStage | null> => {
+    if (preparedSshStages.has(cacheKey)) {
+      return preparedSshStages.get(cacheKey) ?? null;
+    }
+    const pending = pendingPreparedSshStages.get(cacheKey);
+    if (pending) {
+      return pending;
+    }
+    const identity = ctx.getRepoIdentity();
+    if (!identity.ssh) {
+      return null;
+    }
+    const promise = prepareRemoteFileStage({
+      ssh: identity.ssh,
+      sessionId: ctx.sessionId,
+      repoRelPath,
+    }).then((prepared) => {
+      if (sshPrestageDisposed) {
+        void disposePreparedSshEditorStage(prepared);
+        pendingPreparedSshStages.delete(cacheKey);
+        return null;
+      }
+      preparedSshStages.set(cacheKey, prepared);
+      pendingPreparedSshStages.delete(cacheKey);
+      return prepared;
+    }).catch(() => {
+      pendingPreparedSshStages.delete(cacheKey);
+      return null;
+    });
+    pendingPreparedSshStages.set(cacheKey, promise);
+    return promise;
+  };
+
+  const scheduleSshEditorPrestage = (): void => {
+    if (sshPrestageDisposed) return;
+    clearSshPrestageTimer();
+    const target = currentSshPrestageTarget();
+    if (!target) return;
+    if (preparedSshStages.has(target.cacheKey) || pendingPreparedSshStages.has(target.cacheKey)) {
+      return;
+    }
+    sshPrestageTargetKey = target.cacheKey;
+    sshPrestageTimer = setTimeout(() => {
+      sshPrestageTimer = null;
+      const current = currentSshPrestageTarget();
+      if (!current || current.cacheKey !== target.cacheKey || sshPrestageTargetKey !== target.cacheKey) {
+        return;
+      }
+      void warmPreparedSshStage(target.cacheKey, target.repoRelPath);
+    }, SSH_EDITOR_PRESTAGE_DELAY_MS);
+  };
+
+  const disposeSshEditorPrestageState = async (): Promise<void> => {
+    sshPrestageDisposed = true;
+    clearSshPrestageTimer();
+    const cacheKeys = [...preparedSshStages.keys()];
+    await Promise.all(cacheKeys.map((cacheKey) => dropPreparedSshStage(cacheKey)));
   };
 
   const openCommentEditor = ({
@@ -159,6 +282,14 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
   };
 
   const workflows = {
+    selectionContextChanged(): void {
+      scheduleSshEditorPrestage();
+    },
+
+    async dispose(): Promise<void> {
+      await disposeSshEditorPrestageState();
+    },
+
     openRejectedHunksErrorOverlay(error: string): void {
       if (hasActiveOverlay()) return;
       const overlay = new SimpleOverlay({
@@ -444,6 +575,9 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
             ctx.callbacks.notify("SSH edit mode is unavailable because the active SSH session identity is missing.", "error");
             return;
           }
+          clearSshPrestageTimer();
+          const cacheKey = sshPrestageFileKey(repoRoot, relativePath);
+          const preparedStage = await consumePreparedSshStage(cacheKey);
           const result = await editRemoteFileViaLocalStage({
             tui: ctx.tui,
             ssh: identity.ssh,
@@ -451,6 +585,7 @@ export function createAppWorkflows(ctx: AppWorkflowContext) {
             repoRelPath: relativePath,
             line,
             lineTargeted,
+            preparedStage,
           });
           if (result.status != null && result.status !== 0) {
             ctx.callbacks.notify(`Editor exited with status ${result.status}.`, "info");

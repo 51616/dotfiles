@@ -2,8 +2,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { DiffReviewApp } from "../lib/app.ts";
+import { __setSshEditorPrestageDelayMsForTests } from "../lib/app-workflows.ts";
 import { parseSingleFilePatch } from "../lib/diff-parser.ts";
 import { createPiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
@@ -280,6 +285,148 @@ test("loading diff-review can be cancelled with q", () => {
   app.handleInput("q");
 
   assert.deepEqual(doneCalls, [{ submitted: false }]);
+});
+
+test("diff-focus dwell pre-stages the selected SSH file before the editor opens", async () => {
+  const originalEditor = process.env.EDITOR;
+  const originalVisual = process.env.VISUAL;
+  process.env.EDITOR = "true";
+  process.env.VISUAL = "true";
+  __setSshEditorPrestageDelayMsForTests(5);
+
+  try {
+    const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-diff-review-prestage-"));
+    fs.mkdirSync(path.join(remoteRoot, "src"), { recursive: true });
+    const targetPath = path.join(remoteRoot, "src", "example.ts");
+    let readCount = 0;
+    const session = createPiSshSession({
+      connection: {
+        remote: "user@example.com",
+        port: 2222,
+        remoteCwd: remoteRoot,
+        remoteHome: path.dirname(remoteRoot),
+        localCwd: "/repo",
+        localHome: "/home/pi",
+      },
+      transport: {
+        exec: async () => ({ exitCode: 0 }),
+        readFile: async (remotePath) => {
+          readCount += 1;
+          return fs.promises.readFile(remotePath);
+        },
+        writeFile: async (remotePath, content) => {
+          await fs.promises.writeFile(remotePath, content);
+        },
+        ensureReadable: async () => {},
+        ensureReadableWritable: async () => {},
+        detectImageMimeType: async () => null,
+        mkdir: async (remoteDir) => { await fs.promises.mkdir(remoteDir, { recursive: true }); },
+      },
+      execCapture: async (command, options = {}) => {
+        const stdout = execFileSync("bash", ["-lc", command], {
+          cwd: remoteRoot,
+          encoding: "buffer",
+          input: options.stdin,
+        });
+        return {
+          stdout: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout ?? ""),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    });
+    const file = parseSingleFilePatch({
+      rawPatch: PATCH,
+      status: "M",
+      oldPath: "src/example.ts",
+      newPath: "src/example.ts",
+    });
+    fs.writeFileSync(path.join(remoteRoot, "src", "example.ts"), "const before = 1;\n", "utf8");
+
+    const app = new DiffReviewApp({
+      pi: {},
+      repoRoot: remoteRoot,
+      repoLabel: `SSH user@example.com:2222 ${remoteRoot}`,
+      scopeKey: `ssh:user@example.com:2222:${remoteRoot}`,
+      allowRepoRootWrites: false,
+      backendKind: "ssh",
+      sshIdentity: {
+        session,
+        connection: { kind: "ssh", remote: "user@example.com", port: 2222, remoteCwd: remoteRoot },
+        remoteCwd: remoteRoot,
+        repoRoot: remoteRoot,
+        scopeKey: `ssh:user@example.com:2222:${remoteRoot}`,
+        repoLabel: `SSH user@example.com:2222 ${remoteRoot}`,
+      },
+      sessionId: "session-1",
+      tui: {
+        terminal: { rows: 40 },
+        requestRender() {},
+        showOverlay() { return { hide() {} }; },
+        stop() {},
+        start() {},
+      },
+      theme: makeTheme(),
+      keybindings: {},
+      callbacks: {
+        notify() {},
+        done() {},
+        setEditorText() {},
+      },
+    });
+
+    app.loadingMessage = "";
+    app.scope = "a";
+    app.scopeStates = new Map([[
+      "a",
+      {
+        scope: "a",
+        bundle: {
+          ...makeBundle(file),
+          scope: "a",
+          repoRoot: remoteRoot,
+          sourceKind: "workspace",
+          sourceLabel: "workspace vs HEAD",
+          turnMetadata: null,
+        },
+        startHead: null,
+        startFingerprint: "fingerprint",
+        startFileHashes: new Map([[file.fileKey, "hash"]]),
+        lastReloadFingerprint: "fingerprint",
+        previousFileHashes: new Map([[file.fileKey, "hash"]]),
+        loadedAt: new Date().toISOString(),
+        lastReloadAt: new Date().toISOString(),
+        view: {
+          selectedPath: file.displayPath,
+          selectedFileIndex: 0,
+          diffCursorRow: 0,
+          diffCursorSide: "new",
+          diffCursorKind: "added",
+          diffCursorLine: 1,
+          diffScroll: 0,
+          fileScroll: 0,
+        },
+      },
+    ]]);
+    app.selectedFileIndex = 0;
+    app.focusMode = "diff";
+
+    app.handleSelectionChanged();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(readCount, 1);
+
+    await app.workflows.openEditor(false);
+    assert.equal(readCount, 1);
+    assert.equal(fs.readFileSync(targetPath, "utf8"), "const before = 1;\n");
+  } finally {
+    __setSshEditorPrestageDelayMsForTests(2000);
+    if (originalEditor === undefined) delete process.env.EDITOR;
+    else process.env.EDITOR = originalEditor;
+    if (originalVisual === undefined) delete process.env.VISUAL;
+    else process.env.VISUAL = originalVisual;
+  }
 });
 
 test("open-editor workflow failures surface as notifications instead of unhandled rejections", async () => {

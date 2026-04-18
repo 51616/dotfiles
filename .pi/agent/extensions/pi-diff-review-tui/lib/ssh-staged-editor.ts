@@ -13,6 +13,14 @@ import { openExternalEditorPath } from "./external-editor.ts";
 
 const MAX_STAGED_EDIT_BYTES = 4 * 1024 * 1024;
 
+export type PreparedSshEditorStage = {
+  repoRelPath: string;
+  stagePath: string;
+  baselineBytes: Buffer;
+  sizeBytes: number | null;
+  mtimeMs: number | null;
+};
+
 export type SshStagedEditorResult = {
   status: number | null;
   changed: boolean;
@@ -96,6 +104,11 @@ async function cleanupStageFile(stagePath: string): Promise<void> {
   await fs.rm(stagePath, { force: true });
 }
 
+export async function disposePreparedSshEditorStage(stage: PreparedSshEditorStage | null | undefined): Promise<void> {
+  if (!stage) return;
+  await cleanupStageFile(stage.stagePath);
+}
+
 async function resolveWritableStagePath(stagePath: string): Promise<string> {
   try {
     await fs.access(stagePath);
@@ -116,23 +129,7 @@ async function resolveWritableStagePath(stagePath: string): Promise<string> {
   throw new Error(`Could not allocate a unique SSH staged editor path for ${stagePath}`);
 }
 
-export async function editRemoteFileViaLocalStage({
-  tui,
-  ssh,
-  sessionId,
-  repoRelPath,
-  line,
-  lineTargeted,
-  openEditor = openExternalEditorPath,
-}: {
-  tui: TUI;
-  ssh: DiffReviewSshIdentity;
-  sessionId: string;
-  repoRelPath: string;
-  line?: number | null;
-  lineTargeted: boolean;
-  openEditor?: typeof openExternalEditorPath;
-}): Promise<SshStagedEditorResult> {
+async function prepareRemoteStageProbe(ssh: DiffReviewSshIdentity, repoRelPath: string): Promise<{ exists: boolean; isFile: boolean; isSymlink: boolean; linkCount: number | null; sizeBytes: number | null; mtimeMs: number | null }> {
   const remoteProbe = await inspectRepoPathForStage(ssh.session, ssh.repoRoot, repoRelPath);
   if (!remoteProbe.exists) {
     throw new Error(`Remote file no longer exists: ${repoRelPath}`);
@@ -149,7 +146,19 @@ export async function editRemoteFileViaLocalStage({
   if (typeof remoteProbe.sizeBytes === "number" && remoteProbe.sizeBytes > MAX_STAGED_EDIT_BYTES) {
     throw new Error(`Remote file is too large to stage locally (> ${MAX_STAGED_EDIT_BYTES} bytes): ${repoRelPath}`);
   }
+  return remoteProbe;
+}
 
+export async function prepareRemoteFileStage({
+  ssh,
+  sessionId,
+  repoRelPath,
+}: {
+  ssh: DiffReviewSshIdentity;
+  sessionId: string;
+  repoRelPath: string;
+}): Promise<PreparedSshEditorStage> {
+  const remoteProbe = await prepareRemoteStageProbe(ssh, repoRelPath);
   const baseline = await readRepoPath(ssh.session, ssh.repoRoot, repoRelPath, MAX_STAGED_EDIT_BYTES + 1);
   if (!baseline.exists) {
     throw new Error(`Remote file no longer exists: ${repoRelPath}`);
@@ -166,6 +175,76 @@ export async function editRemoteFileViaLocalStage({
   }));
   await fs.mkdir(path.dirname(stagePath), { recursive: true });
   await fs.writeFile(stagePath, baseline.bytes);
+  return {
+    repoRelPath,
+    stagePath,
+    baselineBytes: baseline.bytes,
+    sizeBytes: remoteProbe.sizeBytes,
+    mtimeMs: remoteProbe.mtimeMs,
+  };
+}
+
+async function canReusePreparedStage({
+  ssh,
+  repoRelPath,
+  preparedStage,
+}: {
+  ssh: DiffReviewSshIdentity;
+  repoRelPath: string;
+  preparedStage: PreparedSshEditorStage;
+}): Promise<boolean> {
+  if (preparedStage.repoRelPath !== repoRelPath) {
+    return false;
+  }
+  const remoteProbe = await prepareRemoteStageProbe(ssh, repoRelPath);
+  return remoteProbe.sizeBytes === preparedStage.sizeBytes && remoteProbe.mtimeMs === preparedStage.mtimeMs;
+}
+
+async function resolvePreparedStageForEdit({
+  ssh,
+  sessionId,
+  repoRelPath,
+  preparedStage,
+}: {
+  ssh: DiffReviewSshIdentity;
+  sessionId: string;
+  repoRelPath: string;
+  preparedStage?: PreparedSshEditorStage;
+}): Promise<PreparedSshEditorStage> {
+  if (preparedStage) {
+    const reusable = await canReusePreparedStage({ ssh, repoRelPath, preparedStage }).catch(() => false);
+    if (reusable) {
+      await fs.mkdir(path.dirname(preparedStage.stagePath), { recursive: true });
+      await fs.writeFile(preparedStage.stagePath, preparedStage.baselineBytes);
+      return preparedStage;
+    }
+    await disposePreparedSshEditorStage(preparedStage);
+  }
+  return prepareRemoteFileStage({ ssh, sessionId, repoRelPath });
+}
+
+export async function editRemoteFileViaLocalStage({
+  tui,
+  ssh,
+  sessionId,
+  repoRelPath,
+  line,
+  lineTargeted,
+  preparedStage,
+  openEditor = openExternalEditorPath,
+}: {
+  tui: TUI;
+  ssh: DiffReviewSshIdentity;
+  sessionId: string;
+  repoRelPath: string;
+  line?: number | null;
+  lineTargeted: boolean;
+  preparedStage?: PreparedSshEditorStage;
+  openEditor?: typeof openExternalEditorPath;
+}): Promise<SshStagedEditorResult> {
+  const prepared = await resolvePreparedStageForEdit({ ssh, sessionId, repoRelPath, preparedStage });
+  const stagePath = prepared.stagePath;
+  const baselineBytes = prepared.baselineBytes;
 
   const result = openEditor({
     tui,
@@ -193,7 +272,7 @@ export async function editRemoteFileViaLocalStage({
     throw new SshStagedEditorError(`Could not read the staged SSH edit file after the editor closed: ${message}`, { stagePath });
   }
   assertTextLike(stagedBytes, repoRelPath, stagePath);
-  if (hashBytes(stagedBytes) === hashBytes(baseline.bytes)) {
+  if (hashBytes(stagedBytes) === hashBytes(baselineBytes)) {
     await cleanupStageFile(stagePath);
     return {
       status: result.status,
@@ -204,7 +283,7 @@ export async function editRemoteFileViaLocalStage({
     };
   }
 
-  const writeResult = await compareAndWriteRepoPath(ssh.session, ssh.repoRoot, repoRelPath, baseline.bytes, stagedBytes);
+  const writeResult = await compareAndWriteRepoPath(ssh.session, ssh.repoRoot, repoRelPath, baselineBytes, stagedBytes);
   if (writeResult.symlink) {
     throw new SshStagedEditorError(
       `Refusing to overwrite a symlinked remote file via SSH edit: ${repoRelPath}. Kept the staged copy for manual recovery.`,

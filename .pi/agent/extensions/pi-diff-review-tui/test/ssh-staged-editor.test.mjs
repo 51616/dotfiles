@@ -7,7 +7,9 @@ import { spawnSync } from "node:child_process";
 
 import { createPiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 import {
+  disposePreparedSshEditorStage,
   editRemoteFileViaLocalStage,
+  prepareRemoteFileStage,
   resolveSshEditorStagePath,
 } from "../lib/ssh-staged-editor.ts";
 
@@ -18,7 +20,7 @@ function makeRemoteRepo(prefix = "pi-diff-review-ssh-stage-") {
   return dir;
 }
 
-function makeSession(remoteRoot) {
+function makeSession(remoteRoot, overrides = {}) {
   return createPiSshSession({
     connection: {
       remote: "user@example.com",
@@ -29,18 +31,18 @@ function makeSession(remoteRoot) {
       localHome: "/local",
     },
     transport: {
-      exec: async () => ({ exitCode: 0 }),
-      readFile: async (remotePath) => fs.promises.readFile(remotePath),
-      writeFile: async (remotePath, content) => {
+      exec: overrides.transport?.exec ?? (async () => ({ exitCode: 0 })),
+      readFile: overrides.transport?.readFile ?? (async (remotePath) => fs.promises.readFile(remotePath)),
+      writeFile: overrides.transport?.writeFile ?? (async (remotePath, content) => {
         await fs.promises.mkdir(path.dirname(remotePath), { recursive: true });
         await fs.promises.writeFile(remotePath, content);
-      },
-      ensureReadable: async () => {},
-      ensureReadableWritable: async () => {},
-      detectImageMimeType: async () => null,
-      mkdir: async (remoteDir) => { await fs.promises.mkdir(remoteDir, { recursive: true }); },
+      }),
+      ensureReadable: overrides.transport?.ensureReadable ?? (async () => {}),
+      ensureReadableWritable: overrides.transport?.ensureReadableWritable ?? (async () => {}),
+      detectImageMimeType: overrides.transport?.detectImageMimeType ?? (async () => null),
+      mkdir: overrides.transport?.mkdir ?? (async (remoteDir) => { await fs.promises.mkdir(remoteDir, { recursive: true }); }),
     },
-    execCapture: async (command, options = {}) => {
+    execCapture: overrides.execCapture ?? (async (command, options = {}) => {
       const result = spawnSync("bash", ["-lc", command], {
         encoding: "buffer",
         input: options.stdin,
@@ -53,13 +55,13 @@ function makeSession(remoteRoot) {
         timedOut: result.signal === "SIGTERM",
         aborted: false,
       };
-    },
+    }),
   });
 }
 
-function makeIdentity(remoteRoot) {
+function makeIdentity(remoteRoot, session = makeSession(remoteRoot)) {
   return {
-    session: makeSession(remoteRoot),
+    session,
     connection: {
       kind: "ssh",
       remote: "user@example.com",
@@ -116,6 +118,41 @@ test("editRemoteFileViaLocalStage allocates a new local stage path when a recove
   assert.notEqual(result.stagePath, originalStagePath);
   assert.equal(fs.readFileSync(originalStagePath, "utf8"), "preserved recovery copy\n");
   assert.equal(fs.readFileSync(path.join(remoteRoot, "src", "tracked.ts"), "utf8"), "export const remote = 7;\n");
+});
+
+test("prepareRemoteFileStage lets the editor workflow reuse a warmed SSH stage without rereading the remote file", async () => {
+  const remoteRoot = makeRemoteRepo("pi-diff-review-ssh-stage-warm-");
+  let readCount = 0;
+  const session = makeSession(remoteRoot, {
+    transport: {
+      readFile: async (remotePath) => {
+        readCount += 1;
+        return fs.promises.readFile(remotePath);
+      },
+    },
+  });
+  const ssh = makeIdentity(remoteRoot, session);
+  const preparedStage = await prepareRemoteFileStage({
+    ssh,
+    sessionId: `session-${Date.now()}-warm`,
+    repoRelPath: "src/tracked.ts",
+  });
+
+  assert.equal(readCount, 1);
+  const result = await editRemoteFileViaLocalStage({
+    tui: makeTui(),
+    ssh,
+    sessionId: `session-${Date.now()}-warm-open`,
+    repoRelPath: "src/tracked.ts",
+    lineTargeted: false,
+    preparedStage,
+    openEditor: () => ({ status: 0 }),
+  });
+
+  assert.equal(readCount, 1);
+  assert.equal(result.changed, false);
+  assert.equal(result.uploaded, false);
+  await disposePreparedSshEditorStage(preparedStage);
 });
 
 test("editRemoteFileViaLocalStage uploads changed staged edits back to the remote file", async () => {

@@ -176,7 +176,7 @@ export class DiffReviewApp implements Component, Focusable {
       applyRejectedHunksBeforeSubmit: (submitMode, submitState) => this.applyRejectedHunksBeforeSubmit(submitMode, submitState),
       reloadCurrentScope: () => this.reloadCurrentScope(),
       changeSummary: (state) => this.changeSummary(state),
-      onSelectionChanged: () => this.maybeHydrateCurrentReportedOnlyFile(),
+      onSelectionChanged: () => this.handleSelectionChanged(),
       finish: (result) => this.finish(result),
     });
     this.rendering = createAppRendering({
@@ -805,6 +805,11 @@ export class DiffReviewApp implements Component, Focusable {
     this.diffScroll = restoredDiffScroll({ view, restoredRow });
   }
 
+  private handleSelectionChanged(): void {
+    this.maybeHydrateCurrentReportedOnlyFile();
+    this.workflows.selectionContextChanged();
+  }
+
   private maybeHydrateCurrentReportedOnlyFile(): void {
     if (this.backendKind !== "ssh") return;
     const state = this.scopeStates.get(this.scope);
@@ -889,7 +894,7 @@ export class DiffReviewApp implements Component, Focusable {
     this.revalidateComments(scope);
     this.restoreScopeView(scope, initialize);
     this.tui.requestRender();
-    this.maybeHydrateCurrentReportedOnlyFile();
+    this.handleSelectionChanged();
   }
 
   private revalidateComments(scope: ReviewMode): void {
@@ -914,6 +919,7 @@ export class DiffReviewApp implements Component, Focusable {
   private finish(result: { submitted: boolean; outputPath?: string }): void {
     if (this.closing) return;
     this.closing = true;
+    void this.workflows.dispose();
     this.callbacks.done(result);
   }
 
@@ -932,6 +938,7 @@ export class DiffReviewApp implements Component, Focusable {
         return;
       case "switchPane":
         this.focusMode = this.focusMode === "files" ? "diff" : "files";
+        this.handleSelectionChanged();
         this.tui.requestRender();
         return;
       case "openHelp":
@@ -945,6 +952,7 @@ export class DiffReviewApp implements Component, Focusable {
         return;
       case "focusDiff":
         this.focusMode = "diff";
+        this.handleSelectionChanged();
         this.tui.requestRender();
         return;
       case "createLineComment":
@@ -1005,7 +1013,7 @@ export class DiffReviewApp implements Component, Focusable {
         this.selectedFileIndex = nextIndex;
         this.setCursorToRow(0);
         this.ensureFileVisible(bodyHeight);
-        this.maybeHydrateCurrentReportedOnlyFile();
+        this.handleSelectionChanged();
         this.tui.requestRender();
         return;
       }
