@@ -103,11 +103,14 @@ function calculateTrailIndex(charIndex: number, state: ScannerState): number {
   return -1;
 }
 
+function dim(text: string): string {
+  return `\x1b[2m${text}\x1b[22m`;
+}
+
 function renderScannerCell(ctx: UiContext, trailIndex: number): string {
   if (trailIndex === 0) return ctx.ui.theme.bold(ctx.ui.theme.fg("border", "■"));
-  if (trailIndex === 1) return ctx.ui.theme.fg("border", "■");
-  if (trailIndex === 2) return ctx.ui.theme.fg("borderAccent", "■");
-  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return ctx.ui.theme.fg("borderMuted", "■");
+  if (trailIndex === 1 || trailIndex === 2) return ctx.ui.theme.fg("border", "■");
+  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return dim(ctx.ui.theme.fg("border", "■"));
   return ctx.ui.theme.fg("muted", "⬝");
 }
 
