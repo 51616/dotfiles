@@ -9,7 +9,12 @@ function createMode({ isCompacting, hasAutoCompactionLoader }) {
 
   const mode = Object.create(InteractiveMode.prototype);
   mode.isInitialized = true;
-  mode.session = { isCompacting };
+  mode.runtimeHost = {
+    session: {
+      isCompacting,
+      settingsManager: { getShowTerminalProgress: () => false },
+    },
+  };
   mode.footer = { invalidate() {} };
   mode.loadingAnimation = {
     stop() {

@@ -24,15 +24,16 @@ There are three different kinds of local patch state here.
 ### 1) activity-block core patch stack
 
 Current default target:
-- `pi-mono v0.67.6`
+- `pi-mono v0.70.0`
 
 Source of truth:
-- `~/.pi/agent/extensions/activity-block/patches/v0.67.6/README.md`
-- `~/.pi/agent/extensions/activity-block/patches/v0.67.6/pi-core-live-transcript-mode.patch`
-- `~/.pi/agent/extensions/activity-block/patches/v0.67.6/pi-core-custom-message-turn-lifecycle.patch`
-- `~/.pi/agent/extensions/activity-block/patches/v0.67.6/pi-core-before-turn-response-lifecycle.patch`
+- `~/.pi/agent/extensions/activity-block/patches/v0.70.0/README.md`
+- `~/.pi/agent/extensions/activity-block/patches/v0.70.0/pi-core-local-extension-seams.patch`
 
 Apply order:
+1. `pi-core-local-extension-seams.patch`
+
+Older saved stacks (`v0.67.6` and earlier) still use the three-patch split:
 1. `pi-core-live-transcript-mode.patch`
 2. `pi-core-custom-message-turn-lifecycle.patch`
 3. `pi-core-before-turn-response-lifecycle.patch`
@@ -117,6 +118,7 @@ That script is the broad repair entrypoint and should cover:
 - the baked extension compatibility checks
 - the `pi-fff` broker interop patch
 - the `activity-block` core patch stack and reinstall
+- the extension workspace local `node_modules/@mariozechner/*` refresh from the same patched tarballs, so tests import the patched runtime surface
 
 ## After patching
 
