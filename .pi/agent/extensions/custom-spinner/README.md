@@ -2,9 +2,9 @@
 
 Customizes pi's interactive working spinner label and animation.
 
-Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation copies opencode's interactive `spinner.Pulse` animation: `█ → ▓ → ▒ → ░` at 125ms per frame.
+Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation copies opencode's prompt scanner: an 8-cell block trail that moves left-to-right, holds at the end, moves right-to-left, then holds at the start.
 
-This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames are rendered with pi's accent color and bold styling to match opencode's primary-color, bold treatment.
+This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames use pi's accent/muted/dim theme colors to approximate opencode's per-cell color generator.
 
 ## Sensible label options
 
@@ -25,4 +25,4 @@ The active pool is exactly the options above.
 
 ## Source note
 
-opencode's interactive chat list uses `spinner.Pulse` from Charm Bubbles. In `github.com/charmbracelet/bubbles v0.21.0`, `spinner.Pulse` is defined as `█`, `▓`, `▒`, `░` with `time.Second / 8` FPS, which is 125ms per frame.
+The wave-like opencode spinner lives in `packages/opencode/src/cli/cmd/tui/ui/spinner.ts` and is used by `packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx`. The upstream prompt uses `createFrames({ style: "blocks", inactiveFactor: 0.6, minAlpha: 0.3 })`, `createColors(...)`, width `8`, bidirectional movement, hold-start `30`, hold-end `9`, and interval `40`ms.
