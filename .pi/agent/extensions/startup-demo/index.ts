@@ -235,7 +235,7 @@ export default function startupDemo(pi: ExtensionAPI) {
 }
 
 class StartupDemoHeader {
-  readonly width = 74;
+  readonly maxWidth = 70;
   private readonly theme: Theme;
   private readonly skills: CatalogItem[];
   private readonly promptFiles: CatalogItem[];
@@ -256,8 +256,9 @@ class StartupDemoHeader {
     this.skillStats = skillStats;
   }
 
-  render(_width: number): string[] {
-    const innerWidth = this.width - 2;
+  render(width: number): string[] {
+    const boxWidth = Math.max(1, Math.min(this.maxWidth, width));
+    const innerWidth = Math.max(0, boxWidth - 2);
     const columnGap = 3;
     const leftWidth = Math.floor((innerWidth - columnGap) / 2);
     const rightWidth = innerWidth - columnGap - leftWidth;
