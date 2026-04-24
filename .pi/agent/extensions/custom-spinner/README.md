@@ -2,7 +2,7 @@
 
 Customizes pi's interactive working spinner label and animation.
 
-Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation uses a gradient block charge spinner: `▱▱▱ → ▰▱▱ → ▰▰▱ → ▰▰▰ → ▰▰▱ → ▰▱▱`.
+Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation uses a symmetric gradient block charge spinner: `▱▱▱▱▱ → ▰▱▱▱▰ → ▰▰▱▰▰ → ▰▰▰▰▰ → ▰▰▱▰▰ → ▰▱▱▱▰`.
 
 This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The block frames use fixed-width glyphs plus ANSI 24-bit foreground colors, so the footer should not jitter.
 

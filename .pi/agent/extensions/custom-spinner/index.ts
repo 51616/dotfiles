@@ -19,16 +19,27 @@ const FILLED_BLOCKS: readonly string[] = [
   "\x1b[38;2;125;211;252m▰",
   "\x1b[38;2;167;139;250m▰",
   "\x1b[38;2;240;171;252m▰",
+  "\x1b[38;2;167;139;250m▰",
+  "\x1b[38;2;125;211;252m▰",
 ];
 
-function frame(filledBlocks: number): string {
-  return [0, 1, 2]
-    .map((index) => (index < filledBlocks ? FILLED_BLOCKS[index] : EMPTY_BLOCK))
-    .join("") + RESET_FG;
+const BLOCK_COUNT = FILLED_BLOCKS.length;
+
+function frameFromSides(filledDepth: number): string {
+  return FILLED_BLOCKS.map((block, index) =>
+    index < filledDepth || index >= BLOCK_COUNT - filledDepth ? block : EMPTY_BLOCK,
+  ).join("") + RESET_FG;
 }
 
 const WORKING_INDICATOR: WorkingIndicatorOptions = {
-  frames: [frame(0), frame(1), frame(2), frame(3), frame(2), frame(1)],
+  frames: [
+    frameFromSides(0),
+    frameFromSides(1),
+    frameFromSides(2),
+    frameFromSides(3),
+    frameFromSides(2),
+    frameFromSides(1),
+  ],
   intervalMs: 110,
 };
 
