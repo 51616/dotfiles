@@ -31,7 +31,7 @@ function clearHeader(ctx: StartupDemoContext): void {
 }
 
 function discoverSkills(cwd: string): { items: CatalogItem[]; stats: SkillPromptStats } {
-  const { skills } = loadSkills({ cwd, agentDir: getAgentDir() });
+  const { skills } = loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [], includeDefaults: true });
   const items = skills
     .map((skill) => ({
       name: skill.name,
