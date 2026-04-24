@@ -15,8 +15,9 @@ function createDeps(events) {
     setArmed: (next) => events.push(["setArmed", next]),
     getLastHandledFooter: () => null,
     setLastHandledFooter: (next) => events.push(["setLastHandledFooter", next.checkpointPath]),
-    getUsage: () => ({ percent: 90 }),
+    getUsage: () => ({ tokens: 90, contextWindow: 100, percent: 90 }),
     getThresholdPercent: () => 65,
+    getThresholdTokens: () => 192000,
     maxCheckpointAgeMs: 60_000,
     footerDedupeWindowMs: 15_000,
     checkpointProbe: {

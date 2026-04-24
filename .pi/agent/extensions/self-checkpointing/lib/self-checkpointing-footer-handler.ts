@@ -11,6 +11,7 @@ import {
 } from "../../lib/autockpt/autockpt-footer-dedupe.ts";
 import type { AutoKickController } from "./self-checkpointing-auto-kick.ts";
 import type { CheckpointProbe } from "./self-checkpointing-checkpoint-probe.ts";
+import { isContextUsageAtOrAboveThreshold } from "../../lib/autockpt/autockpt-threshold.ts";
 
 export type FooterHandlerDeps = {
   autoKick: AutoKickController;
@@ -23,8 +24,9 @@ export type FooterHandlerDeps = {
   getLastHandledFooter: () => FooterHandledRecord | null;
   setLastHandledFooter: (next: FooterHandledRecord) => void;
 
-  getUsage: (ctx: ExtensionContext) => { percent?: number | null } | undefined;
+  getUsage: (ctx: ExtensionContext) => { tokens?: number | null; contextWindow?: number | null; percent?: number | null } | undefined;
   getThresholdPercent: () => number;
+  getThresholdTokens: () => number;
 
   maxCheckpointAgeMs: number;
   footerDedupeWindowMs: number;
@@ -68,15 +70,17 @@ export function handleAssistantMessageEnd(
   const sawDoneMarker = text.includes(AUTOCHECKPOINT_DONE_MARKER);
 
   const usage = deps.getUsage(ctx);
-  const pct = usage?.percent;
-  const threshold = deps.getThresholdPercent();
-  const aboveThreshold = pct !== null && pct !== undefined && pct >= threshold;
+  const threshold = {
+    percent: deps.getThresholdPercent(),
+    tokens: deps.getThresholdTokens(),
+  };
+  const thresholdMatch = isContextUsageAtOrAboveThreshold(usage, threshold);
 
   // Parse footers when either:
   // - we are in an auto-kick cycle (we explicitly requested a checkpoint), OR
   // - the context usage is currently above the threshold, OR
   // - the assistant explicitly emitted the done marker (manual [autockpt] runs)
-  if (!deps.autoKick.isInFlight() && !aboveThreshold && !sawDoneMarker) return;
+  if (!deps.autoKick.isInFlight() && !thresholdMatch.matched && !sawDoneMarker) return;
 
   const parsed = parseCheckpointFooter(text, 8000);
 

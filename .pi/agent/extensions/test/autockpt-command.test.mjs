@@ -52,6 +52,7 @@ function makeDeps(overrides = {}) {
     debugWidgetKey: "autockpt-debug",
     getUsage: () => ({ tokens: 10, contextWindow: 100, percent: 10 }),
     getThresholdPercent: () => Number.parseFloat(process.env.PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME ?? "65"),
+    getThresholdTokens: () => 192000,
     getArmed: () => false,
     getPendingCompactionRequested: () => false,
     getAutotestInProgress: () => false,
@@ -149,6 +150,7 @@ test("registerAutockptCommand status shows checkpoint probe info", async () => {
 
   const widget = ctx.widgets.at(-1);
   assert.equal(widget.key, "autockpt-debug");
+  assert.ok(widget.content.some((line) => String(line).includes("enabled=true threshold=65% or 192000 tokens")));
   assert.ok(widget.content.some((line) => String(line).includes("checkpointProbe: ssh source=cached-backend remote=user@example.com port=2222 cwd=/srv/repo")));
 });
 

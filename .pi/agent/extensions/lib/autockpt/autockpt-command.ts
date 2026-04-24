@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { CheckpointProbeInfo } from "../../self-checkpointing/lib/self-checkpointing-checkpoint-probe.ts";
+import { formatAutockptThreshold } from "./autockpt-threshold.ts";
 
 type ContextUsage =
   | {
@@ -23,6 +24,7 @@ export type AutockptCommandDeps = {
   debugWidgetKey: string;
   getUsage: (ctx: ExtensionContext) => ContextUsage;
   getThresholdPercent: () => number;
+  getThresholdTokens: () => number;
   getArmed: () => boolean;
   getPendingCompactionRequested: () => boolean;
   getAutotestInProgress: () => boolean;
@@ -78,20 +80,22 @@ function buildProbeLine(probe: CheckpointProbeInfo | undefined): string {
 function buildStatusLines(
   deps: AutockptCommandDeps,
   ctx: ExtensionContext,
-): { statusLines: string[]; threshold: number } {
+): { statusLines: string[] } {
   const usage = deps.getUsage(ctx);
   const pct = usage?.percent;
   const tokens = usage?.tokens;
   const win = usage?.contextWindow;
-  const threshold = deps.getThresholdPercent();
+  const threshold = {
+    percent: deps.getThresholdPercent(),
+    tokens: deps.getThresholdTokens(),
+  };
   const lock = deps.getCompactionLock ? deps.getCompactionLock(ctx) : null;
   const debugLogPath = deps.getDebugLogPath ? deps.getDebugLogPath(ctx) : null;
   const checkpointProbeInfo = deps.getCheckpointProbeInfo ? deps.getCheckpointProbeInfo() : undefined;
 
   return {
-    threshold,
     statusLines: [
-      `enabled=${deps.enabled} threshold=${threshold}%`,
+      `enabled=${deps.enabled} threshold=${formatAutockptThreshold(threshold)}`,
       `armed=${deps.getArmed()} pendingCompactionRequested=${deps.getPendingCompactionRequested()} autotestInProgress=${deps.getAutotestInProgress()}`,
       buildLockLine(lock),
       buildProbeLine(checkpointProbeInfo),
@@ -106,7 +110,7 @@ export function registerAutockptCommand(pi: ExtensionAPI, deps: AutockptCommandD
     description: "Debug/status controls for auto-checkpointing",
     handler: async (args, ctx) => {
       const a = (args ?? "").trim();
-      const { statusLines, threshold } = buildStatusLines(deps, ctx);
+      const { statusLines } = buildStatusLines(deps, ctx);
 
       const showStatusWidget = () => {
         if (!ctx.hasUI) return;

@@ -10,6 +10,7 @@ import type { AutotestController } from "./self-checkpointing-autotest.ts";
 import { cleanupStaleCompactionLocksInStateDir } from "./self-checkpointing-lock-sweep.ts";
 import { handleAssistantMessageEnd } from "./self-checkpointing-footer-handler.ts";
 import type { CheckpointProbe, CheckpointProbeInfo } from "./self-checkpointing-checkpoint-probe.ts";
+import { isContextUsageAtOrAboveThreshold } from "../../lib/autockpt/autockpt-threshold.ts";
 
 type SessionStoreDeps = {
   cleanupLockOnSessionStart: (ctx: ExtensionContext) => void;
@@ -43,8 +44,9 @@ export type SelfCheckpointingHookDeps = {
   getPendingCompactionRequested: () => boolean;
   setPendingCompactionRequested: (next: boolean) => void;
 
-  getUsage: (ctx: ExtensionContext) => { percent?: number | null } | undefined;
+  getUsage: (ctx: ExtensionContext) => { tokens?: number | null; contextWindow?: number | null; percent?: number | null } | undefined;
   getThresholdPercent: () => number;
+  getThresholdTokens: () => number;
 
   setCheckpointCycleActive: (ctx: ExtensionContext, active: boolean) => void;
   syncCheckpointCycleState: (ctx: ExtensionContext) => void;
@@ -207,11 +209,13 @@ export function registerSelfCheckpointingHooks(
         !deps.autoKick.isInFlight()
       ) {
         const usage = deps.getUsage(ctx);
-        const pct = usage?.percent;
-        const threshold = deps.getThresholdPercent();
-        const aboveThreshold = pct !== null && pct !== undefined && pct >= threshold;
+        const threshold = {
+          percent: deps.getThresholdPercent(),
+          tokens: deps.getThresholdTokens(),
+        };
+        const thresholdMatch = isContextUsageAtOrAboveThreshold(usage, threshold);
 
-        if (aboveThreshold) {
+        if (thresholdMatch.matched) {
           deps.autoKick.start(ctx, "threshold_tool_result");
         }
       }
@@ -233,6 +237,7 @@ export function registerSelfCheckpointingHooks(
         setLastHandledFooter: deps.setLastHandledFooter,
         getUsage: deps.getUsage,
         getThresholdPercent: deps.getThresholdPercent,
+        getThresholdTokens: deps.getThresholdTokens,
         maxCheckpointAgeMs: deps.maxCheckpointAgeMs,
         footerDedupeWindowMs: deps.footerDedupeWindowMs,
         checkpointProbe: deps.checkpointProbe,

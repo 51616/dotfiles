@@ -4,6 +4,11 @@ import {
   COMPACTION_INSTR_BEGIN,
   COMPACTION_INSTR_END,
 } from "./autockpt-markers.ts";
+import {
+  isContextUsageAtOrAboveThreshold,
+  type AutockptContextUsage,
+  type AutockptThreshold,
+} from "./autockpt-threshold.ts";
 
 const NL = "\\r?\\n";
 const INDENT = "[\\t ]*";
@@ -53,14 +58,12 @@ function sanitizeCheckpointPath(value: string): string {
 export function shouldParseFooterGate(args: {
   handledThisTurn: boolean;
   role: unknown;
-  contextPercent: number | null | undefined;
-  thresholdPercent: number;
+  contextUsage: AutockptContextUsage;
+  threshold: AutockptThreshold;
 }): boolean {
   if (args.handledThisTurn) return false;
   if (String(args.role || "") !== "assistant") return false;
-  const pct = args.contextPercent;
-  if (pct === null || pct === undefined) return false;
-  return pct >= args.thresholdPercent;
+  return isContextUsageAtOrAboveThreshold(args.contextUsage, args.threshold).matched;
 }
 
 export function assistantTextFromContent(content: unknown): string {

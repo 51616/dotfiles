@@ -21,8 +21,18 @@ test("shouldParseFooterGate enforces role/threshold guards", () => {
     shouldParseFooterGate({
       handledThisTurn: false,
       role: "assistant",
-      contextPercent: 72,
-      thresholdPercent: 65,
+      contextUsage: { tokens: 72, contextWindow: 100, percent: 72 },
+      threshold: { percent: 65, tokens: 192000 },
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldParseFooterGate({
+      handledThisTurn: false,
+      role: "assistant",
+      contextUsage: { tokens: 192000, contextWindow: 400000, percent: 48 },
+      threshold: { percent: 65, tokens: 192000 },
     }),
     true,
   );
@@ -31,8 +41,8 @@ test("shouldParseFooterGate enforces role/threshold guards", () => {
     shouldParseFooterGate({
       handledThisTurn: true,
       role: "assistant",
-      contextPercent: 90,
-      thresholdPercent: 65,
+      contextUsage: { tokens: 90, contextWindow: 100, percent: 90 },
+      threshold: { percent: 65, tokens: 192000 },
     }),
     false,
   );
@@ -41,8 +51,8 @@ test("shouldParseFooterGate enforces role/threshold guards", () => {
     shouldParseFooterGate({
       handledThisTurn: false,
       role: "assistant",
-      contextPercent: 40,
-      thresholdPercent: 65,
+      contextUsage: { tokens: 40, contextWindow: 100, percent: 40 },
+      threshold: { percent: 65, tokens: 192000 },
     }),
     false,
   );
@@ -51,8 +61,8 @@ test("shouldParseFooterGate enforces role/threshold guards", () => {
     shouldParseFooterGate({
       handledThisTurn: false,
       role: "user",
-      contextPercent: 90,
-      thresholdPercent: 65,
+      contextUsage: { tokens: 90, contextWindow: 100, percent: 90 },
+      threshold: { percent: 65, tokens: 192000 },
     }),
     false,
   );

@@ -14,6 +14,12 @@ import { parseFooterDedupeWindowMs, type FooterHandledRecord } from "../lib/auto
 import { registerAutockptCommand } from "../lib/autockpt/autockpt-command.ts";
 import { parseNonNegativeIntEnv } from "../lib/autockpt/autockpt-env.ts";
 import { probeCtxState } from "../lib/autockpt/autockpt-ctx-probes.ts";
+import {
+  formatAutockptThreshold,
+  formatAutockptUsageMatch,
+  isContextUsageAtOrAboveThreshold,
+  parseAutockptThresholdTokens,
+} from "../lib/autockpt/autockpt-threshold.ts";
 import { isCheckpointCycleActive, setCheckpointCycleActive as setSharedCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
 
 import { createSelfCheckpointingSessionStore } from "./lib/self-checkpointing-session-store.ts";
@@ -30,7 +36,7 @@ import { createSelfCheckpointingDebugFile } from "./lib/self-checkpointing-debug
  * Self-checkpointing (orchestrator)
  *
  * Design:
- * - Primarily driven by `ctx.getContextUsage()` threshold (default 65%).
+ * - Primarily driven by `ctx.getContextUsage()` thresholds (default 65% or 192000 tokens).
  * - Auto-kicks a directive message (custom_message, display=true)
  *   so checkpointing works even if the project doesn’t carry AGENTS.md.
  * - Watches assistant message end for a checkpoint footer.
@@ -46,6 +52,9 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
         process.env.PI_SELF_CHECKPOINT_THRESHOLD_PERCENT ??
         "65",
     );
+  const getThresholdTokens = (): number =>
+    parseAutockptThresholdTokens(process.env.PI_SELF_CHECKPOINT_THRESHOLD_TOKENS, 192000);
+  const getThreshold = () => ({ percent: getThresholdPercent(), tokens: getThresholdTokens() });
 
   const STATUS_KEY = "autockpt";
 
@@ -161,14 +170,16 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     }
 
     const usage = getUsage(ctx);
-    const pct = usage?.percent;
-    const threshold = getThresholdPercent();
-    const aboveThreshold = pct !== null && pct !== undefined && pct >= threshold;
+    const threshold = getThreshold();
+    const thresholdMatch = isContextUsageAtOrAboveThreshold(usage, threshold);
 
-    armed = aboveThreshold;
+    armed = thresholdMatch.matched;
 
-    if (aboveThreshold && pct !== null && pct !== undefined) {
-      setStatus(ctx, `| Checkpoint: armed (${pct.toFixed(1)}%) 🟡`);
+    if (thresholdMatch.matched) {
+      setStatus(
+        ctx,
+        `| Checkpoint: armed (${formatAutockptUsageMatch(thresholdMatch)} >= ${formatAutockptThreshold(threshold)}) 🟡`,
+      );
       return;
     }
 
@@ -280,6 +291,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     debugWidgetKey,
     getUsage,
     getThresholdPercent,
+    getThresholdTokens,
     getArmed: () => armed,
     getPendingCompactionRequested: () => pendingCompactionRequested,
     getAutotestInProgress: () => autotest.isInProgress(),
@@ -326,6 +338,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     },
     getUsage,
     getThresholdPercent,
+    getThresholdTokens,
     setCheckpointCycleActive,
     syncCheckpointCycleState,
     updateArmedStatus: (ctx) => updateArmedStatus(ctx, autoKick),

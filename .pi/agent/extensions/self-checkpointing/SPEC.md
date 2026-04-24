@@ -2,7 +2,7 @@
 
 ## Goal
 
-When the session context usage reaches a threshold (**65%** by default), pi should shift into a predictable “save game and keep going” mode:
+When the session context usage reaches either default threshold (**65%** or **192000 tokens**), pi should shift into a predictable “save game and keep going” mode:
 
 1) **Auto-kick** (extension-driven): inject a directive message that tells the assistant to checkpoint now.
 2) **Checkpoint** (assistant-driven): pi writes a detailed, resumable checkpoint note under `/tmp/pi-work/checkpoints/`.
@@ -18,7 +18,7 @@ Behavior:
 In scope:
 - Interactive TUI (primary).
 - Uses `ctx.getContextUsage()` (estimate) + active model’s `contextWindow`.
-- Threshold-based auto-kick from runtime state.
+- Threshold-based auto-kick from runtime state. The threshold matches when either percentage usage or absolute token usage is high enough.
 - Checkpoint note uses the existing `checkpointing` skill conventions (location, filename).
 
 Non-goals:
@@ -73,7 +73,7 @@ The `self-checkpointing` extension uses this footer to:
 - Footer matching is newline-robust (accepts both `\n` and `\r\n`).
 - Trigger gating (all must pass):
   - assistant message ended (`message_end`)
-  - `ctx.getContextUsage().percent >= thresholdPercent` at detection time
+  - `ctx.getContextUsage().percent >= thresholdPercent` or `ctx.getContextUsage().tokens >= thresholdTokens` at detection time
     - (We intentionally do not rely on any transcript-visible signal because tool usage can split a single user-visible turn into multiple internal turns.)
   - footer matches the strict shape (instruction block + completion line)
   - checkpoint path validates and exists:
@@ -112,14 +112,15 @@ Continue from the Next steps section in that checkpoint.
 
 ## Triggering & gating details
 
-Default threshold:
+Default thresholds:
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT=65`
+- `PI_SELF_CHECKPOINT_THRESHOLD_TOKENS=192000`
 
 Runtime override (in-process, for testing):
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME=<pct>`
 
 Notes:
-- One extension owns both the threshold gating and the orchestration lifecycle, so there is one canonical trigger path.
+- One extension owns both threshold gates and the orchestration lifecycle, so there is one canonical trigger path.
 - Loop risk is reduced primarily by the in-process checkpoint-cycle state and compaction owner lock.
 
 ## Configuration
@@ -127,6 +128,7 @@ Notes:
 Environment variables (defaults in parentheses):
 - `PI_SELF_CHECKPOINT_ENABLE` (`1`)
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT` (`65`)
+- `PI_SELF_CHECKPOINT_THRESHOLD_TOKENS` (`192000`)
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME` (unset)
 - `PI_SELF_CHECKPOINT_DEBUG` (`0`) — when `1`, keep a live debug widget updated and write debug JSONL logs
 - `PI_SELF_CHECKPOINT_DEBUG_LOG_PATH` (unset) — override the debug JSONL log path; default is `<STATE_DIR>/debug.<sessionHash>.jsonl`
