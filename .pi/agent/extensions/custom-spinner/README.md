@@ -12,14 +12,14 @@ Good labels should be short, calm, and readable in a tight terminal footer. Avoi
 
 | Option | Feel | Note |
 | --- | --- | --- |
-| `Cooking...` | playful, clear | Good fit for “pi is preparing output.” |
-| `Thinking...` | plain, conventional | Most literal. Slightly boring, but low-friction. |
-| `Working...` | neutral | Upstream default; useful fallback. |
-| `Brewing...` | cozy | Similar to cooking, a little softer. |
-| `Crunching...` | technical | Fits analysis-heavy tasks, a bit corporate. |
-| `Weaving...` | creative | Good for writing/synthesis, less obvious for coding. |
-| `Forging...` | energetic | Good for building, may feel too dramatic. |
-| `Simmering...` | calm | Nice for longer thinking, but less direct. |
+| `Cooking` | playful, clear | Good fit for “pi is preparing output.” |
+| `Thinking` | plain, conventional | Most literal. Slightly boring, but low-friction. |
+| `Working` | neutral | Upstream default; useful fallback. |
+| `Brewing` | cozy | Similar to cooking, a little softer. |
+| `Crunching` | technical | Fits analysis-heavy tasks, a bit corporate. |
+| `Weaving` | creative | Good for writing/synthesis, less obvious for coding. |
+| `Forging` | energetic | Good for building, may feel too dramatic. |
+| `Simmering` | calm | Nice for longer thinking, but less direct. |
 
 The active pool is exactly the options above.
 
