@@ -1,10 +1,10 @@
 # custom-spinner
 
-Customizes pi's interactive working spinner label.
+Customizes pi's interactive working spinner label and animation.
 
-Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label.
+Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation uses a four-frame moon spinner: `◐ ◓ ◑ ◒`.
 
-This extension uses `ctx.ui.setWorkingMessage()` on `session_start` and `before_agent_start`. It only changes the text beside the loader; spinner frames are still owned by pi-tui and are not currently exposed through the extension API.
+This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling.
 
 ## Sensible label options
 

@@ -1,6 +1,6 @@
 // @lat: [[extensions#Working spinner customization]]
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, WorkingIndicatorOptions } from "@mariozechner/pi-coding-agent";
 
 const WORKING_MESSAGES: readonly string[] = [
   "Cooking...",
@@ -13,6 +13,11 @@ const WORKING_MESSAGES: readonly string[] = [
   "Simmering...",
 ];
 
+const WORKING_INDICATOR: WorkingIndicatorOptions = {
+  frames: ["◐", "◓", "◑", "◒"],
+  intervalMs: 110,
+};
+
 type UiContext = Pick<ExtensionContext, "hasUI" | "ui">;
 
 let lastWorkingMessage: string | null = null;
@@ -24,17 +29,18 @@ function chooseWorkingMessage(): string {
   return next;
 }
 
-function applyWorkingMessage(ctx: UiContext): void {
+function applySpinner(ctx: UiContext): void {
   if (!ctx.hasUI) return;
   ctx.ui.setWorkingMessage(chooseWorkingMessage());
+  ctx.ui.setWorkingIndicator(WORKING_INDICATOR);
 }
 
 export default function customSpinner(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
-    applyWorkingMessage(ctx);
+    applySpinner(ctx);
   });
 
   pi.on("before_agent_start", (_event, ctx) => {
-    applyWorkingMessage(ctx);
+    applySpinner(ctx);
   });
 }
