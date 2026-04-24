@@ -2,7 +2,7 @@
 
 Customizes pi's interactive working spinner label.
 
-Current label: `Cooking...`
+Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label.
 
 This extension uses `ctx.ui.setWorkingMessage()` on `session_start` and `before_agent_start`. It only changes the text beside the loader; spinner frames are still owned by pi-tui and are not currently exposed through the extension API.
 
@@ -12,7 +12,7 @@ Good labels should be short, calm, and readable in a tight terminal footer. Avoi
 
 | Option | Feel | Note |
 | --- | --- | --- |
-| `Cooking...` | playful, clear | Current default. Good fit for “pi is preparing output.” |
+| `Cooking...` | playful, clear | Good fit for “pi is preparing output.” |
 | `Thinking...` | plain, conventional | Most literal. Slightly boring, but low-friction. |
 | `Working...` | neutral | Upstream default; useful fallback. |
 | `Brewing...` | cozy | Similar to cooking, a little softer. |
@@ -21,8 +21,4 @@ Good labels should be short, calm, and readable in a tight terminal footer. Avoi
 | `Forging...` | energetic | Good for building, may feel too dramatic. |
 | `Simmering...` | calm | Nice for longer thinking, but less direct. |
 
-Recommended defaults:
-
-1. `Cooking...` — best balance of personality and clarity.
-2. `Thinking...` — safest conventional option.
-3. `Brewing...` — softer variant if `Cooking...` feels too cute.
+The active pool is exactly the options above.
