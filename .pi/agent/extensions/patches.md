@@ -53,27 +53,35 @@ What this restores:
 
 This is the important **extension-only / package-side** patch for the `pi-fff` + `tui-broker` pair.
 
-Target repo:
-- `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff`
+Current active package target:
+- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.6.4`)
+
+Legacy package repo target:
+- `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff` (`0.2.4`; kept because old installs may still use it)
 
 Source of truth:
+- `~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py`
+- `~/vault/.pi/scripts/pi/patches/ff-labs-pi-fff-broker-interop-v0.6.4.patch`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.md`
 - `~/vault/.pi/scripts/pi/patches/pi-fff-broker-interop-v0.2.4.patch`
 
 Safe check:
 ```bash
+python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py check
 python3 ~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py check
 ```
 
 Actual apply:
 ```bash
+python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py apply
 python3 ~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py apply
 ```
 
 What this restores:
 - `tui-broker` remains the canonical editor owner
-- `pi-fff` contributes only an autocomplete wrapper through broker hooks when broker is active
+- current `@ff-labs/pi-fff` contributes through `ctx.ui.addAutocompleteProvider(...)` instead of replacing the editor
+- legacy `pi-fff` contributes only an autocomplete wrapper through broker hooks when broker is active
 - the context-usage meter and broker-owned editor border stay visible
 
 ### 3) tui-broker status
@@ -86,6 +94,7 @@ The broker side of the contract lives in the extension source under:
 The interop patch is on `pi-fff`, not on `tui-broker`.
 
 Relevant verification lives in:
+- `~/.pi/agent/extensions/test/ff-labs-pi-fff-broker-interop.test.mjs`
 - `~/.pi/agent/extensions/tui-broker/test/*.test.mjs`
 - `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff/test/*.test.mjs`
 
