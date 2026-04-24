@@ -29,7 +29,7 @@ const OPENCODE_SPINNER_WIDTH = 8;
 const OPENCODE_HOLD_START_FRAMES = 30;
 const OPENCODE_HOLD_END_FRAMES = 9;
 const OPENCODE_TRAIL_LENGTH = 6;
-const OPENCODE_SPINNER_INTERVAL_MS = 80;
+const OPENCODE_SPINNER_INTERVAL_MS = 50;
 
 function getScannerState(frameIndex: number, totalChars: number): ScannerState {
   const forwardFrames = totalChars;

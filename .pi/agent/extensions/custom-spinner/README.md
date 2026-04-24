@@ -25,4 +25,4 @@ The active pool is exactly the options above.
 
 ## Source note
 
-The wave-like opencode spinner lives in `packages/opencode/src/cli/cmd/tui/ui/spinner.ts` and is used by `packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx`. The upstream prompt uses `createFrames({ style: "blocks", inactiveFactor: 0.6, minAlpha: 0.3 })`, `createColors(...)`, width `8`, bidirectional movement, hold-start `30`, hold-end `9`, and interval `40`ms. This extension intentionally uses `80`ms to make the movement 2x slower.
+The wave-like opencode spinner lives in `packages/opencode/src/cli/cmd/tui/ui/spinner.ts` and is used by `packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx`. The upstream prompt uses `createFrames({ style: "blocks", inactiveFactor: 0.6, minAlpha: 0.3 })`, `createColors(...)`, width `8`, bidirectional movement, hold-start `30`, hold-end `9`, and interval `40`ms. This extension intentionally uses `50`ms to make the movement slightly slower while keeping the wave responsive.
