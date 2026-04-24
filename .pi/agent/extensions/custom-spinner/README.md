@@ -4,7 +4,7 @@ Customizes pi's interactive working spinner label and animation.
 
 Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation copies opencode's prompt scanner: an 8-cell block trail that moves left-to-right, holds at the end, moves right-to-left, then holds at the start.
 
-This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames use pi's accent/muted/dim theme colors to approximate opencode's per-cell color generator.
+This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames use fixed ANSI 24-bit blue trail colors to approximate opencode's per-cell color generator.
 
 ## Sensible label options
 

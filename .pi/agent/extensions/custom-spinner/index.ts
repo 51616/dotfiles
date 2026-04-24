@@ -103,12 +103,27 @@ function calculateTrailIndex(charIndex: number, state: ScannerState): number {
   return -1;
 }
 
+const RESET_FG = "\x1b[39m";
+const BLUE_TRAIL_COLORS: readonly string[] = [
+  "\x1b[38;2;96;165;250m",
+  "\x1b[38;2;59;130;246m",
+  "\x1b[38;2;37;99;235m",
+  "\x1b[38;2;30;64;175m",
+  "\x1b[38;2;30;58;138m",
+  "\x1b[38;2;23;37;84m",
+];
+const BLUE_INACTIVE_COLOR = "\x1b[38;2;30;41;59m";
+
+function colorize(color: string, glyph: string): string {
+  return `${color}${glyph}${RESET_FG}`;
+}
+
 function renderScannerCell(ctx: UiContext, trailIndex: number): string {
-  if (trailIndex === 0) return ctx.ui.theme.bold(ctx.ui.theme.fg("accent", "■"));
-  if (trailIndex === 1) return ctx.ui.theme.fg("accent", "■");
-  if (trailIndex === 2) return ctx.ui.theme.fg("muted", "■");
-  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return ctx.ui.theme.fg("dim", "■");
-  return ctx.ui.theme.fg("dim", "⬝");
+  if (trailIndex === 0) return ctx.ui.theme.bold(colorize(BLUE_TRAIL_COLORS[0] ?? BLUE_INACTIVE_COLOR, "■"));
+  if (trailIndex > 0 && trailIndex < OPENCODE_TRAIL_LENGTH) {
+    return colorize(BLUE_TRAIL_COLORS[trailIndex] ?? BLUE_INACTIVE_COLOR, "■");
+  }
+  return colorize(BLUE_INACTIVE_COLOR, "⬝");
 }
 
 function buildOpencodeScannerIndicator(ctx: UiContext): WorkingIndicatorOptions {
