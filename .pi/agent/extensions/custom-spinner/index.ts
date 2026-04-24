@@ -1,4 +1,4 @@
-// @lat: [[extensions#Working message customization]]
+// @lat: [[extensions#Working spinner customization]]
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
@@ -11,7 +11,7 @@ function applyWorkingMessage(ctx: UiContext): void {
   ctx.ui.setWorkingMessage(WORKING_MESSAGE);
 }
 
-export default function cookingWorkingMessage(pi: ExtensionAPI): void {
+export default function customSpinner(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     applyWorkingMessage(ctx);
   });
