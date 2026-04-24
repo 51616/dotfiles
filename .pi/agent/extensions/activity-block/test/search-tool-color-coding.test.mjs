@@ -117,3 +117,11 @@ test("ActivityBlockMessageComponent color codes grep, find, multi_grep, and run_
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>multi_grep<\/b><\/toolTitle> <accent>\/alpha\/ \| \/beta\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(timeout 30s, 2 args\)<\/accent>/);
 });
+
+test("ActivityBlockMessageComponent uses the theme border color for the block frame", () => {
+	const rendered = render();
+
+	assert.match(rendered, /<border>╭─+/);
+	assert.match(rendered, /<border>│<\/border>/);
+	assert.doesNotMatch(rendered, /\x1b\[38;2;245;194;231m/);
+});

@@ -8,11 +8,10 @@ const DEFAULT_THOUGHT_LINES = 1;
 const EXPANDED_THOUGHT_LINES = 15;
 const THINKING_EXPANDED_TOOL_HISTORY_ROWS = 5;
 const MAX_THINKING_DISPLAY_CHARS = 500;
-const CATPPUCCIN_PINK_ANSI = "\x1b[38;2;245;194;231m";
 const RESET_FG_ANSI = "\x1b[39m";
 const ANSI_RESET_WITH_FG_RE = /\x1b\[(?:0|39)m/g;
 
-type ThemeColor = "text" | "dim" | "success" | "error" | "warning" | "accent" | "toolOutput" | "toolTitle" | "muted" | "bashMode";
+type ThemeColor = "text" | "dim" | "success" | "error" | "warning" | "accent" | "border" | "toolOutput" | "toolTitle" | "muted" | "bashMode";
 type ThemeBgColor = "toolPendingBg" | "toolSuccessBg" | "toolErrorBg" | "selectedBg";
 type ToolRowView = { text: string; color?: ThemeColor; toolState?: ToolState; placeholder?: boolean };
 
@@ -198,8 +197,8 @@ export class ActivityBlockMessageComponent implements Component {
 		const showThinkingPanel = shouldShowThinkingPanel(toolHistoryViewMode, thinkingExpanded);
 		const maxRenderedLines = thinkingExpanded ? THINKING_EXPANDED_MAX_RENDERED_LINES : DEFAULT_MAX_RENDERED_LINES;
 		const rows = [
-			renderBorder("╭", "╮", innerWidth),
-			renderRow(innerWidth, statusLabel, statusRowWrapper(this.theme)),
+			renderBorder("╭", "╮", innerWidth, this.theme),
+			renderRow(innerWidth, statusLabel, statusRowWrapper(this.theme), this.theme),
 			renderEmptyRow(innerWidth, this.theme),
 		];
 		const footerReservation = 2;
@@ -291,7 +290,7 @@ export class ActivityBlockMessageComponent implements Component {
 				: line.toolState
 					? toolActivityWrapper(this.theme, line.toolState)
 					: colorWrapper(this.theme, line.color ?? "dim");
-			rows.push(renderRow(innerWidth, line.text, wrapper));
+			rows.push(renderRow(innerWidth, line.text, wrapper, this.theme));
 		}
 		if (expandedDetailLines.length > 0) {
 			rows.push(renderEmptyRow(innerWidth, this.theme));
@@ -300,8 +299,8 @@ export class ActivityBlockMessageComponent implements Component {
 		if (thinkingExpandedToolHistoryRows.length > 0) {
 			rows.push(renderEmptyRow(innerWidth, this.theme));
 		}
-		rows.push(renderSplitRow(innerWidth, detail, model.secondaryRight, colorWrapper(this.theme, "dim")));
-		rows.push(renderBorder("╰", "╯", innerWidth));
+		rows.push(renderSplitRow(innerWidth, detail, model.secondaryRight, colorWrapper(this.theme, "dim"), this.theme));
+		rows.push(renderBorder("╰", "╯", innerWidth, this.theme));
 		return rows.slice(0, maxRenderedLines);
 	}
 }
@@ -345,14 +344,14 @@ function renderThinkingBlockRows(
 	const { header, body } = splitThinkingSource(source || snapshot.latestThinking);
 	const headerSource = header || snapshot.latestThinking;
 	const headerLine = renderMarkdownRows(theme, markdownTheme, headerSource, width, 1, "text")[0] ?? stripPadding(headerSource);
-	const headerRow = renderRow(width, stripPadding(headerLine), colorWrapper(theme, "text"));
+	const headerRow = renderRow(width, stripPadding(headerLine), colorWrapper(theme, "text"), theme);
 	if (!thinkingExpanded || maxContentLines <= 1) return inlineHeader ? [] : [headerRow];
 	if (!body) return inlineHeader ? [] : [headerRow];
 	const markdownLines = renderMarkdownRows(theme, markdownTheme, body, width, maxContentLines - 1, "text");
 	if (markdownLines.length === 0) return inlineHeader ? [] : [headerRow];
 	return [
 		...(inlineHeader ? [] : [headerRow]),
-		...markdownLines.map((line) => renderRow(width, stripPadding(line), colorWrapper(theme, "text"))),
+		...markdownLines.map((line) => renderRow(width, stripPadding(line), colorWrapper(theme, "text"), theme)),
 	];
 }
 
@@ -483,7 +482,7 @@ function renderPrimaryLines(
 		return [];
 	}
 	if (!model.primary) return [];
-	return [renderRow(width, model.primary, colorWrapper(theme, "text"))];
+	return [renderRow(width, model.primary, colorWrapper(theme, "text"), theme)];
 }
 
 function formatExpandedDetails(
@@ -585,11 +584,11 @@ function getStickyToolActivities(snapshot: ActivityBlockSnapshot, limit: number)
 }
 
 function renderToolActivityRow(theme: Theme, tool: ToolActivity, width: number, now: number): string {
-	return renderRow(width, styleTimedToolActivityLine(theme, tool, width, now), toolActivityWrapper(theme, tool.state));
+	return renderRow(width, styleTimedToolActivityLine(theme, tool, width, now), toolActivityWrapper(theme, tool.state), theme);
 }
 
 function renderPlaceholderToolRows(theme: Theme, width: number, count: number): string[] {
-	return Array.from({ length: count }, () => renderRow(width, "", placeholderToolRowWrapper(theme)));
+	return Array.from({ length: count }, () => renderRow(width, "", placeholderToolRowWrapper(theme), theme));
 }
 
 function createPlaceholderToolRows(count: number): ToolRowView[] {
@@ -740,34 +739,34 @@ function formatCompactionCount(compactionCount: number): string | undefined {
 }
 
 
-function renderBorder(left: string, right: string, innerWidth: number): string {
-	return applyPersistentColor(`${left}${"─".repeat(innerWidth)}${right}`, CATPPUCCIN_PINK_ANSI, RESET_FG_ANSI);
+function renderBorder(left: string, right: string, innerWidth: number, theme: Theme): string {
+	return applyPersistentColor(`${left}${"─".repeat(innerWidth)}${right}`, borderWrapper(theme));
 }
 
-function renderRow(innerWidth: number, text: string, wrapper: [string, string]): string {
+function renderRow(innerWidth: number, text: string, wrapper: [string, string], theme: Theme): string {
 	const fitted = fitToWidth(text, innerWidth);
 	const content = applyPersistentColor(fitted, wrapper[0], wrapper[1]);
-	const borderLeft = applyPersistentColor("│", CATPPUCCIN_PINK_ANSI, RESET_FG_ANSI);
-	const borderRight = applyPersistentColor("│", CATPPUCCIN_PINK_ANSI, RESET_FG_ANSI);
+	const borderLeft = applyPersistentColor("│", borderWrapper(theme));
+	const borderRight = applyPersistentColor("│", borderWrapper(theme));
 	return `${borderLeft}${content}${borderRight}`;
 }
 
 function renderEmptyRow(innerWidth: number, theme: Theme): string {
-	return renderRow(innerWidth, "", colorWrapper(theme, "text"));
+	return renderRow(innerWidth, "", colorWrapper(theme, "text"), theme);
 }
 
-function renderSplitRow(innerWidth: number, left: string, right: string | undefined, wrapper: [string, string]): string {
-	if (!right) return renderRow(innerWidth, left, wrapper);
+function renderSplitRow(innerWidth: number, left: string, right: string | undefined, wrapper: [string, string], theme: Theme): string {
+	if (!right) return renderRow(innerWidth, left, wrapper, theme);
 	const rightWidth = visibleWidth(right);
 	if (rightWidth >= innerWidth) {
-		return renderRow(innerWidth, right, wrapper);
+		return renderRow(innerWidth, right, wrapper, theme);
 	}
 	const leftWidth = Math.max(0, innerWidth - rightWidth - 1);
 	if (leftWidth <= 0) {
-		return renderRow(innerWidth, right, wrapper);
+		return renderRow(innerWidth, right, wrapper, theme);
 	}
 	const fittedLeft = fitToWidth(left, leftWidth);
-	return renderRow(innerWidth, `${fittedLeft} ${right}`, wrapper);
+	return renderRow(innerWidth, `${fittedLeft} ${right}`, wrapper, theme);
 }
 
 function fitToWidth(text: string, width: number): string {
@@ -788,6 +787,10 @@ function capitalize(text: string): string {
 
 function colorWrapper(theme: Theme, color: ThemeColor): [string, string] {
 	return extractStyleWrapper((text) => theme.fg(color, text));
+}
+
+function borderWrapper(theme: Theme): [string, string] {
+	return colorWrapper(theme, "border");
 }
 
 function bgWrapper(theme: Theme, color: ThemeBgColor): [string, string] {
