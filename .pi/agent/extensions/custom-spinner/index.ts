@@ -112,10 +112,10 @@ function styleScannerGlyph(ctx: UiContext, glyph: string): string {
 }
 
 function renderScannerCell(ctx: UiContext, trailIndex: number): string {
-  if (trailIndex === 0) return styleScannerGlyph(ctx, ctx.ui.theme.bold(ctx.ui.theme.fg("border", "■")));
-  if (trailIndex === 1 || trailIndex === 2) return styleScannerGlyph(ctx, ctx.ui.theme.fg("border", "■"));
+  if (trailIndex === 0) return styleScannerGlyph(ctx, ctx.ui.theme.bold(ctx.ui.theme.fg("borderAccent", "■")));
+  if (trailIndex === 1 || trailIndex === 2) return styleScannerGlyph(ctx, ctx.ui.theme.fg("borderAccent", "■"));
   if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) {
-    return styleScannerGlyph(ctx, dim(ctx.ui.theme.fg("border", "■")));
+    return styleScannerGlyph(ctx, dim(ctx.ui.theme.fg("borderAccent", "■")));
   }
   return styleScannerGlyph(ctx, ctx.ui.theme.fg("muted", "⬝"));
 }
