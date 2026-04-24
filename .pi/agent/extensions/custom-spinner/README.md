@@ -2,9 +2,9 @@
 
 Customizes pi's interactive working spinner label and animation.
 
-Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation uses a symmetric gradient block charge spinner: `▱▱▱▱▱ → ▰▱▱▱▰ → ▰▰▱▰▰ → ▰▰▰▰▰ → ▰▰▱▰▰ → ▰▱▱▱▰`.
+Current behavior: randomly chooses one label per session start and agent turn, without immediately repeating the previous label. The animation copies opencode's interactive `spinner.Pulse` animation: `█ → ▓ → ▒ → ░` at 125ms per frame.
 
-This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The block frames use fixed-width glyphs plus ANSI 24-bit foreground colors, so the footer should not jitter.
+This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames are rendered with pi's accent color and bold styling to match opencode's primary-color, bold treatment.
 
 ## Sensible label options
 
@@ -22,3 +22,7 @@ Good labels should be short, calm, and readable in a tight terminal footer. Avoi
 | `Simmering...` | calm | Nice for longer thinking, but less direct. |
 
 The active pool is exactly the options above.
+
+## Source note
+
+opencode's interactive chat list uses `spinner.Pulse` from Charm Bubbles. In `github.com/charmbracelet/bubbles v0.21.0`, `spinner.Pulse` is defined as `█`, `▓`, `▒`, `░` with `time.Second / 8` FPS, which is 125ms per frame.

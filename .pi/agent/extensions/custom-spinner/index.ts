@@ -13,37 +13,17 @@ const WORKING_MESSAGES: readonly string[] = [
   "Simmering...",
 ];
 
-const RESET_FG = "\x1b[39m";
-const EMPTY_BLOCK = "\x1b[38;2;90;90;105m▱";
-const FILLED_BLOCKS: readonly string[] = [
-  "\x1b[38;2;125;211;252m▰",
-  "\x1b[38;2;167;139;250m▰",
-  "\x1b[38;2;240;171;252m▰",
-  "\x1b[38;2;167;139;250m▰",
-  "\x1b[38;2;125;211;252m▰",
-];
-
-const BLOCK_COUNT = FILLED_BLOCKS.length;
-
-function frameFromSides(filledDepth: number): string {
-  return FILLED_BLOCKS.map((block, index) =>
-    index < filledDepth || index >= BLOCK_COUNT - filledDepth ? block : EMPTY_BLOCK,
-  ).join("") + RESET_FG;
-}
-
-const WORKING_INDICATOR: WorkingIndicatorOptions = {
-  frames: [
-    frameFromSides(0),
-    frameFromSides(1),
-    frameFromSides(2),
-    frameFromSides(3),
-    frameFromSides(2),
-    frameFromSides(1),
-  ],
-  intervalMs: 110,
-};
-
 type UiContext = Pick<ExtensionContext, "hasUI" | "ui">;
+
+const OPENCODE_PULSE_FRAMES: readonly string[] = ["█", "▓", "▒", "░"];
+const OPENCODE_PULSE_INTERVAL_MS = 125;
+
+function buildOpencodePulseIndicator(ctx: UiContext): WorkingIndicatorOptions {
+  return {
+    frames: OPENCODE_PULSE_FRAMES.map((frame) => ctx.ui.theme.bold(ctx.ui.theme.fg("accent", frame))),
+    intervalMs: OPENCODE_PULSE_INTERVAL_MS,
+  };
+}
 
 let lastWorkingMessage: string | null = null;
 
@@ -57,7 +37,7 @@ function chooseWorkingMessage(): string {
 function applySpinner(ctx: UiContext): void {
   if (!ctx.hasUI) return;
   ctx.ui.setWorkingMessage(chooseWorkingMessage());
-  ctx.ui.setWorkingIndicator(WORKING_INDICATOR);
+  ctx.ui.setWorkingIndicator(buildOpencodePulseIndicator(ctx));
 }
 
 export default function customSpinner(pi: ExtensionAPI): void {
