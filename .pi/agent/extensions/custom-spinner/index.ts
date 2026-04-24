@@ -107,11 +107,17 @@ function dim(text: string): string {
   return `\x1b[2m${text}\x1b[22m`;
 }
 
+function styleScannerGlyph(ctx: UiContext, glyph: string): string {
+  return ctx.ui.theme.italic(glyph);
+}
+
 function renderScannerCell(ctx: UiContext, trailIndex: number): string {
-  if (trailIndex === 0) return ctx.ui.theme.bold(ctx.ui.theme.fg("border", "■"));
-  if (trailIndex === 1 || trailIndex === 2) return ctx.ui.theme.fg("border", "■");
-  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return dim(ctx.ui.theme.fg("border", "■"));
-  return ctx.ui.theme.fg("muted", "⬝");
+  if (trailIndex === 0) return styleScannerGlyph(ctx, ctx.ui.theme.bold(ctx.ui.theme.fg("border", "■")));
+  if (trailIndex === 1 || trailIndex === 2) return styleScannerGlyph(ctx, ctx.ui.theme.fg("border", "■"));
+  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) {
+    return styleScannerGlyph(ctx, dim(ctx.ui.theme.fg("border", "■")));
+  }
+  return styleScannerGlyph(ctx, ctx.ui.theme.fg("muted", "⬝"));
 }
 
 const INVISIBLE_WORKING_MESSAGE = "\u200B";
