@@ -128,7 +128,7 @@ function buildOpencodeScannerFrame(ctx: UiContext, workingMessage: string, frame
     renderScannerCell(ctx, calculateTrailIndex(charIndex, state)),
   ).join("");
 
-  return `${ctx.ui.theme.fg("muted", workingMessage)} ${scanner}`;
+  return `${ctx.ui.theme.italic(ctx.ui.theme.fg("muted", workingMessage))} ${scanner}`;
 }
 
 function buildOpencodeScannerIndicator(ctx: UiContext, workingMessage: string): WorkingIndicatorOptions {
