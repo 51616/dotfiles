@@ -104,10 +104,10 @@ function calculateTrailIndex(charIndex: number, state: ScannerState): number {
 }
 
 function renderScannerCell(ctx: UiContext, trailIndex: number): string {
-  if (trailIndex === 0) return ctx.ui.theme.bold(ctx.ui.theme.fg("accent", "█"));
-  if (trailIndex === 1) return ctx.ui.theme.fg("accent", "▓");
-  if (trailIndex === 2) return ctx.ui.theme.fg("muted", "▒");
-  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return ctx.ui.theme.fg("dim", "░");
+  if (trailIndex === 0) return ctx.ui.theme.bold(ctx.ui.theme.fg("accent", "■"));
+  if (trailIndex === 1) return ctx.ui.theme.fg("accent", "■");
+  if (trailIndex === 2) return ctx.ui.theme.fg("muted", "■");
+  if (trailIndex > 2 && trailIndex < OPENCODE_TRAIL_LENGTH) return ctx.ui.theme.fg("dim", "■");
   return ctx.ui.theme.fg("dim", "⬝");
 }
 
