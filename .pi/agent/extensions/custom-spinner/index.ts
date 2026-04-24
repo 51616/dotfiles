@@ -111,15 +111,23 @@ function renderScannerCell(ctx: UiContext, trailIndex: number): string {
   return ctx.ui.theme.fg("muted", "⬝");
 }
 
-function buildOpencodeScannerIndicator(ctx: UiContext): WorkingIndicatorOptions {
+const INVISIBLE_WORKING_MESSAGE = "\u200B";
+
+function buildOpencodeScannerFrame(ctx: UiContext, workingMessage: string, frameIndex: number): string {
+  const state = getScannerState(frameIndex, OPENCODE_SPINNER_WIDTH);
+  const scanner = Array.from({ length: OPENCODE_SPINNER_WIDTH }, (_cell, charIndex) =>
+    renderScannerCell(ctx, calculateTrailIndex(charIndex, state)),
+  ).join("");
+
+  return `${ctx.ui.theme.fg("muted", workingMessage)} ${scanner}`;
+}
+
+function buildOpencodeScannerIndicator(ctx: UiContext, workingMessage: string): WorkingIndicatorOptions {
   const totalFrames =
     OPENCODE_SPINNER_WIDTH + OPENCODE_HOLD_END_FRAMES + OPENCODE_SPINNER_WIDTH - 1 + OPENCODE_HOLD_START_FRAMES;
-  const frames = Array.from({ length: totalFrames }, (_unused, frameIndex) => {
-    const state = getScannerState(frameIndex, OPENCODE_SPINNER_WIDTH);
-    return Array.from({ length: OPENCODE_SPINNER_WIDTH }, (_cell, charIndex) =>
-      renderScannerCell(ctx, calculateTrailIndex(charIndex, state)),
-    ).join("");
-  });
+  const frames = Array.from({ length: totalFrames }, (_unused, frameIndex) =>
+    buildOpencodeScannerFrame(ctx, workingMessage, frameIndex),
+  );
 
   return {
     frames,
@@ -138,8 +146,13 @@ function chooseWorkingMessage(): string {
 
 function applySpinner(ctx: UiContext): void {
   if (!ctx.hasUI) return;
-  ctx.ui.setWorkingMessage(chooseWorkingMessage());
-  ctx.ui.setWorkingIndicator(buildOpencodeScannerIndicator(ctx));
+  const workingMessage = chooseWorkingMessage();
+
+  // pi's Loader always renders indicator frames before the working message and
+  // treats an empty message as a request to restore the default. Put the label
+  // in each verbatim indicator frame, then keep the built-in message invisible.
+  ctx.ui.setWorkingMessage(INVISIBLE_WORKING_MESSAGE);
+  ctx.ui.setWorkingIndicator(buildOpencodeScannerIndicator(ctx, workingMessage));
 }
 
 export default function customSpinner(pi: ExtensionAPI): void {
