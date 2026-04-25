@@ -6,35 +6,76 @@ Current behavior: randomly chooses one label per session start and agent turn, w
 
 This extension uses `ctx.ui.setWorkingMessage()` and `ctx.ui.setWorkingIndicator()` on `session_start` and `before_agent_start`. pi's built-in `Loader` renders indicator frames before the working message, so the extension embeds the muted label inside each verbatim indicator frame and sets the built-in message to a zero-width placeholder. `setWorkingIndicator()` only affects the normal streaming working indicator; compaction and retry loaders keep their built-in styling. The frames render the label bold, keep the scanner glyphs italic, and use pi theme palette colors: `borderAccent` for the current theme's cyan head/trail with dim intensity for the far trail, and `muted` for the label and visible inactive cells.
 
-## Sensible label options
+## Active label options
 
-Good labels should be short, calm, and readable in a tight terminal footer. Avoid jokes that become annoying after hundreds of turns.
+Good labels should stay readable in a tight terminal footer. This pool intentionally mixes plain, technical, cozy, and whimsical labels so repeated turns feel less stale.
 
-| Option | Feel | Note |
-| --- | --- | --- |
-| `Cooking` | playful, clear | Good fit for “pi is preparing output.” |
-| `Thinking` | plain, conventional | Most literal. Slightly boring, but low-friction. |
-| `Working` | neutral | Upstream default; useful fallback. |
-| `Brewing` | cozy | Similar to cooking, a little softer. |
-| `Crunching` | technical | Fits analysis-heavy tasks, a bit corporate. |
-| `Weaving` | creative | Good for writing/synthesis, less obvious for coding. |
-| `Forging` | energetic | Good for building, may feel too dramatic. |
-| `Simmering` | calm | Nice for longer thinking, but less direct. |
-| `Booping` | playful | Cute, high-personality option. |
-| `Channelling` | mystical | British spelling; fits focus/synthesis. |
-| `Computing` | technical | Literal and clear. |
-| `Concocting` | playful | Similar to cooking, with more invention. |
-| `Contemplating` | reflective | Good for slower reasoning turns. |
-| `Crafting` | constructive | Good general-purpose building label. |
-| `Cultivating` | calm | Organic, slower-growth feel. |
-| `Deliberating` | formal | Fits careful decisions. |
-| `Discombobulating` | silly | Long and intentionally chaotic. |
-| `Doodling` | playful | Good for loose exploration or drafts. |
-| `Embellishing` | creative | Fits polishing/writing work. |
-| `Enchanting` | whimsical | Magical, high-personality option. |
-| `Generating` | literal | Direct model-output label. |
+The active pool is exactly:
 
-The active pool is exactly the options above.
+```ts
+[
+  "Cooking",
+  "Thinking",
+  "Working",
+  "Brewing",
+  "Crunching",
+  "Weaving",
+  "Forging",
+  "Simmering",
+  "Booping",
+  "Channelling",
+  "Computing",
+  "Concocting",
+  "Contemplating",
+  "Crafting",
+  "Cultivating",
+  "Deliberating",
+  "Discombobulating",
+  "Doodling",
+  "Embellishing",
+  "Enchanting",
+  "Generating",
+  "Harmonizing",
+  "Hatching",
+  "Improvising",
+  "Incubating",
+  "Infusing",
+  "Ionizing",
+  "Kneading",
+  "Levitating",
+  "Manifesting",
+  "Marinating",
+  "Meandering",
+  "Noodling",
+  "Orchestrating",
+  "Pollinating",
+  "Pondering",
+  "Pontificating",
+  "Pouncing",
+  "Processing",
+  "Propagating",
+  "Puzzling",
+  "Seasoning",
+  "Shenaniganing",
+  "Smooshing",
+  "Spinning",
+  "Sprouting",
+  "Sublimating",
+  "Swirling",
+  "Swooping",
+  "Symbioting",
+  "Synthesizing",
+  "Tinkering",
+  "Transfiguring",
+  "Transmuting",
+  "Twisting",
+  "Undulating",
+  "Vibing",
+  "Wandering",
+  "Whirring",
+  "Wrangling",
+]
+```
 
 ## Source note
 
