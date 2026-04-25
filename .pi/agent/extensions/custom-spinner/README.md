@@ -20,6 +20,19 @@ Good labels should be short, calm, and readable in a tight terminal footer. Avoi
 | `Weaving` | creative | Good for writing/synthesis, less obvious for coding. |
 | `Forging` | energetic | Good for building, may feel too dramatic. |
 | `Simmering` | calm | Nice for longer thinking, but less direct. |
+| `Booping` | playful | Cute, high-personality option. |
+| `Channelling` | mystical | British spelling; fits focus/synthesis. |
+| `Computing` | technical | Literal and clear. |
+| `Concocting` | playful | Similar to cooking, with more invention. |
+| `Contemplating` | reflective | Good for slower reasoning turns. |
+| `Crafting` | constructive | Good general-purpose building label. |
+| `Cultivating` | calm | Organic, slower-growth feel. |
+| `Deliberating` | formal | Fits careful decisions. |
+| `Discombobulating` | silly | Long and intentionally chaotic. |
+| `Doodling` | playful | Good for loose exploration or drafts. |
+| `Embellishing` | creative | Fits polishing/writing work. |
+| `Enchanting` | whimsical | Magical, high-personality option. |
+| `Generating` | literal | Direct model-output label. |
 
 The active pool is exactly the options above.
 

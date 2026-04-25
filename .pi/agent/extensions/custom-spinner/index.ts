@@ -11,6 +11,19 @@ const WORKING_MESSAGES: readonly string[] = [
   "Weaving",
   "Forging",
   "Simmering",
+  "Booping",
+  "Channelling",
+  "Computing",
+  "Concocting",
+  "Contemplating",
+  "Crafting",
+  "Cultivating",
+  "Deliberating",
+  "Discombobulating",
+  "Doodling",
+  "Embellishing",
+  "Enchanting",
+  "Generating",
 ];
 
 type UiContext = Pick<ExtensionContext, "hasUI" | "ui">;
