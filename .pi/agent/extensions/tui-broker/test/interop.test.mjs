@@ -18,7 +18,7 @@ import {
 import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-not-stop-runtime.ts";
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
 
-const BORDER_COLOR_OPEN = "\x1b[38;2;245;224;220m";
+const BORDER_COLOR_OPEN = "\x1b[38;2;242;205;205m";
 const ANSI_RESET = "\x1b[0m";
 const NORMAL_BORDER = "─";
 
