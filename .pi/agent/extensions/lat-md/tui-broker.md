@@ -21,7 +21,7 @@ The canonical implementation lives in [[tui-broker/index.ts]]. Shared formatting
 
 The footer keeps the cwd / git-branch / session-name line and preserves extension status lines from `ctx.ui.setStatus()`. It intentionally drops cumulative token, cache, and dollar stats from the footer.
 
-The editor override subclasses `CustomEditor` and decorates the final rendered border lines rather than replacing core editing behavior. It forces the user editor border to a thick line on the active theme's grey-ish `muted` token so core thinking-level updates cannot change the input border color.
+The editor override subclasses `CustomEditor` and decorates the final rendered border lines rather than replacing core editing behavior. It forces the user editor border to the active theme's `rosewater` palette color so core thinking-level updates cannot change the input border color.
 
 The context-meter label format is `12.2%/272k` or `?/272k` when the percentage is unknown.
 

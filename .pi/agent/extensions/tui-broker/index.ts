@@ -25,14 +25,14 @@ import {
 } from "./lib/runtime.ts";
 
 type BrokerTheme = {
-  fg: (color: "dim" | "muted", text: string) => string;
+  fg: (color: "dim" | "text", text: string) => string;
+  name?: string;
+  sourcePath?: string;
 };
 
-// Keep the editor border theme-relative instead of hardcoding an ANSI color.
-// `muted` is the current grey-ish trial color; switch this token to `text`,
-// `dim`, or another theme foreground token when testing a different feel.
-const EDITOR_BORDER_THEME_COLOR = "muted";
-const EDITOR_BORDER_CHAR = "━";
+const EDITOR_BORDER_COLOR_LABEL = "rosewater";
+const EDITOR_BORDER_CHAR = "─";
+const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 type AgentSettingsSnapshot = {
   defaultProvider?: string;
@@ -48,13 +48,56 @@ function ansiStyle(text: string, codes: string): string {
   return `\x1b[${codes}m${text}\x1b[0m`;
 }
 
+function ansiTrueColor(text: string, hex: string): string {
+  const normalized = hex.trim();
+  if (!RGB_HEX_REGEX.test(normalized)) return text;
+  const red = Number.parseInt(normalized.slice(1, 3), 16);
+  const green = Number.parseInt(normalized.slice(3, 5), 16);
+  const blue = Number.parseInt(normalized.slice(5, 7), 16);
+  return `\x1b[38;2;${red};${green};${blue}m${text}\x1b[0m`;
+}
+
 function isBottomBorderLine(text: string): boolean {
   const plain = stripAnsi(text);
   return /^[─━]+$/.test(plain) || /^[─━]+ ↓ \d+ more [─━]*$/.test(plain);
 }
 
-function thickenEditorBorderLine(text: string): string {
-  return text.replaceAll("─", EDITOR_BORDER_CHAR);
+function normalizeThemeVariable(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return RGB_HEX_REGEX.test(normalized) ? normalized : null;
+}
+
+let cachedThemeRosewaterPath = "";
+let cachedThemeRosewaterMtimeMs = -1;
+let cachedThemeRosewaterHex: string | null = null;
+
+function resolveThemeRosewaterHex(theme: BrokerTheme): string | null {
+  const themePath = theme.sourcePath?.trim();
+  if (!themePath) return "#f5e0dc";
+
+  try {
+    const stat = statSync(themePath);
+    if (cachedThemeRosewaterPath === themePath && cachedThemeRosewaterMtimeMs === stat.mtimeMs) {
+      return cachedThemeRosewaterHex;
+    }
+
+    const parsed = JSON.parse(readFileSync(themePath, "utf8")) as { vars?: Record<string, unknown> };
+    cachedThemeRosewaterPath = themePath;
+    cachedThemeRosewaterMtimeMs = stat.mtimeMs;
+    cachedThemeRosewaterHex = normalizeThemeVariable(parsed.vars?.rosewater);
+    return cachedThemeRosewaterHex;
+  } catch {
+    cachedThemeRosewaterPath = themePath;
+    cachedThemeRosewaterMtimeMs = -1;
+    cachedThemeRosewaterHex = null;
+    return "#f5e0dc";
+  }
+}
+
+function colorizeEditorBorder(theme: BrokerTheme, text: string): string {
+  const rosewaterHex = resolveThemeRosewaterHex(theme);
+  return rosewaterHex ? ansiTrueColor(text, rosewaterHex) : theme.fg("text", text);
 }
 
 class ContextUsageEditor extends CustomEditor {
@@ -83,7 +126,7 @@ class ContextUsageEditor extends CustomEditor {
     Object.defineProperty(this, "borderColor", {
       configurable: true,
       enumerable: true,
-      get: () => (text: string) => this.getThemeFn().fg(EDITOR_BORDER_THEME_COLOR, text),
+      get: () => (text: string) => colorizeEditorBorder(this.getThemeFn(), text),
       set: (_next: unknown) => {
         // Core still assigns thinking-level colors to custom editors. The broker
         // intentionally ignores those assignments so the user editor border stays
@@ -110,9 +153,6 @@ class ContextUsageEditor extends CustomEditor {
       }
       return lines.length - 1;
     })();
-
-    lines[0] = thickenEditorBorderLine(lines[0] ?? "");
-    lines[bottomBorderIndex] = thickenEditorBorderLine(lines[bottomBorderIndex] ?? "");
 
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
@@ -281,7 +321,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
       const parts = [
         `footer=${snapshot.footerPathSourceKey ?? "local"}`,
         `badges=${snapshot.editorBadgeKeys.join(",") || "none"}`,
-        `border=${EDITOR_BORDER_THEME_COLOR}`,
+        `border=${EDITOR_BORDER_COLOR_LABEL}`,
         `autocomplete=${snapshot.autocompleteWrappers.join(",") || "none"}`,
       ];
       ctx.ui.notify(parts.join(" | "), "info");

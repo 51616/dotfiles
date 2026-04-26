@@ -8,7 +8,7 @@ Behavior notes:
 - preserves extension status lines produced via `ctx.ui.setStatus()`
 - lets other extensions contribute through `lib/runtime.ts` instead of calling `ctx.ui.setFooter()` or `ctx.ui.setEditorComponent()` directly
 - supports contributed footer-path labels, editor badges, and autocomplete-provider wrappers
-- keeps the user editor border thick and on the current theme's grey-ish `muted` token regardless of core thinking-level border updates
+- keeps the user editor border on the current theme's `rosewater` palette color regardless of core thinking-level border updates
 - keeps current local extensions on one shared footer/editor owner by moving them onto broker contribution hooks
 - keeps `pi-ssh` on the shared footer path and `pi-fff` on the shared autocomplete path without surrendering surface ownership
 - includes `/tui-broker:debug` to show the active contributors
