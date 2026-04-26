@@ -28,7 +28,7 @@ type BrokerTheme = {
   fg: (color: "dim" | "text", text: string) => string;
 };
 
-const EDITOR_BORDER_HEX = "#f2cdcd";
+const EDITOR_BORDER_HEX = "#fab387";
 const EDITOR_BORDER_COLOR_LABEL = EDITOR_BORDER_HEX;
 const EDITOR_BORDER_CHAR = "─";
 const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
