@@ -5,7 +5,6 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
   isTuiBrokerInstalled,
   registerTuiBrokerEditorBadgeProvider,
-  registerTuiBrokerEditorBorderStyleProvider,
   requestTuiBrokerEditorReinstall,
 } from "../tui-broker/lib/runtime.ts";
 import { parseBool } from "../lib/shared/pi-bool.ts";
@@ -105,15 +104,6 @@ export default function doNotStop(pi: ExtensionAPI) {
       priority: 200,
     };
   });
-  registerTuiBrokerEditorBorderStyleProvider("do-not-stop", () => {
-    if (!enabled) return null;
-    return {
-      colorize: brightRed,
-      priority: 200,
-      debugLabel: `repeat ${completedRepeats}/${repeatTarget}`,
-    };
-  });
-
   const refreshTuiBrokerEditor = () => {
     if (isTuiBrokerInstalled()) {
       requestTuiBrokerEditorReinstall();

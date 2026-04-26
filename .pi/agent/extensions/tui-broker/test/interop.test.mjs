@@ -18,6 +18,9 @@ import {
 import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-not-stop-runtime.ts";
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
 
+const ORANGE_OPEN = "\x1b[38;2;250;179;135m";
+const ANSI_RESET = "\x1b[0m";
+
 function createFakePi() {
   const events = new Map();
   const commands = new Map();
@@ -66,7 +69,9 @@ function createFakeCtx(options = {}) {
     calls,
     hasUI: true,
     ui: {
-      theme: { fg: (_color, text) => text },
+      theme: {
+        fg: (color, text) => (color === "mdHeading" ? `${ORANGE_OPEN}${text}${ANSI_RESET}` : text),
+      },
       setEditorComponent(value) {
         calls.push({ type: "editor", value });
       },
@@ -163,6 +168,8 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
   assert.match(activeEditorLines[0] ?? "", /↻ repeat 0\/1/);
+  assert.ok((activeEditorLines[0] ?? "").includes(ORANGE_OPEN));
+  assert.doesNotMatch(activeEditorLines[0] ?? "", /\x1b\[91m/);
   assert.match(activeEditorLines.at(-1) ?? "", /12\.2%\/272k/);
 
   await dnsCommand.handler("toggle", ctx);
@@ -320,6 +327,26 @@ test("tui-broker keeps editor ownership when pi-fff uses broker composition hook
 
   assert.deepEqual(wrappedProvider, { provider: baseProvider, wrapped: true });
   assert.match(finalEditor.render(60).at(-1) ?? "", /12\.2%\/272k/);
+});
+
+test("tui-broker keeps the user editor border on the theme orange slot", async () => {
+  __resetTuiBrokerRuntimeForTests();
+  __resetDoNotStopRuntimeStoreForTests();
+
+  const pi = createFakePi();
+  tuiBroker(pi);
+
+  const ctx = createFakeCtx();
+  for (const handler of pi.events.get("session_start") ?? []) {
+    await handler({}, ctx);
+  }
+
+  const editor = createEditorInstance(ctx);
+  editor.borderColor = (text) => `base:${text}`;
+
+  const lines = editor.render(40);
+  assert.ok((lines[0] ?? "").includes(ORANGE_OPEN));
+  assert.doesNotMatch(lines[0] ?? "", /base:/);
 });
 
 test("tui-broker renders the context usage label into the editor bottom border", async () => {

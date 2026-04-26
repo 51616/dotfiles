@@ -17,7 +17,6 @@ import {
 import {
   getTuiBrokerAutocompleteProviderWrappers,
   getTuiBrokerEditorBadges,
-  getTuiBrokerEditorBorderStyle,
   getTuiBrokerFooterPath,
   getTuiBrokerRuntimeSnapshot,
   markTuiBrokerInstalled,
@@ -25,11 +24,14 @@ import {
   subscribeTuiBrokerFooterRefresh,
 } from "./lib/runtime.ts";
 
-type FooterTheme = {
-  fg: (color: "dim", text: string) => string;
+type BrokerTheme = {
+  fg: (color: "dim" | "mdHeading", text: string) => string;
 };
 
-type BorderColorFn = (str: string) => string;
+// Pi does not expose a semantic "orange" theme token. The local themes use
+// mdHeading as their orange/peach slot, so the editor border follows that
+// token to stay theme-relative instead of hardcoding an ANSI color.
+const EDITOR_ORANGE_THEME_COLOR = "mdHeading";
 
 type AgentSettingsSnapshot = {
   defaultProvider?: string;
@@ -53,37 +55,34 @@ function isBottomBorderLine(text: string): boolean {
 class ContextUsageEditor extends CustomEditor {
   private readonly getContextUsageLabelFn: () => { label: string; tokens: number | null } | null;
   private readonly getEditorBadgesFn: () => string[];
-  private readonly getEditorBorderColorFn: () => BorderColorFn | null;
+  private readonly getThemeFn: () => BrokerTheme;
   private readonly getAutocompleteProviderWrappersFn: () => Array<
     (provider: AutocompleteProvider) => AutocompleteProvider
   >;
-  private baseBorderColor: BorderColorFn;
 
   constructor(
     tui: ConstructorParameters<typeof CustomEditor>[0],
     theme: ConstructorParameters<typeof CustomEditor>[1],
     keybindings: ConstructorParameters<typeof CustomEditor>[2],
-    _getTheme: () => FooterTheme,
+    getTheme: () => BrokerTheme,
     getContextUsageLabel: () => { label: string; tokens: number | null } | null,
     getEditorBadges: () => string[],
-    getEditorBorderColor: () => BorderColorFn | null,
     getAutocompleteProviderWrappers: () => Array<(provider: AutocompleteProvider) => AutocompleteProvider>,
   ) {
     super(tui, theme, keybindings);
+    this.getThemeFn = getTheme;
     this.getContextUsageLabelFn = getContextUsageLabel;
     this.getEditorBadgesFn = getEditorBadges;
-    this.getEditorBorderColorFn = getEditorBorderColor;
     this.getAutocompleteProviderWrappersFn = getAutocompleteProviderWrappers;
-    this.baseBorderColor = this.borderColor;
 
     Object.defineProperty(this, "borderColor", {
       configurable: true,
       enumerable: true,
-      get: () => this.getEditorBorderColorFn() ?? this.baseBorderColor,
-      set: (next: unknown) => {
-        if (typeof next === "function") {
-          this.baseBorderColor = next as BorderColorFn;
-        }
+      get: () => (text: string) => this.getThemeFn().fg(EDITOR_ORANGE_THEME_COLOR, text),
+      set: (_next: unknown) => {
+        // Core still assigns thinking-level colors to custom editors. The broker
+        // intentionally ignores those assignments so the user editor border stays
+        // on the active theme's orange slot.
       },
     });
   }
@@ -273,7 +272,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
       const parts = [
         `footer=${snapshot.footerPathSourceKey ?? "local"}`,
         `badges=${snapshot.editorBadgeKeys.join(",") || "none"}`,
-        `border=${snapshot.editorBorderStyleKey ?? "default"}`,
+        `border=${EDITOR_ORANGE_THEME_COLOR}`,
         `autocomplete=${snapshot.autocompleteWrappers.join(",") || "none"}`,
       ];
       ctx.ui.notify(parts.join(" | "), "info");
@@ -299,7 +298,6 @@ export default function tuiBroker(pi: ExtensionAPI) {
             return label ? { label, tokens } : null;
           },
           () => getTuiBrokerEditorBadges().map((entry) => entry.text),
-          () => getTuiBrokerEditorBorderStyle()?.colorize ?? null,
           () => getTuiBrokerAutocompleteProviderWrappers(),
         ),
     );

@@ -3,7 +3,6 @@ import type { AutocompleteProvider } from "@mariozechner/pi-tui";
 const ACTIVE_KEY = "__PI_TUI_BROKER_ACTIVE__";
 const AUTOCOMPLETE_WRAPPERS_KEY = "__PI_TUI_BROKER_AUTOCOMPLETE_WRAPPERS__";
 const EDITOR_BADGES_KEY = "__PI_TUI_BROKER_EDITOR_BADGES__";
-const EDITOR_BORDER_STYLES_KEY = "__PI_TUI_BROKER_EDITOR_BORDER_STYLES__";
 const FOOTER_PATH_PROVIDERS_KEY = "__PI_TUI_BROKER_FOOTER_PATH_PROVIDERS__";
 const FOOTER_REFRESH_LISTENERS_KEY = "__PI_TUI_BROKER_FOOTER_REFRESH_LISTENERS__";
 const EDITOR_REINSTALL_HANDLER_KEY = "__PI_TUI_BROKER_EDITOR_REINSTALL_HANDLER__";
@@ -12,11 +11,6 @@ export type TuiBrokerAutocompleteProviderWrapper = (provider: AutocompleteProvid
 export type TuiBrokerEditorBadge = {
   text: string;
   priority?: number;
-};
-export type TuiBrokerEditorBorderStyle = {
-  colorize: (text: string) => string;
-  priority?: number;
-  debugLabel?: string;
 };
 export type TuiBrokerFooterPathArgs = {
   sessionName: string | null | undefined;
@@ -28,7 +22,6 @@ export type TuiBrokerFooterPathContribution = {
 
 type GlobalState = Record<string, unknown>;
 type TuiBrokerEditorBadgeProvider = () => TuiBrokerEditorBadge | null | undefined;
-type TuiBrokerEditorBorderStyleProvider = () => TuiBrokerEditorBorderStyle | null | undefined;
 type TuiBrokerFooterPathProvider = (
   args: TuiBrokerFooterPathArgs,
 ) => TuiBrokerFooterPathContribution | null | undefined;
@@ -127,21 +120,6 @@ export function getTuiBrokerEditorBadges(): Array<ContributionWithKey<TuiBrokerE
   return collectContributions(getMap<TuiBrokerEditorBadgeProvider>(EDITOR_BADGES_KEY).entries());
 }
 
-export function registerTuiBrokerEditorBorderStyleProvider(
-  key: string,
-  provider: TuiBrokerEditorBorderStyleProvider,
-): void {
-  getMap<TuiBrokerEditorBorderStyleProvider>(EDITOR_BORDER_STYLES_KEY).set(key, provider);
-}
-
-export function unregisterTuiBrokerEditorBorderStyleProvider(key: string): void {
-  getMap<TuiBrokerEditorBorderStyleProvider>(EDITOR_BORDER_STYLES_KEY).delete(key);
-}
-
-export function getTuiBrokerEditorBorderStyle(): ContributionWithKey<TuiBrokerEditorBorderStyle> | null {
-  return collectContributions(getMap<TuiBrokerEditorBorderStyleProvider>(EDITOR_BORDER_STYLES_KEY).entries())[0] ?? null;
-}
-
 export function registerTuiBrokerFooterPathProvider(key: string, provider: TuiBrokerFooterPathProvider): void {
   getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).set(key, provider);
 }
@@ -203,22 +181,19 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
   autocompleteWrappers: string[];
   editorBadgeKeys: string[];
   editorBadges: string[];
-  editorBorderStyleKey: string | null;
-  editorBorderStyleLabel: string | null;
+  editorBorderColor: "mdHeading";
   footerPathProviderKeys: string[];
   footerPathText: string | null;
   footerPathSourceKey: string | null;
 } {
   const badges = getTuiBrokerEditorBadges();
-  const borderStyle = getTuiBrokerEditorBorderStyle();
   const footerPath = getTuiBrokerFooterPath(args);
 
   return {
     autocompleteWrappers: Array.from(getMap<TuiBrokerAutocompleteProviderWrapper>(AUTOCOMPLETE_WRAPPERS_KEY).keys()).sort(),
     editorBadgeKeys: badges.map((entry) => entry.key),
     editorBadges: badges.map((entry) => entry.text),
-    editorBorderStyleKey: borderStyle?.key ?? null,
-    editorBorderStyleLabel: borderStyle?.debugLabel ?? null,
+    editorBorderColor: "mdHeading",
     footerPathProviderKeys: Array.from(getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).keys()).sort(),
     footerPathText: footerPath?.text ?? null,
     footerPathSourceKey: footerPath?.key ?? null,
@@ -231,7 +206,6 @@ export function __resetTuiBrokerRuntimeForTests(): void {
   delete state[EDITOR_REINSTALL_HANDLER_KEY];
   delete state[AUTOCOMPLETE_WRAPPERS_KEY];
   delete state[EDITOR_BADGES_KEY];
-  delete state[EDITOR_BORDER_STYLES_KEY];
   delete state[FOOTER_PATH_PROVIDERS_KEY];
   delete state[FOOTER_REFRESH_LISTENERS_KEY];
 }
