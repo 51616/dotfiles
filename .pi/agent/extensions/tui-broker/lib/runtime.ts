@@ -181,7 +181,7 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
   autocompleteWrappers: string[];
   editorBadgeKeys: string[];
   editorBadges: string[];
-  editorBorderColor: "rosewater";
+  editorBorderColor: "#f2d5cf";
   footerPathProviderKeys: string[];
   footerPathText: string | null;
   footerPathSourceKey: string | null;
@@ -193,7 +193,7 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
     autocompleteWrappers: Array.from(getMap<TuiBrokerAutocompleteProviderWrapper>(AUTOCOMPLETE_WRAPPERS_KEY).keys()).sort(),
     editorBadgeKeys: badges.map((entry) => entry.key),
     editorBadges: badges.map((entry) => entry.text),
-    editorBorderColor: "rosewater",
+    editorBorderColor: "#f2d5cf",
     footerPathProviderKeys: Array.from(getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).keys()).sort(),
     footerPathText: footerPath?.text ?? null,
     footerPathSourceKey: footerPath?.key ?? null,

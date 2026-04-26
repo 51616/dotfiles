@@ -18,7 +18,7 @@ import {
 import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-not-stop-runtime.ts";
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
 
-const ROSEWATER_OPEN = "\x1b[38;2;245;224;220m";
+const BORDER_COLOR_OPEN = "\x1b[38;2;242;213;207m";
 const ANSI_RESET = "\x1b[0m";
 const NORMAL_BORDER = "─";
 
@@ -169,7 +169,7 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
   assert.match(activeEditorLines[0] ?? "", /↻ repeat 0\/1/);
-  assert.ok((activeEditorLines[0] ?? "").includes(ROSEWATER_OPEN));
+  assert.ok((activeEditorLines[0] ?? "").includes(BORDER_COLOR_OPEN));
   assert.ok((activeEditorLines[0] ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(activeEditorLines[0] ?? "", /━/);
   assert.doesNotMatch(activeEditorLines[0] ?? "", /\x1b\[91m/);
@@ -332,7 +332,7 @@ test("tui-broker keeps editor ownership when pi-fff uses broker composition hook
   assert.match(finalEditor.render(60).at(-1) ?? "", /12\.2%\/272k/);
 });
 
-test("tui-broker keeps the user editor border on rosewater", async () => {
+test("tui-broker keeps the user editor border on the configured color", async () => {
   __resetTuiBrokerRuntimeForTests();
   __resetDoNotStopRuntimeStoreForTests();
 
@@ -348,7 +348,7 @@ test("tui-broker keeps the user editor border on rosewater", async () => {
   editor.borderColor = (text) => `base:${text}`;
 
   const lines = editor.render(40);
-  assert.ok((lines[0] ?? "").includes(ROSEWATER_OPEN));
+  assert.ok((lines[0] ?? "").includes(BORDER_COLOR_OPEN));
   assert.ok((lines[0] ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(lines[0] ?? "", /━/);
   assert.doesNotMatch(lines[0] ?? "", /base:/);

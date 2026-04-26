@@ -26,11 +26,10 @@ import {
 
 type BrokerTheme = {
   fg: (color: "dim" | "text", text: string) => string;
-  name?: string;
-  sourcePath?: string;
 };
 
-const EDITOR_BORDER_COLOR_LABEL = "rosewater";
+const EDITOR_BORDER_HEX = "#f2d5cf";
+const EDITOR_BORDER_COLOR_LABEL = EDITOR_BORDER_HEX;
 const EDITOR_BORDER_CHAR = "─";
 const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -62,42 +61,9 @@ function isBottomBorderLine(text: string): boolean {
   return /^[─━]+$/.test(plain) || /^[─━]+ ↓ \d+ more [─━]*$/.test(plain);
 }
 
-function normalizeThemeVariable(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return RGB_HEX_REGEX.test(normalized) ? normalized : null;
-}
-
-let cachedThemeRosewaterPath = "";
-let cachedThemeRosewaterMtimeMs = -1;
-let cachedThemeRosewaterHex: string | null = null;
-
-function resolveThemeRosewaterHex(theme: BrokerTheme): string | null {
-  const themePath = theme.sourcePath?.trim();
-  if (!themePath) return "#f5e0dc";
-
-  try {
-    const stat = statSync(themePath);
-    if (cachedThemeRosewaterPath === themePath && cachedThemeRosewaterMtimeMs === stat.mtimeMs) {
-      return cachedThemeRosewaterHex;
-    }
-
-    const parsed = JSON.parse(readFileSync(themePath, "utf8")) as { vars?: Record<string, unknown> };
-    cachedThemeRosewaterPath = themePath;
-    cachedThemeRosewaterMtimeMs = stat.mtimeMs;
-    cachedThemeRosewaterHex = normalizeThemeVariable(parsed.vars?.rosewater);
-    return cachedThemeRosewaterHex;
-  } catch {
-    cachedThemeRosewaterPath = themePath;
-    cachedThemeRosewaterMtimeMs = -1;
-    cachedThemeRosewaterHex = null;
-    return "#f5e0dc";
-  }
-}
-
 function colorizeEditorBorder(theme: BrokerTheme, text: string): string {
-  const rosewaterHex = resolveThemeRosewaterHex(theme);
-  return rosewaterHex ? ansiTrueColor(text, rosewaterHex) : theme.fg("text", text);
+  const border = ansiTrueColor(text, EDITOR_BORDER_HEX);
+  return border === text ? theme.fg("text", text) : border;
 }
 
 class ContextUsageEditor extends CustomEditor {
