@@ -32,6 +32,7 @@ type BrokerTheme = {
 // mdHeading as their orange/peach slot, so the editor border follows that
 // token to stay theme-relative instead of hardcoding an ANSI color.
 const EDITOR_ORANGE_THEME_COLOR = "mdHeading";
+const EDITOR_BORDER_CHAR = "━";
 
 type AgentSettingsSnapshot = {
   defaultProvider?: string;
@@ -49,7 +50,11 @@ function ansiStyle(text: string, codes: string): string {
 
 function isBottomBorderLine(text: string): boolean {
   const plain = stripAnsi(text);
-  return /^─+$/.test(plain) || /^─── ↓ \d+ more ─*$/.test(plain);
+  return /^[─━]+$/.test(plain) || /^[─━]+ ↓ \d+ more [─━]*$/.test(plain);
+}
+
+function thickenEditorBorderLine(text: string): string {
+  return text.replaceAll("─", EDITOR_BORDER_CHAR);
 }
 
 class ContextUsageEditor extends CustomEditor {
@@ -99,12 +104,22 @@ class ContextUsageEditor extends CustomEditor {
     const lines = super.render(width);
     if (lines.length === 0) return lines;
 
+    const bottomBorderIndex = (() => {
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        if (isBottomBorderLine(lines[index] ?? "")) return index;
+      }
+      return lines.length - 1;
+    })();
+
+    lines[0] = thickenEditorBorderLine(lines[0] ?? "");
+    lines[bottomBorderIndex] = thickenEditorBorderLine(lines[bottomBorderIndex] ?? "");
+
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
     const labelText = buildEditorBorderBadgeText(this.getEditorBadgesFn(), moreMatch?.[0]);
     if (labelText) {
       const label = truncateToWidth(` ${labelText} `, Math.max(1, width), "");
-      const fill = "─".repeat(Math.max(0, width - visibleWidth(label)));
+      const fill = EDITOR_BORDER_CHAR.repeat(Math.max(0, width - visibleWidth(label)));
       lines[0] = this.borderColor(`${label}${fill}`);
     }
 
@@ -113,12 +128,6 @@ class ContextUsageEditor extends CustomEditor {
 
     const label = this.styleContextUsageLabel(contextUsage.label, contextUsage.tokens);
     const labelWidth = visibleWidth(label);
-    const bottomBorderIndex = (() => {
-      for (let index = lines.length - 1; index >= 0; index -= 1) {
-        if (isBottomBorderLine(lines[index] ?? "")) return index;
-      }
-      return lines.length - 1;
-    })();
     const trailingBorderWidth = 1;
 
     if (labelWidth >= width) {
@@ -128,7 +137,7 @@ class ContextUsageEditor extends CustomEditor {
 
     const prefixWidth = Math.max(0, width - labelWidth - trailingBorderWidth);
     const prefix = truncateToWidth(lines[bottomBorderIndex] ?? "", prefixWidth, "");
-    const trailingBorder = width - labelWidth > 0 ? this.borderColor("─") : "";
+    const trailingBorder = width - labelWidth > 0 ? this.borderColor(EDITOR_BORDER_CHAR) : "";
     lines[bottomBorderIndex] = prefix + label + trailingBorder;
     return lines;
   }

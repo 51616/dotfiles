@@ -20,6 +20,7 @@ import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts
 
 const ORANGE_OPEN = "\x1b[38;2;250;179;135m";
 const ANSI_RESET = "\x1b[0m";
+const HEAVY_BORDER = "━";
 
 function createFakePi() {
   const events = new Map();
@@ -169,6 +170,7 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
   assert.match(activeEditorLines[0] ?? "", /↻ repeat 0\/1/);
   assert.ok((activeEditorLines[0] ?? "").includes(ORANGE_OPEN));
+  assert.ok((activeEditorLines[0] ?? "").includes(HEAVY_BORDER));
   assert.doesNotMatch(activeEditorLines[0] ?? "", /\x1b\[91m/);
   assert.match(activeEditorLines.at(-1) ?? "", /12\.2%\/272k/);
 
@@ -346,6 +348,7 @@ test("tui-broker keeps the user editor border on the theme orange slot", async (
 
   const lines = editor.render(40);
   assert.ok((lines[0] ?? "").includes(ORANGE_OPEN));
+  assert.ok((lines[0] ?? "").includes(HEAVY_BORDER));
   assert.doesNotMatch(lines[0] ?? "", /base:/);
 });
 
@@ -363,6 +366,7 @@ test("tui-broker renders the context usage label into the editor bottom border",
 
   const lines = createRenderedEditorLines(ctx, 40);
   assert.match(lines.at(-1) ?? "", /12\.2%\/272k/);
+  assert.ok((lines.at(-1) ?? "").includes(HEAVY_BORDER));
 });
 
 test("tui-broker falls back to the startup default model context window before the first turn", async () => {
