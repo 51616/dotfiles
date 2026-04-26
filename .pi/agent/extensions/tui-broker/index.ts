@@ -25,13 +25,13 @@ import {
 } from "./lib/runtime.ts";
 
 type BrokerTheme = {
-  fg: (color: "dim" | "mdHeading", text: string) => string;
+  fg: (color: "dim" | "muted", text: string) => string;
 };
 
-// Pi does not expose a semantic "orange" theme token. The local themes use
-// mdHeading as their orange/peach slot, so the editor border follows that
-// token to stay theme-relative instead of hardcoding an ANSI color.
-const EDITOR_ORANGE_THEME_COLOR = "mdHeading";
+// Keep the editor border theme-relative instead of hardcoding an ANSI color.
+// `muted` is the current grey-ish trial color; switch this token to `text`,
+// `dim`, or another theme foreground token when testing a different feel.
+const EDITOR_BORDER_THEME_COLOR = "muted";
 const EDITOR_BORDER_CHAR = "━";
 
 type AgentSettingsSnapshot = {
@@ -83,11 +83,11 @@ class ContextUsageEditor extends CustomEditor {
     Object.defineProperty(this, "borderColor", {
       configurable: true,
       enumerable: true,
-      get: () => (text: string) => this.getThemeFn().fg(EDITOR_ORANGE_THEME_COLOR, text),
+      get: () => (text: string) => this.getThemeFn().fg(EDITOR_BORDER_THEME_COLOR, text),
       set: (_next: unknown) => {
         // Core still assigns thinking-level colors to custom editors. The broker
         // intentionally ignores those assignments so the user editor border stays
-        // on the active theme's orange slot.
+        // on the broker-selected theme token.
       },
     });
   }
@@ -281,7 +281,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
       const parts = [
         `footer=${snapshot.footerPathSourceKey ?? "local"}`,
         `badges=${snapshot.editorBadgeKeys.join(",") || "none"}`,
-        `border=${EDITOR_ORANGE_THEME_COLOR}`,
+        `border=${EDITOR_BORDER_THEME_COLOR}`,
         `autocomplete=${snapshot.autocompleteWrappers.join(",") || "none"}`,
       ];
       ctx.ui.notify(parts.join(" | "), "info");
