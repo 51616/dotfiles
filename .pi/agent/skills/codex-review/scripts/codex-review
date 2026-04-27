@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+MODEL = "gpt-5.5"
+REASONING_EFFORT = "high"
+DEFAULT_TIMEOUT_SECONDS = 3600
+SESSION_ROOT = Path.home() / ".codex" / "sessions"
+
+PROMPT_PREAMBLE = (
+    "You are acting as a critical review helper for pi. "
+    "Review code, diffs, plans, specs, and implementation notes precisely and skeptically. "
+    "Prioritize correctness, regressions, scope drift, missing tests, maintainability, safety, and observability. "
+    "State assumptions when they matter. "
+    "Prefer concise, actionable findings over long rewrites. "
+    "If there are no material issues, say that explicitly.\n\n"
+    "User request:\n"
+)
+
+
+def _require_codex_on_path() -> None:
+    if shutil.which("codex") is None:
+        print(
+            "Error: `codex` CLI not found on PATH. Install/login Codex first (e.g. `codex login`).",
+            file=sys.stderr,
+        )
+        raise SystemExit(127)
+
+
+def _decode_maybe_bytes(value: Optional[str | bytes]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
+def _parse_codex_jsonl(stdout_text: str) -> tuple[Optional[str], Optional[str]]:
+    session_id: Optional[str] = None
+    last_msg: Optional[str] = None
+
+    for raw_line in stdout_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if ev.get("type") == "thread.started":
+            thread_id = ev.get("thread_id")
+            if isinstance(thread_id, str):
+                session_id = thread_id
+            continue
+
+        if ev.get("type") != "item.completed":
+            continue
+        item = ev.get("item")
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "agent_message":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            last_msg = text
+
+    return session_id, last_msg
+
+
+def _find_session_file(session_id: Optional[str], *, wait_seconds: float = 0.0) -> Optional[Path]:
+    if not session_id or not SESSION_ROOT.exists():
+        return None
+
+    deadline = time.monotonic() + max(wait_seconds, 0.0)
+    while True:
+        matches = sorted(SESSION_ROOT.rglob(f"*{session_id}.jsonl"))
+        if matches:
+            return matches[-1]
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def _format_resume_command(session_id: str) -> str:
+    return (
+        "codex exec resume "
+        f"{session_id} "
+        '"Continue and finish the interrupted review. Reuse the existing context from this session. '
+        'Return only the final review."'
+    )
+
+
+def _print_recovery_details(*, timeout_seconds: int, session_id: Optional[str], session_file: Optional[Path], stderr_text: str) -> None:
+    print(
+        f"Error: codex review timed out after {timeout_seconds} seconds.",
+        file=sys.stderr,
+    )
+    if session_id:
+        print(f"Session ID: {session_id}", file=sys.stderr)
+    if session_file:
+        print(f"Session file: {session_file}", file=sys.stderr)
+        print(
+            "Read that exact JSONL session file under `~/.codex/sessions/...`; do not use `--last` or the newest file when multiple reviews may be running.",
+            file=sys.stderr,
+        )
+    if session_id:
+        print("Resume command:", file=sys.stderr)
+        print(f"  {_format_resume_command(session_id)}", file=sys.stderr)
+    if stderr_text.strip():
+        print("Codex stderr:", file=sys.stderr)
+        print(stderr_text.rstrip(), file=sys.stderr)
+
+
+def _run_codex(cmd: list[str], timeout_seconds: int) -> tuple[int, str, str, Optional[str], Optional[Path]]:
+    try:
+        completed = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=None if timeout_seconds <= 0 else timeout_seconds,
+        )
+        stdout_text = completed.stdout
+        stderr_text = completed.stderr
+        returncode = completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        stdout_text = _decode_maybe_bytes(exc.stdout)
+        stderr_text = _decode_maybe_bytes(exc.stderr)
+        session_id, _ = _parse_codex_jsonl(stdout_text)
+        session_file = _find_session_file(session_id, wait_seconds=2.0)
+        _print_recovery_details(
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+            session_file=session_file,
+            stderr_text=stderr_text,
+        )
+        raise SystemExit(124)
+
+    session_id, last_msg = _parse_codex_jsonl(stdout_text)
+    session_file = _find_session_file(session_id)
+
+    if returncode != 0:
+        if stderr_text.strip():
+            print(stderr_text.rstrip(), file=sys.stderr)
+        if session_id or session_file:
+            print("Recovery context:", file=sys.stderr)
+            if session_id:
+                print(f"  Session ID: {session_id}", file=sys.stderr)
+            if session_file:
+                print(f"  Session file: {session_file}", file=sys.stderr)
+        raise SystemExit(returncode)
+
+    return returncode, stdout_text, stderr_text, last_msg, session_file
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="codex-review",
+        add_help=True,
+        description=(
+            "Codex-backed review helper for pi.\n\n"
+            "Usage:\n"
+            "  codex-review [--timeout-seconds 3600] \"<prompt>\"\n\n"
+            "Prints only the last agent response from Codex JSON output.\n"
+            "If the review times out, prints the exact resumable session id and session file to stderr."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  codex-review \"Review the changes in src/auth.ts against conductor/tracks/<track_id>/spec.md. Focus on correctness and missing tests.\"\n\n"
+            "  codex-review \"Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} for contradictions and scope drift.\"\n\n"
+            "  codex-review --timeout-seconds 1800 \"Review the current working tree for likely regressions. Group findings by severity.\"\n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=(
+            "Kill the Codex review after this many seconds and print resumable session details. "
+            "Use 0 to disable the timeout."
+        ),
+    )
+    parser.add_argument(
+        "prompt",
+        nargs=argparse.REMAINDER,
+        help="Prompt text (everything after options becomes the prompt).",
+    )
+
+    args = parser.parse_args()
+    _require_codex_on_path()
+
+    user_prompt = " ".join(args.prompt).strip()
+    if not user_prompt:
+        parser.print_usage(sys.stderr)
+        print("error: missing prompt", file=sys.stderr)
+        raise SystemExit(2)
+
+    prompt = PROMPT_PREAMBLE + user_prompt
+
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        MODEL,
+        "-c",
+        f"model_reasoning_effort={REASONING_EFFORT}",
+        "--json",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        prompt,
+    ]
+
+    _, _, _, last_msg, session_file = _run_codex(cmd, args.timeout_seconds)
+    if not last_msg:
+        print("Error: codex produced no agent_message in JSON output.", file=sys.stderr)
+        if session_file:
+            print(f"Session file: {session_file}", file=sys.stderr)
+        raise SystemExit(2)
+
+    sys.stdout.write(last_msg)
+    if not last_msg.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()
