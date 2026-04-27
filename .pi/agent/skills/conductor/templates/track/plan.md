@@ -4,6 +4,8 @@
 >
 > Use the approved `spec.md` as the behavior contract. Each implementation step should trace back to accepted behaviors and scenario examples.
 >
+> This must be a concrete implementation plan that a future agent can execute without chat history or current-session context. Prefer exact repo-relative paths, modules, functions, commands, data contracts, ownership boundaries, and verification gates. Avoid vague tasks such as “update code” or “fix tests”; if discovery is required, write an explicit discovery task with the decision it must produce.
+>
 > Implementation should be non-interactive. Resolve ambiguity during audit/spec/plan drafting, not after coding starts.
 >
 > Precise review requirement: maintain a running **Change evidence** section in this `plan.md` as you implement.
@@ -36,15 +38,15 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 1: Scope / impact alignment
 - [ ] Task: Confirm the approved spec captures the required acceptance criteria, expected behaviors, and scenario examples
-- [ ] Task: Identify affected modules / files / boundaries
-- [ ] Task: Choose the verification approach for each behavior slice
-- [ ] Task: Resolve all remaining ambiguity before implementation starts
+- [ ] Task: Identify affected modules / files / boundaries with repo-relative paths and short ownership notes
+- [ ] Task: Choose the verification approach for each behavior slice, including exact commands when known
+- [ ] Task: Resolve all remaining ambiguity before implementation starts; convert unknown paths/commands into explicit discovery tasks
 
 ## Phase 2: Behavior-driven implementation
-- [ ] Task: Identify the next behavior slice from the approved scenarios
+- [ ] Task: Identify the next behavior slice from the approved scenarios and name the exact files/modules expected to change
 - [ ] Task: Write failing tests first when feasible for the current behavior slice (only tests that prove an approved behavior; no testing for its own sake)
 - [ ] Task: Link each new/changed test to an approved behavior/scenario (record mapping in Change evidence; when `lat.md/` exists, prefer `@lat:` refs to a test-spec section per the `lat-md` skill)
-- [ ] Task: Implement the minimum change needed to satisfy the approved behavior
+- [ ] Task: Implement the minimum change needed to satisfy the approved behavior; name the function/class/entrypoint being changed when known
 - [ ] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
 - [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
 - [ ] Task: Refactor while preserving the approved behavior and keeping tests green

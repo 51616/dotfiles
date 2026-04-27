@@ -1,6 +1,6 @@
 # Track Resume: <track_description>
 
-> Read this file first when resuming or compacting the track.
+> Read this file first when resuming or compacting the track. Keep it self-contained enough that a future agent can pick up without chat history or current-session context.
 
 Track id: `<track_id>`
 
@@ -46,11 +46,13 @@ Track id: `<track_id>`
 - 
 
 ## Where to pick up (next steps)
+(Use concrete, executable next steps. Include repo-relative paths, exact commands, and the decision each step should produce when discovery remains.)
 1) 
 2) 
 3) 
 
 ## Verification commands
+(Record exact commands from the repo root or specify the working directory.)
 - 
 - (optional) `uvx showboat verify ./evidence/showboat.md` (when the demo doc exists)
 

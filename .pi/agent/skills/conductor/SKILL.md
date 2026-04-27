@@ -3,6 +3,7 @@ name: conductor
 description: |
   Use when: the user asks to plan or start/resume a track, or when the work is large enough to benefit from a durable spec/plan/resume workflow. Trigger on phrases like "write a spec", "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly benefits explicit planning before implementation.
   Don’t use when: the task is a tiny one-off edit or simple Q&A (use normal repo editing instead), or when the user explicitly wants a repeated scrutiny loop with per-round `review -> trim -> implement` artifacts (use `conductor-scrutinize` instead).
+  Outputs: self-contained track artifacts with an elaborate behavior spec, a concrete implementation plan, and a current resume that a future agent can use without reading chat history or session-specific references.
 ---
 
 # conductor
@@ -64,8 +65,9 @@ This is a structured intake, not a vague “interview briefly”.
 ### 3) Create a track (spec first, then plan)
 
 1. Infer track description from the user's request.
-2. Create a **spec** first. The spec must define the behavior contract before implementation.
-3. `spec.md` must include:
+2. Create an **elaborate, self-contained spec** first. The spec must define the behavior contract before implementation and must stand on its own without chat history.
+3. `spec.md` must avoid session-specific references such as “as discussed”, “the current request”, “this session”, “the previous plan”, or unstated assumptions. Replace them with durable facts: repo paths, user-visible behaviors, constraints, explicit decisions, and links or file references that remain useful later.
+4. `spec.md` must include:
    - context / goal / non-goals
    - requirements
    - **acceptance criteria**
@@ -73,21 +75,23 @@ This is a structured intake, not a vague “interview briefly”.
    - **scenario examples** (plain language, not Gherkin)
    - **evidence plan**: how each scenario will be proven (tests and/or other verification)
    - constraints / assumptions / risks / open questions
-4. Propose a balanced set of scenarios by default:
+5. Propose a balanced set of scenarios by default:
    - happy path
    - key validation failures
    - important edge cases
    - open questions
    - ambiguity checks where needed
-5. **Require approval** of `spec.md` unless Tan explicitly says to skip approval. Return to the user before moving on. *(This step require working back-and-forth with the user until everything is approved and clarified. Please work with the user on open questions, ambiguity, assumptions and edge cases.)*
-6. After working with the user and the `spec.md` is approved, draft a **plan** from the approved spec + behaviors:
+6. **Require approval** of `spec.md` unless Tan explicitly says to skip approval. Return to the user before moving on. *(This step requires working back-and-forth with the user until everything is approved and clarified. Please work with the user on open questions, ambiguity, assumptions, and edge cases.)*
+7. After working with the user and the `spec.md` is approved, draft a **concrete implementation plan** from the approved spec + behaviors:
    - phases → tasks → subtasks
    - `[ ]` checkboxes everywhere
    - behavior-driven implementation slices
+   - exact files, modules, commands, and ownership boundaries when they are known
    - tests-first steps when feasible
    - verification + completion sync tasks
-7. **Require approval** of `plan.md` unless Tan explicitly says to skip approval. Return to the user before moving on.
-8. Create/maintain a **resume** (`resume.md`) with:
+8. `plan.md` must be directly executable by a future agent without rereading chat history. Avoid vague tasks like “update the backend” or “fix tests”; write precise tasks such as “update `src/foo.ts` to validate X before Y”, “add regression coverage for scenario Z in `tests/foo.test.ts`”, and “run `npm test -- foo.test.ts`”. If a file or command is still unknown, add a discovery task that names the decision to resolve.
+9. **Require approval** of `plan.md` unless Tan explicitly says to skip approval. Return to the user before moving on.
+10. Create/maintain a **resume** (`resume.md`) with:
    - current state
    - active phase/task
    - last completed step
@@ -95,11 +99,11 @@ This is a structured intake, not a vague “interview briefly”.
    - blockers / risks / deviations
    - the next 1–3 concrete steps
    - exact verification commands
-9. Create the track artifacts:
+11. Create the track artifacts:
    - `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "..." --type feature`
 
 The script scaffolds files. The agent still owns the thinking and should replace the template content with the approved spec/plan/resume state.
-These files should be *detailed enough so that a new team member can pick the task up easily*. Adding references is helpful for future validation and double checking.
+These files should be detailed enough that a new team member or a future agent can start work immediately without guessing, rereading chat, or relying on current-session context. Prefer durable references: repo-relative paths, command lines, API names, data contracts, screenshots/artifact paths, and explicit decisions with dates when useful.
 
 ### 4) Explicit user return points
 
