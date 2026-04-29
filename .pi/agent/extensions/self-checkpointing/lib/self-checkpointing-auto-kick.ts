@@ -174,7 +174,7 @@ export function createAutoKickController(deps: AutoKickControllerDeps): AutoKick
     deps.setArmed(false);
 
     deps.pushDebug(ctx, `auto-kick injecting directive (reason=${reason}, attempt=${attempts})`);
-    deps.setStatus(ctx, "| Checkpoint: writing checkpoint… 🟡");
+    deps.setStatus(ctx, "checkpoint: fired |");
 
     // Deliver as "steer" so we can interrupt an in-flight agent run.
     // If the agent is idle, triggerTurn ensures we start a turn immediately.

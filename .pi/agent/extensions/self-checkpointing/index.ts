@@ -165,7 +165,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
 
     if (autoKick.isInFlight()) {
       armed = false;
-      setStatus(ctx, "| Checkpoint: writing checkpoint… 🟡");
+      setStatus(ctx, "checkpoint: fired |");
       return;
     }
 
@@ -178,7 +178,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     if (thresholdMatch.matched) {
       setStatus(
         ctx,
-        `| Checkpoint: armed (${formatAutockptUsageMatch(thresholdMatch)} >= ${formatAutockptThreshold(threshold)}) 🟡`,
+        `checkpoint: armed (${formatAutockptUsageMatch(thresholdMatch)} >= ${formatAutockptThreshold(threshold)}) |`,
       );
       return;
     }
