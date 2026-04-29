@@ -20,7 +20,9 @@ The canonical implementation lives in [[tui-broker/index.ts]]. Shared formatting
 
 ## Contracts
 
-The footer keeps the cwd / git-branch / session-name line and preserves extension status lines from `ctx.ui.setStatus()`. It intentionally drops cumulative token, cache, and dollar stats from the footer.
+The footer keeps the folder-glyph cwd / session-name line and preserves extension status lines from `ctx.ui.setStatus()`.
+
+It intentionally omits git branch text from the cwd line because `git-state` owns the compact branch meter in the editor top-right border. It intentionally drops cumulative token, cache, and dollar stats from the footer.
 
 The editor override subclasses `CustomEditor` and decorates the final rendered border lines rather than replacing core editing behavior. It forces the user editor border to `#fab387` so core thinking-level updates cannot change the input border color.
 

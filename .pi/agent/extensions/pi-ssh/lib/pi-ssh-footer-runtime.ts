@@ -2,7 +2,6 @@ type PiSshFooterSnapshot = {
   remoteDisplayTarget: string;
   remoteHome: string;
   remoteCwd: string;
-  remoteBranch: string | null;
 };
 
 type PiSshFooterStore = {
@@ -32,7 +31,6 @@ function cloneSnapshot(snapshot: PiSshFooterSnapshot): PiSshFooterSnapshot {
     remoteDisplayTarget: String(snapshot.remoteDisplayTarget ?? "").trim(),
     remoteHome: String(snapshot.remoteHome ?? "").trim(),
     remoteCwd: String(snapshot.remoteCwd ?? "").trim(),
-    remoteBranch: snapshot.remoteBranch ? String(snapshot.remoteBranch).trim() : null,
   };
 }
 
@@ -72,13 +70,10 @@ export function buildPiSshFooterLabel(
   sessionName: string | null | undefined,
 ): string {
   let location = formatDisplayPath(snapshot.remoteCwd, snapshot.remoteHome);
-  if (snapshot.remoteBranch) {
-    location = `${location} (${snapshot.remoteBranch})`;
-  }
   if (sessionName) {
     location = `${location} • ${sessionName}`;
   }
-  return `${snapshot.remoteDisplayTarget}:${location}`;
+  return ` ${snapshot.remoteDisplayTarget}:${location}`;
 }
 
 export function __resetPiSshFooterRuntimeForTests(): void {

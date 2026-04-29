@@ -72,8 +72,8 @@ test("buildModelEffortLabel keeps only model and effort", () => {
 
 test("buildSingleLineFooter keeps model label right-aligned", () => {
   assert.equal(
-    buildSingleLineFooter("~/vault (main)", "GPT-5.4 • High", 40),
-    "~/vault (main)            GPT-5.4 • High",
+    buildSingleLineFooter(" ~/vault", "GPT-5.4 • High", 40),
+    " ~/vault                 GPT-5.4 • High",
   );
   assert.equal(
     buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "GPT-5.4 • High", 30),

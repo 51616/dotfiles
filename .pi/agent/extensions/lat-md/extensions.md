@@ -26,6 +26,12 @@ See also [[command-context-for-tools]].
 
 Entrypoint: [[command-context-for-tools/index.ts]].
 
+## Working spinner customization
+
+Owns the custom working-indicator word list and spinner renderer used while pi is actively processing a turn.
+
+Entrypoint: [[custom-spinner/index.ts]].
+
 ## do-not-stop
 
 Owns the bounded autonomous follow-up loop, its persisted runtime state, and the editor-border affordance that shows loop progress.

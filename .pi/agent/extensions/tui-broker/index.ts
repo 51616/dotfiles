@@ -268,22 +268,18 @@ function getFallbackContextWindow(ctx: ExtensionContext): number | null {
   return null;
 }
 
-function formatPwd(cwd: string, gitBranch: string | null, sessionName: string | null | undefined): string {
+function formatPwd(cwd: string, sessionName: string | null | undefined): string {
   let pwd = cwd;
   const home = process.env.HOME || process.env.USERPROFILE;
   if (home && pwd.startsWith(home)) {
     pwd = `~${pwd.slice(home.length)}`;
   }
 
-  if (gitBranch) {
-    pwd = `${pwd} (${gitBranch})`;
-  }
-
   if (sessionName) {
     pwd = `${pwd} • ${sessionName}`;
   }
 
-  return pwd;
+  return ` ${pwd}`;
 }
 
 export default function tuiBroker(pi: ExtensionAPI) {
@@ -338,12 +334,10 @@ export default function tuiBroker(pi: ExtensionAPI) {
     });
 
     ctx.ui.setFooter((tui, theme, footerData) => {
-      const unsubscribeBranch = footerData.onBranchChange(() => tui.requestRender());
       const unsubscribeFooterRefresh = subscribeTuiBrokerFooterRefresh(() => tui.requestRender());
 
       return {
         dispose() {
-          unsubscribeBranch();
           unsubscribeFooterRefresh();
         },
         invalidate() {},
@@ -352,7 +346,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
 
           const sessionName = ctx.sessionManager.getSessionName();
           const contributedPath = getTuiBrokerFooterPath({ sessionName });
-          const pwd = contributedPath?.text ?? formatPwd(ctx.sessionManager.getCwd(), footerData.getGitBranch(), sessionName);
+          const pwd = contributedPath?.text ?? formatPwd(ctx.sessionManager.getCwd(), sessionName);
           const modelLineText = buildModelEffortLabel(ctx.model?.id, ctx.model?.reasoning, pi.getThinkingLevel());
           const footerLine = buildSingleLineFooter(pwd, modelLineText, width);
           lines.push(theme.fg("dim", footerLine));

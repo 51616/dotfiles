@@ -14,22 +14,21 @@ const {
   renderStartupNoticeLines,
   shouldPublishStartupNotice,
   filterStartupNoticeMessages,
-  resolveRemoteGitBranch,
 } = __testInternals;
 
-test("buildFooterPathLabel uses the remote path and keeps branch display", () => {
-  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", "main", undefined), "~/project (main)");
+test("buildFooterPathLabel prefixes the remote path icon and omits branch display", () => {
+  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", "main", undefined), " ~/project");
 });
 
 test("buildFooterPathLabel appends the session name when present", () => {
   assert.equal(
     buildFooterPathLabel("/remote/home/project", "/remote/home", "main", "ssh session"),
-    "~/project (main) • ssh session",
+    " ~/project • ssh session",
   );
 });
 
-test("buildFooterPathLabel omits branch text when remote branch is unavailable", () => {
-  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", null, undefined), "~/project");
+test("buildFooterPathLabel keeps the icon when remote branch is unavailable", () => {
+  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", null, undefined), " ~/project");
 });
 
 test("buildRemoteFooterLabel replaces the grey footer path with the ssh target and remote path", () => {
@@ -48,7 +47,7 @@ test("buildRemoteFooterLabel replaces the grey footer path with the ssh target a
       "main",
       undefined,
     ),
-    "tan@example.com:~/project (main)",
+    " tan@example.com:~/project",
   );
 });
 
@@ -60,7 +59,7 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
       },
     },
     {
-      pwd: "tan@example.com:~/project (main)",
+      pwd: " tan@example.com:~/project",
       modelId: "gpt-5.4",
       modelProvider: "openai",
       reasoning: true,
@@ -72,7 +71,7 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
   );
 
   assert.deepEqual(lines, [
-    `dim:${buildSingleLineFooter("tan@example.com:~/project (main)", "gpt-5.4 • high", 48)}`,
+    `dim:${buildSingleLineFooter(" tan@example.com:~/project", "gpt-5.4 • high", 48)}`,
     "dim:ssh active",
   ]);
 });
@@ -85,7 +84,7 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
       },
     },
     {
-      pwd: "tan@example.com:~/project (main)",
+      pwd: " tan@example.com:~/project",
       modelId: "gpt-5.4",
       modelProvider: "openai",
       reasoning: true,
@@ -96,7 +95,7 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
     12,
   );
 
-  assert.equal(lines[0], `dim:${buildSingleLineFooter("tan@example.com:~/project (main)", "gpt-5.4 • high", 12)}`);
+  assert.equal(lines[0], `dim:${buildSingleLineFooter(" tan@example.com:~/project", "gpt-5.4 • high", 12)}`);
   assert.equal(stripAnsi(lines[1]), "dim:󰒓 Ready |...");
 });
 
@@ -186,31 +185,4 @@ test("filterStartupNoticeMessages removes pi-ssh startup notices from context", 
     { role: "user", content: "hi" },
     { role: "custom", customType: "other", content: "keep" },
   ]);
-});
-
-test("resolveRemoteGitBranch uses the provided remote cwd", async () => {
-  let seenCommand = "";
-  const branch = await resolveRemoteGitBranch(
-    { remote: "tan@example", port: 2222 },
-    "/remote/home/project/subdir",
-    async (_remote, _port, command) => {
-      seenCommand = command;
-      return Buffer.from("feature/test");
-    },
-  );
-
-  assert.equal(branch, "feature/test");
-  assert.match(seenCommand, /cd -- '\/remote\/home\/project\/subdir'/);
-});
-
-test("resolveRemoteGitBranch returns null when ssh fails", async () => {
-  const branch = await resolveRemoteGitBranch(
-    { remote: "tan@example", port: 2222 },
-    "/remote/home/project",
-    async () => {
-      throw new Error("ssh failed");
-    },
-  );
-
-  assert.equal(branch, null);
 });

@@ -290,21 +290,18 @@ function buildRemoteFooterLines(theme: FooterTheme, state: RemoteFooterRenderSta
   return lines;
 }
 
-function buildFooterPathLabel(path: string, home: string, branch: string | null, sessionName: string | undefined): string {
+function buildFooterPathLabel(path: string, home: string, _branch: string | null, sessionName: string | undefined): string {
   let label = formatDisplayPath(path, home);
-  if (branch) {
-    label = `${label} (${branch})`;
-  }
   if (sessionName) {
     label = `${label} • ${sessionName}`;
   }
-  return label;
+  return ` ${label}`;
 }
 
 function buildRemoteFooterLabel(
   connection: SshConnection,
   remoteCwd: string,
-  branch: string | null,
+  _branch: string | null,
   sessionName: string | undefined,
 ): string {
   return buildPiSshFooterLabel(
@@ -312,7 +309,6 @@ function buildRemoteFooterLabel(
       remoteDisplayTarget: connection.remoteDisplayTarget,
       remoteHome: connection.remoteHome,
       remoteCwd,
-      remoteBranch: branch,
     },
     sessionName,
   );
@@ -396,30 +392,6 @@ function shouldPublishStartupNotice(
 
 function filterStartupNoticeMessages<T extends { role: string; customType?: string }>(messages: T[]): T[] {
   return messages.filter((message) => !(message.role === "custom" && message.customType === PI_SSH_STARTUP_NOTICE_TYPE));
-}
-
-async function resolveRemoteGitBranch(
-  connection: Pick<SshConnection, "remote" | "port">,
-  remoteCwd: string,
-  sshExecFn: typeof sshExec = sshExec,
-): Promise<string | null> {
-  const command = [
-    `if cd -- ${shellQuote(remoteCwd)}; then`,
-    '  if branch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); then',
-    '    printf "%s" "$branch"',
-    "  elif git rev-parse --git-dir >/dev/null 2>&1; then",
-    '    printf "%s" "detached"',
-    "  fi",
-    "fi",
-  ].join("\n");
-
-  try {
-    const output = await sshExecFn(connection.remote, connection.port, command, { timeoutSeconds: 15 });
-    const branch = output.toString("utf-8").trim();
-    return branch || null;
-  } catch {
-    return null;
-  }
 }
 
 function findRemotePathSeparator(value: string): number {
@@ -1326,11 +1298,8 @@ export default function piSshExtension(pi: ExtensionAPI): void {
   let transport: SshTransport | null = null;
   let activeSession: ReturnType<typeof createPiSshSession> | null = null;
   let remotePromptContext: RemotePromptContextState = { file: null };
-  let remoteFooterBranch: string | null = null;
   let remoteFooterCwd: string | null = null;
   let activeUiContext: ExtensionContext | null = null;
-  let footerRefreshTimer: NodeJS.Timeout | null = null;
-  let footerRefreshVersion = 0;
   const footerRenderListeners = new Set<() => void>();
 
   registerTuiBrokerFooterPathProvider("pi-ssh", ({ sessionName }) => {
@@ -1351,13 +1320,6 @@ export default function piSshExtension(pi: ExtensionAPI): void {
   const subscribeFooterRender = (listener: () => void): (() => void) => {
     footerRenderListeners.add(listener);
     return () => footerRenderListeners.delete(listener);
-  };
-  const clearFooterRefreshTimer = (): void => {
-    if (!footerRefreshTimer) {
-      return;
-    }
-    clearTimeout(footerRefreshTimer);
-    footerRefreshTimer = null;
   };
   const resolveUiContext = (ctx?: ExtensionContext | null): ExtensionContext | null => {
     if (ctx?.hasUI) {
@@ -1385,7 +1347,6 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       remoteDisplayTarget: conn.remoteDisplayTarget,
       remoteHome: conn.remoteHome,
       remoteCwd: getEffectiveRemoteFooterCwd(conn, uiCtx),
-      remoteBranch: remoteFooterBranch,
     });
     uiCtx.ui.setStatus("pi-ssh", undefined);
     requestTuiBrokerFooterRefresh();
@@ -1413,52 +1374,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       return;
     }
     remoteFooterCwd = nextRemoteCwd;
-    remoteFooterBranch = null;
     publishRemoteFooterState(conn, ctx);
-  };
-  const refreshRemoteFooterNow = async (conn: SshConnection, ctx?: ExtensionContext | null): Promise<void> => {
-    const uiCtx = resolveUiContext(ctx);
-    if (!uiCtx) {
-      return;
-    }
-
-    const effectiveRemoteCwd = getEffectiveRemoteFooterCwd(conn, uiCtx);
-    const nextBranch = await resolveRemoteGitBranch(conn, effectiveRemoteCwd);
-    if (connection !== conn) {
-      return;
-    }
-    if (effectiveRemoteCwd !== getEffectiveRemoteFooterCwd(conn, uiCtx)) {
-      return;
-    }
-    remoteFooterBranch = nextBranch;
-    publishRemoteFooterState(conn, uiCtx);
-  };
-  const scheduleRemoteFooterRefresh = (conn: SshConnection, ctx?: ExtensionContext | null): void => {
-    if (!resolveUiContext(ctx)) {
-      return;
-    }
-
-    clearFooterRefreshTimer();
-    const version = ++footerRefreshVersion;
-    footerRefreshTimer = setTimeout(() => {
-      footerRefreshTimer = null;
-      void (async () => {
-        const uiCtx = resolveUiContext(ctx);
-        if (!uiCtx || connection !== conn || version !== footerRefreshVersion) {
-          return;
-        }
-        const effectiveRemoteCwd = getEffectiveRemoteFooterCwd(conn, uiCtx);
-        const nextBranch = await resolveRemoteGitBranch(conn, effectiveRemoteCwd);
-        if (connection !== conn || version !== footerRefreshVersion) {
-          return;
-        }
-        if (effectiveRemoteCwd !== getEffectiveRemoteFooterCwd(conn, uiCtx)) {
-          return;
-        }
-        remoteFooterBranch = nextBranch;
-        publishRemoteFooterState(conn, uiCtx);
-      })();
-    }, 150);
   };
   const createTrackedRemoteBashOps = (): BashOperations => {
     if (!connection || !activeSession) {
@@ -1470,7 +1386,6 @@ export default function piSshExtension(pi: ExtensionAPI): void {
           return;
         }
         setRemoteFooterCwd(connection, mapLocalPathToRemote(cwd, connection));
-        scheduleRemoteFooterRefresh(connection);
       },
     });
   };
@@ -1481,11 +1396,11 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     }
 
     ctx.ui.setFooter((tui, theme, footerData) => {
-      const unsubscribeRemoteBranch = subscribeFooterRender(() => tui.requestRender());
+      const unsubscribeFooterRender = subscribeFooterRender(() => tui.requestRender());
 
       return {
         dispose() {
-          unsubscribeRemoteBranch();
+          unsubscribeFooterRender();
         },
         invalidate() {},
         render(width: number): string[] {
@@ -1500,7 +1415,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
               pwd: buildRemoteFooterLabel(
                 conn,
                 effectiveRemoteCwd,
-                remoteFooterBranch,
+                null,
                 ctx.sessionManager.getSessionName(),
               ),
               modelId: ctx.model?.id,
@@ -1577,10 +1492,8 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       }
       activeUiContext = ctx.hasUI ? ctx : null;
       remoteFooterCwd = mapLocalPathToRemote(ctx.sessionManager.getCwd(), connection);
-      remoteFooterBranch = null;
       installRemoteFooter(ctx, connection);
       publishRemoteFooterState(connection, ctx);
-      await refreshRemoteFooterNow(connection, ctx);
       remotePromptContext = await loadRemotePromptContext(connection);
       const enabledMessage = `pi-ssh enabled: ${connection.remote}:${remoteFooterCwd} (port ${connection.port})`;
       if (ctx.hasUI) {
@@ -1600,13 +1513,10 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       activeSession = null;
       clearPublishedPiSshSession();
       remotePromptContext = { file: null };
-      remoteFooterBranch = null;
       remoteFooterCwd = null;
       activeUiContext = null;
       clearPiSshFooterSnapshot();
       requestTuiBrokerFooterRefresh();
-      clearFooterRefreshTimer();
-      footerRefreshVersion += 1;
       if (transport) {
         await transport.dispose();
         transport = null;
@@ -1629,13 +1539,10 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     activeSession = null;
     clearPublishedPiSshSession();
     remotePromptContext = { file: null };
-    remoteFooterBranch = null;
     remoteFooterCwd = null;
     activeUiContext = null;
     clearPiSshFooterSnapshot();
     requestTuiBrokerFooterRefresh();
-    clearFooterRefreshTimer();
-    footerRefreshVersion += 1;
     notifyFooterRenderListeners();
     if (ctx.hasUI) {
       if (!isTuiBrokerInstalled()) {
@@ -1709,5 +1616,4 @@ export const __testInternals = {
   shouldPublishStartupNotice,
   filterStartupNoticeMessages,
   parseDelimitedShellOutput,
-  resolveRemoteGitBranch,
 };
