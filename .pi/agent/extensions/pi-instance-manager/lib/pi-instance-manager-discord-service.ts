@@ -60,7 +60,7 @@ export function discordBadge(snap: UnitSnapshot): string {
 
   if (snap.error) return `| discord: unknown${restartsSuffix}`;
   if (snap.loadState === "not-found") return `| discord: missing${restartsSuffix}`;
-  if (snap.activeState === "active") return `| discord: on${restartsSuffix}`;
+  if (snap.activeState === "active") return `| 󰙯 Online${restartsSuffix}`;
   if (snap.activeState === "inactive") return `| discord: off${restartsSuffix}`;
   if (snap.activeState === "failed") {
     const detail = snap.result && snap.result !== "success" ? ` (${snap.result})` : "";

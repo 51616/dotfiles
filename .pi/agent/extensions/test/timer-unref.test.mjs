@@ -49,7 +49,7 @@ test("pi-instance-manager discord badge refresh unrefs the timer", () => {
       const stop = startDiscordServiceStatusRefresh(ctx);
       assert.equal(getUnrefCalled(), true);
       assert.equal(calls.at(-1)?.[0], "pi-services");
-      assert.match(String(calls.at(-1)?.[1] || ""), /^\| discord: /);
+      assert.match(String(calls.at(-1)?.[1] || ""), /^\| (󰙯 Online|discord: )/);
       stop();
     });
   } finally {
@@ -57,7 +57,7 @@ test("pi-instance-manager discord badge refresh unrefs the timer", () => {
   }
 });
 
-test("discordBadge uses simplified on/off wording", () => {
+test("discordBadge uses glyph online wording and simplified off wording", () => {
   assert.equal(
     discordBadge({
       loadState: "loaded",
@@ -67,7 +67,7 @@ test("discordBadge uses simplified on/off wording", () => {
       restarts: 0,
       error: "",
     }),
-    "| discord: on",
+    "| 󰙯 Online",
   );
   assert.equal(
     discordBadge({
