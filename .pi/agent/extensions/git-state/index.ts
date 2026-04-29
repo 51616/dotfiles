@@ -39,12 +39,26 @@ async function git(pi: ExtensionAPI, cwd: string, args: string[]): Promise<{ cod
   return { code: result.code, stdout: result.stdout };
 }
 
+async function readBranchName(pi: ExtensionAPI, repoRoot: string): Promise<string> {
+  const branchResult = await git(pi, repoRoot, ["branch", "--show-current"]);
+  const branchName = branchResult.stdout.trim();
+  if (branchResult.code === 0 && branchName) return branchName;
+
+  const headResult = await git(pi, repoRoot, ["rev-parse", "--short", "HEAD"]);
+  const head = headResult.stdout.trim();
+  if (headResult.code === 0 && head) return `detached@${head}`;
+
+  return "unknown";
+}
+
 async function readGitState(pi: ExtensionAPI, cwd: string): Promise<GitStateSnapshot | null> {
   const rootResult = await git(pi, cwd, ["rev-parse", "--show-toplevel"]);
   if (rootResult.code !== 0) return null;
 
   const repoRoot = rootResult.stdout.trim();
   if (!repoRoot) return null;
+
+  const branchName = await readBranchName(pi, repoRoot);
 
   const statusResult = await git(pi, repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (statusResult.code !== 0) return null;
@@ -57,6 +71,7 @@ async function readGitState(pi: ExtensionAPI, cwd: string): Promise<GitStateSnap
   const { additions, deletions } = parseNumstat(diffResult.code === 0 ? diffResult.stdout : "");
 
   return {
+    branchName,
     files: parsePorcelainFileCount(statusResult.stdout),
     additions,
     deletions,

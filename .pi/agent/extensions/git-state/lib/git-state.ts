@@ -1,4 +1,5 @@
 export type GitStateSnapshot = {
+  branchName: string;
   files: number;
   additions: number;
   deletions: number;
@@ -50,7 +51,7 @@ export function parseNumstat(output: string): { additions: number; deletions: nu
 
 export function buildGitStateSignature(snapshot: GitStateSnapshot | null): string {
   if (!snapshot) return "none";
-  return `${snapshot.repoRoot}\t${snapshot.files}\t${snapshot.additions}\t${snapshot.deletions}`;
+  return `${snapshot.repoRoot}\t${snapshot.branchName}\t${snapshot.files}\t${snapshot.additions}\t${snapshot.deletions}`;
 }
 
 export function formatGitStateLabel(snapshot: GitStateSnapshot): string {
@@ -58,8 +59,10 @@ export function formatGitStateLabel(snapshot: GitStateSnapshot): string {
   const additionsColor = snapshot.additions === 0 ? ANSI_GREEN : ANSI_GREEN;
   const deletionsColor = snapshot.deletions === 0 ? ANSI_GREEN : ANSI_RED;
 
+  const branchLabel = snapshot.branchName.trim() || "unknown";
+
   return [
-    color("git", ANSI_DIM),
+    color(`🌿 ${branchLabel}`, ANSI_DIM),
     `${color(formatCount(snapshot.files), filesColor)}${color("f", ANSI_DIM)}`,
     `${color("+", ANSI_DIM)}${color(formatCount(snapshot.additions), additionsColor)}`,
     `${color("-", ANSI_DIM)}${color(formatCount(snapshot.deletions), deletionsColor)}`,
