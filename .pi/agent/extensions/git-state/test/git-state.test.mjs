@@ -32,6 +32,12 @@ test("formatGitStateLabel keeps a compact plain-text contract with colored numbe
   assert.match(label, /\x1b\[1;31m8\x1b\[0m/);
 });
 
+test("formatGitStateLabel shows CLEAN! instead of zero counts", () => {
+  const label = formatGitStateLabel({ repoRoot: "/repo", branchName: "main", files: 0, additions: 0, deletions: 0 });
+  assert.equal(stripAnsi(label), " main CLEAN!");
+  assert.match(label, /\x1b\[1;32mCLEAN!\x1b\[0m/);
+});
+
 test("buildGitStateSignature is stable and explicit", () => {
   assert.equal(buildGitStateSignature(null), "none");
   assert.equal(
