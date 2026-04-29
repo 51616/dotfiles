@@ -23,9 +23,18 @@ export const REGRESSION_MATRIX = {
     "test/command-palette.test.mjs",
     "test/command-palette-overlay.test.mjs",
   ],
+  "custom-spinner": [
+    "test/runtime-entrypoint-imports.test.mjs",
+  ],
   "do-not-stop": [
     "test/do-not-stop.test.mjs",
     "test/do-not-stop-follow-up.test.mjs",
+  ],
+  "git-state": [
+    "git-state/test/git-state.test.mjs",
+  ],
+  "low-effort-compaction": [
+    "test/runtime-entrypoint-imports.test.mjs",
   ],
   "pi-diff-review-tui": [
     "pi-diff-review-tui/test/app.test.mjs",
@@ -57,8 +66,8 @@ export const REGRESSION_MATRIX = {
     "skill-uri/test/local-skill-uri-tools.test.mjs",
     "skill-uri/test/run-skill-script.test.mjs",
   ],
-  "startup-demo": [
-    "test/startup-demo.test.mjs",
+  "startup-screen": [
+    "test/startup-screen.test.mjs",
   ],
   "tui-broker": [
     "test/runtime-entrypoint-imports.test.mjs",

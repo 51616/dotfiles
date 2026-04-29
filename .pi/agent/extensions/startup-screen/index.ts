@@ -12,7 +12,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { visibleWidth } from "@mariozechner/pi-tui";
 
-type StartupDemoContext = Pick<ExtensionContext, "hasUI" | "ui" | "cwd">;
+type StartupScreenContext = Pick<ExtensionContext, "hasUI" | "ui" | "cwd">;
 export type CatalogScope = "project" | "user";
 export type CatalogItem = {
   name: string;
@@ -25,7 +25,7 @@ export type SkillPromptStats = {
   promptTokens: number;
 };
 
-function clearHeader(ctx: StartupDemoContext): void {
+function clearHeader(ctx: StartupScreenContext): void {
   if (!ctx.hasUI) return;
   ctx.ui.setHeader(undefined);
 }
@@ -193,31 +193,31 @@ function scopeLabel(scopes: CatalogScope[]): string {
   return `[${scopes.map((scope) => (scope === "project" ? "P" : "U")).join("/")}]`;
 }
 
-function installDashboardHeader(ctx: StartupDemoContext): void {
+function installDashboardHeader(ctx: StartupScreenContext): void {
   if (!ctx.hasUI) return;
 
   const { items: skills, stats: skillStats } = discoverSkills(ctx.cwd);
   const promptFiles = discoverPromptFiles(ctx.cwd);
   const extensions = discoverExtensions(ctx.cwd);
 
-  ctx.ui.setHeader((_tui, theme) => new StartupDemoHeader(theme, skills, promptFiles, extensions, skillStats));
+  ctx.ui.setHeader((_tui, theme) => new StartupScreenHeader(theme, skills, promptFiles, extensions, skillStats));
 }
 
-export default function startupDemo(pi: ExtensionAPI) {
+export default function startupScreen(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx.hasUI) return;
     installDashboardHeader(ctx);
   });
 
-  pi.registerCommand("startup-demo", {
-    description: "Refresh the startup dashboard header",
+  pi.registerCommand("startup-screen", {
+    description: "Refresh the startup screen header",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       installDashboardHeader(ctx);
-      ctx.ui.notify("Startup dashboard header refreshed.", "info");
+      ctx.ui.notify("Startup screen header refreshed.", "info");
     },
   });
 
-  pi.registerCommand("startup-demo-off", {
+  pi.registerCommand("startup-screen-off", {
     description: "Restore the built-in startup header",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       clearHeader(ctx);
@@ -225,16 +225,16 @@ export default function startupDemo(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerCommand("startup-demo-on", {
-    description: "Enable the custom startup dashboard header",
+  pi.registerCommand("startup-screen-on", {
+    description: "Enable the custom startup screen header",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       installDashboardHeader(ctx);
-      ctx.ui.notify("Startup dashboard header enabled.", "info");
+      ctx.ui.notify("Startup screen header enabled.", "info");
     },
   });
 }
 
-class StartupDemoHeader {
+class StartupScreenHeader {
   readonly maxWidth = 70;
   private readonly theme: Theme;
   private readonly skills: CatalogItem[];
@@ -298,7 +298,7 @@ class StartupDemoHeader {
     ].join(" | ");
 
     lines.push(this.theme.fg("border", `╭${"─".repeat(innerWidth)}╮`));
-    lines.push(row(` ${this.theme.fg("accent", "Startup Dashboard")}`));
+    lines.push(row(` ${this.theme.fg("accent", "Startup Screen")}`));
     lines.push(row(` ${this.theme.fg("muted", "Loaded prompt files, skills, and extensions for this workspace")}`));
     lines.push(row(` ${this.theme.fg("dim", fitPlain(promptCostLine, innerWidth - 1))}`));
     lines.push(row());

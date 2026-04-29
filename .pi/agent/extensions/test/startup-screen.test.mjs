@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import startupDemo, { discoverExtensions, discoverPromptFiles } from "../startup-demo/index.ts";
+import startupScreen, { discoverExtensions, discoverPromptFiles } from "../startup-screen/index.ts";
 
 function writeFile(filePath, content = "") {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -47,7 +47,7 @@ function createCtx(cwd) {
 }
 
 test("discoverExtensions merges project and user extension inventories and tags their scopes", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "startup-demo-exts-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "startup-screen-exts-"));
   const projectRoot = path.join(root, "project");
   const agentDir = path.join(root, "agent");
 
@@ -75,7 +75,7 @@ test("discoverExtensions merges project and user extension inventories and tags 
 });
 
 test("discoverPromptFiles lists active prompt inputs in load order", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "startup-demo-prompt-files-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "startup-screen-prompt-files-"));
   const workspaceRoot = path.join(root, "workspace");
   const projectRoot = path.join(workspaceRoot, "apps", "demo");
   const agentDir = path.join(root, "agent");
@@ -99,19 +99,19 @@ test("discoverPromptFiles lists active prompt inputs in load order", () => {
   }
 });
 
-test("startup-demo registers refresh and toggle commands that own the startup header", async () => {
+test("startup-screen registers refresh and toggle commands that own the startup header", async () => {
   const { pi, handlers, commands } = createPiStub();
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "startup-demo-cwd-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "startup-screen-cwd-"));
 
   try {
     writeFile(path.join(cwd, ".pi", "APPEND_SYSTEM.md"), "project append\n");
 
-    startupDemo(pi);
+    startupScreen(pi);
 
     assert.ok(handlers.has("session_start"));
-    assert.ok(commands.has("startup-demo"));
-    assert.ok(commands.has("startup-demo-off"));
-    assert.ok(commands.has("startup-demo-on"));
+    assert.ok(commands.has("startup-screen"));
+    assert.ok(commands.has("startup-screen-off"));
+    assert.ok(commands.has("startup-screen-on"));
 
     const ctx = createCtx(cwd);
     await handlers.get("session_start")({}, ctx);
@@ -128,11 +128,11 @@ test("startup-demo registers refresh and toggle commands that own the startup he
       },
     });
     const renderedHeader = header.render(80).join("\n");
-    assert.match(renderedHeader, /Startup Dashboard/);
+    assert.match(renderedHeader, /Startup Screen/);
     assert.match(renderedHeader, /Prompt Files/);
     assert.match(renderedHeader, /APPEND_SYSTEM\.md/);
 
-    await commands.get("startup-demo-off").handler("", ctx);
+    await commands.get("startup-screen-off").handler("", ctx);
     assert.deepEqual(ctx.calls.at(-2), { type: "setHeader", value: undefined });
     assert.deepEqual(ctx.calls.at(-1), {
       type: "notify",
@@ -140,11 +140,11 @@ test("startup-demo registers refresh and toggle commands that own the startup he
       level: "info",
     });
 
-    await commands.get("startup-demo-on").handler("", ctx);
+    await commands.get("startup-screen-on").handler("", ctx);
     assert.equal(typeof ctx.calls.at(-2)?.value, "function");
     assert.deepEqual(ctx.calls.at(-1), {
       type: "notify",
-      message: "Startup dashboard header enabled.",
+      message: "Startup screen header enabled.",
       level: "info",
     });
   } finally {
