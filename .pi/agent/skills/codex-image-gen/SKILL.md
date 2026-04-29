@@ -1,9 +1,9 @@
 ---
 name: codex-image-gen
 description: |
-  Use when: Tan wants pi to generate, edit, or concept raster images through Codex, especially frontend/UI visual design references, website/app mockups, hero images, product visuals, illustrations, sprites, or image-backed design inspiration. Trigger on requests like "generate an image", "make a mockup", "design a Catppuccin-themed web UI", "create a visual reference", or "generate a UI image then turn it into HTML".
+  Use when: Tan wants pi to generate, edit, or concept raster images through Codex, especially frontend/UI visual design references, website/app mockups, hero images, product visuals, illustrations, sprites, or image-backed design inspiration. Trigger on requests like "generate an image", "make a mockup", "design a web UI", "design a Catppuccin-themed web UI", "create a visual reference", or "generate a UI image then turn it into HTML".
   Don’t use when: the task is only to inspect an existing local image (use `codex-look-at`), browse online design references (use `codex-browse`), use Gemini Stitch as the primary UI designer (use `gemini-stitch`), or create/edit deterministic SVG/vector/code-native assets that should stay in the repo’s existing design system.
-  Outputs: Codex CLI uses native image generation, saves verified image artifacts to a concrete output directory, and for frontend UI tasks can also produce a visual description plus a static HTML/CSS skeleton derived from the generated image.
+  Outputs: Codex CLI uses native image generation, saves verified image artifacts to a concrete output directory, and for frontend UI tasks can also produce a standardized `DESIGN.md`, visual description, and static HTML/CSS skeleton derived from the generated image.
 ---
 
 # codex-image-gen
@@ -23,8 +23,10 @@ Run the skill script directly through pi’s skill-script tool; do not rely on a
 Tool arguments map to the script CLI:
 
 ```text
-["--timeout-seconds", "900", "--output-dir", "/tmp/pi-work/codex-image-gen/<name>", "<prompt>"]
+["--timeout-seconds", "900", "--output-dir", "/tmp/pi-work/codex-image-gen/<name>", "--design-md", "./DESIGN.md", "<prompt>"]
 ```
+
+`--design-md` is optional. When omitted, the script auto-discovers `DESIGN.md` from the current working directory upward and passes it to Codex if found.
 
 The script runs:
 
@@ -60,17 +62,21 @@ run_skill_script(
 
 ## Frontend UI design flow
 
-Use `--frontend-ui` when the generated image should guide implementation. This mode is designed for the workflow Tan described: generate a nice-looking Catppuccin-themed web UI first, then make Codex describe the image and write an HTML skeleton after the image exists.
+Use `--frontend-ui` when the generated image should guide implementation. This mode is designed for the workflow Tan described: generate a nice-looking Catppuccin-themed web UI first, then make Codex describe the image, write a standardized `DESIGN.md`, and write an HTML skeleton after the image exists.
+
+The `DESIGN.md` artifact follows Google Labs Code’s [`design.md`](https://github.com/google-labs-code/design.md) format and Stitch’s design-md guidance: treat `DESIGN.md` as the design equivalent of `AGENTS.md`, a persistent project design contract for AI agents. YAML front matter contains normative design tokens, and markdown sections contain design rationale. The goal is a portable source of truth that future agents can read before implementing or revising the UI.
 
 1. Ask for the screen and product context if absent: dashboard, landing page, settings page, editor, mobile/desktop, data density, and any required components.
-2. Run with `--frontend-ui`, an explicit `--output-dir`, and usually `--size 16:9` for desktop web screens.
-3. The Codex sub-agent should:
+2. If the project already has `DESIGN.md`, pass it with `--design-md` or run from the project root so the script can auto-discover it. Existing DESIGN.md tokens are the source of truth; prose guides defaults and anti-patterns.
+3. Run with `--frontend-ui`, an explicit `--output-dir`, and usually `--size 16:9` for desktop web screens.
+4. The Codex sub-agent should:
    - generate the UI mockup image using native image generation;
    - copy the selected bitmap to the output directory and verify it exists;
    - describe the generated UI in implementation terms: layout, surfaces, spacing, color tokens, components, and visual hierarchy;
-   - write `index.html` with dependency-free HTML/CSS approximating the generated design;
-   - write `design-note.md` with the prompt, visual description, and implementation assumptions.
-4. Treat the HTML skeleton as a starting point. If the target repo already has a framework/design system, port the skeleton into that system rather than dropping raw HTML into production code.
+   - write `DESIGN.md` using the standard design.md structure;
+   - write `index.html` with dependency-free HTML/CSS approximating the generated design and deriving CSS custom properties from `DESIGN.md` tokens;
+   - write `design-note.md` with the prompt, visual description, implementation assumptions, and `DESIGN.md` validation result.
+5. Treat the HTML skeleton as a starting point. If the target repo already has a framework/design system, port the skeleton into that system rather than dropping raw HTML into production code.
 
 Example tool call:
 
@@ -83,6 +89,7 @@ run_skill_script(
     "--frontend-ui",
     "--output-dir", "/tmp/pi-work/codex-image-gen/habit-dashboard",
     "--size", "16:9",
+    "--design-md", "./DESIGN.md",
     "Design a beautiful Catppuccin Mocha themed habit-tracker dashboard for desktop web. Include a left sidebar, today overview, streak cards, a weekly heatmap, and a calm focus panel."
   ],
   timeoutSeconds=1260,
@@ -94,6 +101,7 @@ Expected output directory for frontend mode:
 ```text
 /tmp/pi-work/codex-image-gen/habit-dashboard/
   <generated-ui-image>.png
+  DESIGN.md
   index.html
   design-note.md
 ```
@@ -112,8 +120,31 @@ For image quality, include only constraints that matter:
 For frontend UI, prefer prompts like:
 
 ```text
-Design a polished Catppuccin Mocha themed desktop web dashboard for <product>. Use a 16:9 viewport. Include <key regions/components>. Prioritize strong visual hierarchy, readable spacing, realistic cards, tasteful accent colors, and implementation-friendly structure. Avoid tiny unreadable text and brand logos.
+Design a polished Catppuccin Mocha themed desktop web dashboard for <product>. Use a 16:9 viewport. Include <key regions/components>. Prioritize strong visual hierarchy, readable spacing, realistic cards, tasteful accent colors, and implementation-friendly structure. After generating the image, write DESIGN.md with design tokens and rationale, then write index.html from those tokens. Avoid tiny unreadable text and brand logos.
 ```
+
+## DESIGN.md format
+
+Use `templates/DESIGN.md.template` as the local starting shape when a frontend run needs a reusable design-system handoff.
+
+Required structure:
+
+- YAML front matter starts and ends with `---`.
+- Front matter includes `version: alpha`, `name`, and design tokens.
+- Token groups use `colors`, `typography`, `rounded`, `spacing`, and `components`.
+- Tokens are normative. If prose conflicts with a token, use the token value and update prose later.
+- Prose explains intent, constraints, application rules, and anti-patterns. Preserve unknown sections instead of deleting them.
+- Color values are sRGB hex strings, such as `"#cba6f7"`.
+- Dimensions use `px`, `rem`, or `em`; unitless line heights are OK.
+- Component token references use `{path.to.token}`, such as `{colors.primary}` or `{typography.label-sm}`.
+- Component variants are separate related keys, such as `button-primary-hover` and `button-primary-active`.
+- Markdown rationale uses `##` sections in this order when present: Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts.
+
+Validation priority:
+
+1. Prefer `npx @google/design.md lint DESIGN.md` when it is available and the run can afford it.
+2. If CLI validation is unavailable, self-check section order, YAML fences, duplicate canonical sections, unresolved token references, missing primary/typography tokens, and obvious low-contrast foreground/background component pairs.
+3. Record the validation result in `design-note.md` and the final response.
 
 ## Timeout recovery
 
@@ -165,10 +196,10 @@ run_skill_script(
     "--frontend-ui",
     "--output-dir", "/tmp/pi-work/codex-image-gen/frontend-smoke-test",
     "--size", "16:9",
-    "Generate a Catppuccin-themed web UI mockup for a tiny notes dashboard, then describe it and write the HTML skeleton."
+    "Generate a Catppuccin-themed web UI mockup for a tiny notes dashboard, then write DESIGN.md, describe it, and write the HTML skeleton."
   ],
   timeoutSeconds=1260,
 )
 ```
 
-A successful frontend run should leave a generated image, `index.html`, and `design-note.md` in the output directory.
+A successful frontend run should leave a generated image, `DESIGN.md`, `index.html`, and `design-note.md` in the output directory.

@@ -28,15 +28,24 @@ GENERAL_PREAMBLE = (
 
 FRONTEND_PREAMBLE = (
     "Frontend design workflow:\n"
-    "1. First generate a polished web UI mockup image using native image generation. "
-    "Prefer an elegant Catppuccin-inspired palette when the user does not specify a different visual direction. "
+    "1. Treat DESIGN.md as the persistent design contract for the project, similar in role to AGENTS.md but for visual identity. "
+    "If an existing DESIGN.md is provided, read it before generating and treat its YAML tokens as normative values; use its prose as rationale and guardrails. "
+    "If no existing DESIGN.md is provided, create one from the generated UI so future agents can reproduce the visual system.\n"
+    "2. First generate a polished web UI mockup image using native image generation. "
+    "Prefer an elegant Catppuccin-inspired palette when the user does not specify a different visual direction and no existing DESIGN.md overrides it. "
     "Make the UI visually useful: coherent layout, spacing, hierarchy, card/surface treatment, typography direction, interactive states, and realistic content placeholders.\n"
-    "2. Only after the image is generated and copied to the destination directory, inspect/describe the generated UI image in concrete implementation terms: layout regions, colors, spacing, components, states, and notable decorative details.\n"
-    "3. Write an HTML skeleton with embedded CSS that approximates the generated UI. Save it as index.html in the destination directory unless the user specifies another path. "
-    "The skeleton should be static, dependency-free HTML/CSS, with semantic structure and CSS custom properties for the palette. "
-    "It should be faithful to the generated image, but it does not need pixel-perfect assets.\n"
-    "4. Save a short design note as design-note.md containing the final image prompt, the visual description, and implementation assumptions.\n"
-    "5. Final response must list the image path, HTML path, design note path, and any caveats.\n\n"
+    "3. Only after the image is generated and copied to the destination directory, inspect/describe the generated UI image in concrete implementation terms: layout regions, colors, spacing, components, states, and notable decorative details.\n"
+    "4. Write DESIGN.md in the destination directory using the https://github.com/google-labs-code/design.md and Stitch design-md format. "
+    "Use YAML front matter for normative tokens and markdown prose for rationale. Include sections in this order when present: Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts. "
+    "Use valid hex colors for color tokens, px/rem/em dimensions, and {path.to.token} references for component tokens. "
+    "For Catppuccin designs, translate the generated image into semantic tokens such as primary, secondary, surface, on-surface, accent, spacing, rounded, typography, button, card, input, badge, and navigation tokens. "
+    "Preserve unknown sections if updating an existing DESIGN.md, reject duplicate canonical sections, and keep component variants as separate related keys such as button-primary-hover.\n"
+    "5. Write an HTML skeleton with embedded CSS that approximates the generated UI. Save it as index.html in the destination directory unless the user specifies another path. "
+    "The skeleton should be static, dependency-free HTML/CSS, with semantic structure and CSS custom properties derived from DESIGN.md tokens. "
+    "It should be faithful to the generated image and the design contract, but it does not need pixel-perfect assets.\n"
+    "6. Save a short design note as design-note.md containing the final image prompt, the visual description, implementation assumptions, and whether DESIGN.md validation ran.\n"
+    "7. Validate DESIGN.md if practical with `npx @google/design.md lint DESIGN.md`; if the CLI is unavailable or network would be slow, do a self-check for front matter, token references, section order, duplicate sections, and contrast-sensitive component pairs, then state that CLI lint was not run.\n"
+    "8. Final response must list the image path, DESIGN.md path, HTML path, design note path, validation result, and any caveats.\n\n"
 )
 
 
@@ -187,15 +196,36 @@ def _default_output_dir() -> Path:
     return DEFAULT_OUTPUT_ROOT / timestamp
 
 
-def _build_prompt(*, user_prompt: str, output_dir: Path, frontend_ui: bool, size: str) -> str:
+def _discover_design_md(explicit_path: Optional[Path]) -> Optional[Path]:
+    if explicit_path is not None:
+        candidate = explicit_path.expanduser().resolve()
+        if not candidate.is_file():
+            print(f"Error: --design-md path does not exist or is not a file: {candidate}", file=sys.stderr)
+            raise SystemExit(2)
+        return candidate
+
+    for parent in [Path.cwd(), *Path.cwd().parents]:
+        candidate = parent / "DESIGN.md"
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _build_prompt(*, user_prompt: str, output_dir: Path, frontend_ui: bool, size: str, design_md: Optional[Path]) -> str:
     output_dir = output_dir.expanduser().resolve()
     mode = FRONTEND_PREAMBLE if frontend_ui else ""
+    design_line = (
+        f"- Existing DESIGN.md to read and obey before generation: {design_md}\n"
+        if design_md is not None
+        else "- Existing DESIGN.md: none provided or found from the current working directory; create one for frontend UI mode.\n"
+    )
     return (
         GENERAL_PREAMBLE
         + mode
         + "Task settings:\n"
         + f"- Destination directory: {output_dir}\n"
         + f"- Requested final image size or aspect: {size}\n"
+        + design_line
         + "- Create the destination directory if it does not exist.\n"
         + "- Verify final files with shell commands before reporting success.\n\n"
         + "User request:\n"
@@ -216,7 +246,7 @@ def main() -> None:
             "Examples:\n"
             "  codex-image-gen --output-dir /tmp/pi-work/hero \"Generate a cozy Catppuccin-themed website hero illustration for a notes app.\"\n\n"
             "  codex-image-gen --frontend-ui --output-dir /tmp/pi-work/ui \"Design a polished dashboard for a habit tracker.\"\n\n"
-            "  codex-image-gen --timeout-seconds 1200 --size 16:9 --frontend-ui \"Create a landing page concept for a research notebook app.\"\n"
+            "  codex-image-gen --timeout-seconds 1200 --size 16:9 --frontend-ui --design-md ./DESIGN.md \"Create a landing page concept for a research notebook app.\"\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -235,12 +265,18 @@ def main() -> None:
     parser.add_argument(
         "--frontend-ui",
         action="store_true",
-        help="After generating the UI mockup image, ask Codex to describe it and write index.html + design-note.md in the output directory.",
+        help="After generating the UI mockup image, ask Codex to write DESIGN.md, describe it, and write index.html + design-note.md in the output directory.",
     )
     parser.add_argument(
         "--size",
         default="1024x1024",
         help="Requested final image size or aspect hint passed to Codex (default: 1024x1024).",
+    )
+    parser.add_argument(
+        "--design-md",
+        type=Path,
+        default=None,
+        help="Existing DESIGN.md to read and obey before frontend generation. If omitted, the script auto-discovers DESIGN.md from the current working directory upward.",
     )
     parser.add_argument(
         "prompt",
@@ -258,11 +294,13 @@ def main() -> None:
         raise SystemExit(2)
 
     output_dir = args.output_dir if args.output_dir is not None else _default_output_dir()
+    design_md = _discover_design_md(args.design_md)
     prompt = _build_prompt(
         user_prompt=user_prompt,
         output_dir=output_dir,
         frontend_ui=args.frontend_ui,
         size=args.size,
+        design_md=design_md,
     )
 
     cmd = [
