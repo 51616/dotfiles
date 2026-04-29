@@ -63,7 +63,7 @@ export function formatGitStateLabel(snapshot: GitStateSnapshot): string {
 
   return [
     color(` ${branchLabel}`, ANSI_DIM),
-    `${color(formatCount(snapshot.files), filesColor)}${color("f", ANSI_DIM)}`,
+    `${color(formatCount(snapshot.files), filesColor)}${color("", ANSI_DIM)}`,
     `${color("+", ANSI_DIM)}${color(formatCount(snapshot.additions), additionsColor)}`,
     `${color("-", ANSI_DIM)}${color(formatCount(snapshot.deletions), deletionsColor)}`,
   ].join(" ");
