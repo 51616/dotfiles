@@ -314,7 +314,11 @@ function colorizeFooterLine(theme: BrokerTheme, left: string, right: string, wid
   const parts = buildSingleLineFooterParts(left, right, width);
   const line = `${parts.left}${parts.padding}${parts.right}`;
   if (!parts.left.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
-  return `${theme.bold(theme.fg("mdCode", parts.left))}${theme.fg("dim", `${parts.padding}${parts.right}`)}`;
+
+  const pathSeparatorIndex = parts.left.indexOf(":");
+  const accentedSegment = pathSeparatorIndex >= 0 ? parts.left.slice(0, pathSeparatorIndex + 1) : REMOTE_FOOTER_ICON;
+  const dimSegment = `${parts.left.slice(accentedSegment.length)}${parts.padding}${parts.right}`;
+  return `${theme.bold(theme.fg("mdCode", accentedSegment))}${theme.fg("dim", dimSegment)}`;
 }
 
 export default function tuiBroker(pi: ExtensionAPI) {

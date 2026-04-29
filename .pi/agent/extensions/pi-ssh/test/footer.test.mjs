@@ -123,7 +123,7 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
   );
 
   const footerLine = buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48);
-  const remoteInfo = " tan@example.com:~/project";
+  const remoteInfo = " tan@example.com:";
   const rest = footerLine.slice(remoteInfo.length);
   assert.deepEqual(lines, [`bold:mdCode:${remoteInfo}dim:${rest}`, "dim:ssh active"]);
 });
