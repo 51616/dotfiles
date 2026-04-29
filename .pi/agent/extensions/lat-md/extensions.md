@@ -82,14 +82,6 @@ See also [[self-checkpointing]].
 
 Entrypoint: [[self-checkpointing/index.ts]].
 
-## session-naming
-
-Owns the two-stage automatic session-title flow for fresh unnamed sessions: immediate provisional naming from the first user input, then one semantic rename after the first full agent response.
-
-See also [[session-naming]].
-
-Entrypoint: [[session-naming/index.ts]].
-
 ## tests
 
 Links the proving tests that anchor extension behavior which is easy to regress and expensive to rediscover from code.

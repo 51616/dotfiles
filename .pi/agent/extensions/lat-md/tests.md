@@ -117,27 +117,6 @@ What this proves:
 - palette execution expands frontmatter-backed prompt-template files and pastes the resolved body into the editor
 - prompt-template insertion prefixes two blank lines only when the captured cursor line is already non-empty
 
-## Session naming auto-title flow stays one-shot and respects manual overrides
-
-Owned by:
-- `.pi/extensions/test/session-naming-lib.test.mjs`
-- `.pi/extensions/test/session-naming-index.test.mjs`
-- `.pi/extensions/test/entrypoints-folder-based.test.mjs`
-
-What this proves:
-- provisional titles redact obvious secret-like strings, collapse whitespace, and keep the ellipsis inside the 30-character budget
-- final title sanitization strips wrappers and trailing punctuation before the name is written
-- semantic naming prefers `openai-codex/gpt-5.3-codex-spark` and falls back to `openai/gpt-5.3-codex-spark`
-- the semantic naming transcript excludes tool-result payloads and assistant tool-call arguments, redacts obvious secret-like strings, stays bounded, and stops at the first completed assistant response
-- only fresh unnamed sessions are eligible
-- the extension sets one provisional title on first input, upgrades it once after `agent_end`, and persists a `done` state afterwards
-- manual rename or manual clear beats the delayed semantic rename, including a same-title manual rename that only shows up as a newer `session_info` entry
-- existing named sessions and already-complete sessions are left untouched after reload
-- semantic naming failures keep the provisional title and persist a non-retrying `failed` state, including safe pending-state continuation across reload only while the original first turn is still recoverable and fail-closed behavior once later input or committed assistant history makes stage 2 unsafe
-- session switching/forking rehydrates state so one session’s pending naming cannot affect another
-- session-before-switch/fork/tree/compact events fail closed, abort the in-flight semantic naming request, and prevent stale naming from landing on the wrong branch after lifecycle changes
-- fingerprint mismatch blocks semantic renames from an unrelated later turn after interruption/reload
-
 ## pi-ssh shared session runtime and prompt-context pickup stay exact
 
 Owned by:

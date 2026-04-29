@@ -52,10 +52,6 @@ export const REGRESSION_MATRIX = {
     "test/self-checkpointing-entrypoint.test.mjs",
     "self-checkpointing/test/compaction-ui.test.mjs",
   ],
-  "session-naming": [
-    "test/session-naming-index.test.mjs",
-    "test/session-naming-lib.test.mjs",
-  ],
   "skill-uri": [
     "test/runtime-entrypoint-imports.test.mjs",
     "skill-uri/test/local-skill-uri-tools.test.mjs",

@@ -16,6 +16,5 @@ Installable extension folders under `.pi/extensions/` are expected to be symlink
 - [[pi-slash]] — canonical slash-command execution and confirmation rules
 - [[pi-ssh]] — remote-SSH tool delegation and prompt-context rules
 - [[self-checkpointing]] — automatic checkpoint lifecycle and recovery rules
-- [[session-naming]] — two-stage automatic session title assignment for fresh unnamed sessions
 - [[tests]] — proving tests for extension contracts that matter across sessions
 - [[tui-broker]] — canonical footer/editor surface broker and contribution contract
