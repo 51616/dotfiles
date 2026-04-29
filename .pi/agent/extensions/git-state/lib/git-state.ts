@@ -3,7 +3,13 @@ export type GitStateSnapshot = {
   files: number;
   additions: number;
   deletions: number;
+  additionsUnknown: boolean;
   repoRoot: string;
+};
+
+export type UntrackedLineStats = {
+  additions: number;
+  capped: boolean;
 };
 
 const ANSI_RESET = "\x1b[0m";
@@ -33,6 +39,13 @@ export function parsePorcelainFileCount(output: string): number {
     .filter((line) => line.trim().length > 0).length;
 }
 
+export function parsePorcelainUntrackedFileCount(output: string): number {
+  return output
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => line.startsWith("?? ")).length;
+}
+
 export function parseNumstat(output: string): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
@@ -49,28 +62,59 @@ export function parseNumstat(output: string): { additions: number; deletions: nu
   return { additions, deletions };
 }
 
+export function parseUntrackedLineStats(output: string): UntrackedLineStats | null {
+  const raw = output.trim();
+  if (!raw) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const record = parsed as Record<string, unknown>;
+  const additions = record.additions;
+  const capped = record.capped;
+  if (typeof additions !== "number" || !Number.isFinite(additions) || typeof capped !== "boolean") {
+    return null;
+  }
+
+  return {
+    additions: Math.max(0, Math.trunc(additions)),
+    capped,
+  };
+}
+
 export function buildGitStateSignature(snapshot: GitStateSnapshot | null): string {
   if (!snapshot) return "none";
-  return `${snapshot.repoRoot}\t${snapshot.branchName}\t${snapshot.files}\t${snapshot.additions}\t${snapshot.deletions}`;
+  return `${snapshot.repoRoot}\t${snapshot.branchName}\t${snapshot.files}\t${snapshot.additions}\t${snapshot.deletions}\t${snapshot.additionsUnknown}`;
+}
+
+function formatAdditions(snapshot: GitStateSnapshot): string {
+  if (!snapshot.additionsUnknown) return formatCount(snapshot.additions);
+  if (snapshot.additions === 0) return "?";
+  return `${formatCount(snapshot.additions)}+?`;
 }
 
 export function formatGitStateLabel(snapshot: GitStateSnapshot): string {
   const filesColor = snapshot.files === 0 ? ANSI_GREEN : ANSI_CYAN;
-  const additionsColor = snapshot.additions === 0 ? ANSI_GREEN : ANSI_GREEN;
+  const additionsColor = snapshot.additions === 0 && !snapshot.additionsUnknown ? ANSI_GREEN : ANSI_GREEN;
   const deletionsColor = snapshot.deletions === 0 ? ANSI_GREEN : ANSI_RED;
 
   const branchLabel = snapshot.branchName.trim() || "unknown";
 
   const branchText = ` ${branchLabel}`;
 
-  if (snapshot.files === 0 && snapshot.additions === 0 && snapshot.deletions === 0) {
+  if (snapshot.files === 0 && snapshot.additions === 0 && snapshot.deletions === 0 && !snapshot.additionsUnknown) {
     return [branchText, color("CLEAN!", ANSI_GREEN)].join(" ");
   }
 
   return [
     branchText,
     `${color(formatCount(snapshot.files), filesColor)}${color("", ANSI_DIM)}`,
-    `${color("+", ANSI_DIM)}${color(formatCount(snapshot.additions), additionsColor)}`,
+    `${color("+", ANSI_DIM)}${color(formatAdditions(snapshot), additionsColor)}`,
     `${color("-", ANSI_DIM)}${color(formatCount(snapshot.deletions), deletionsColor)}`,
   ].join(" ");
 }

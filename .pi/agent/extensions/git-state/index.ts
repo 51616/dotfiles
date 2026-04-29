@@ -17,13 +17,57 @@ import {
   formatGitStateLabel,
   parseNumstat,
   parsePorcelainFileCount,
+  parsePorcelainUntrackedFileCount,
+  parseUntrackedLineStats,
   type GitStateSnapshot,
+  type UntrackedLineStats,
 } from "./lib/git-state.ts";
 
 const CONTRIBUTION_KEY = "git-state";
 const POLL_INTERVAL_MS = 3_000;
 const GIT_TIMEOUT_MS = 2_000;
 const GIT_TIMEOUT_SECONDS = GIT_TIMEOUT_MS / 1_000;
+const UNTRACKED_LINE_COUNT_BYTE_LIMIT = 256 * 1024;
+
+const UNTRACKED_LINE_STATS_SCRIPT = String.raw`import json, os, stat, subprocess, sys
+limit = int(sys.argv[1])
+proc = subprocess.run(
+    ["git", "--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+)
+if proc.returncode != 0:
+    raise SystemExit(proc.returncode)
+additions = 0
+total_bytes = 0
+for raw_path in proc.stdout.split(b"\0"):
+    if not raw_path:
+        continue
+    path = raw_path.decode(sys.getfilesystemencoding(), "surrogateescape")
+    try:
+        info = os.lstat(path)
+    except OSError:
+        continue
+    if not stat.S_ISREG(info.st_mode):
+        continue
+    remaining = limit - total_bytes
+    if remaining <= 0:
+        print(json.dumps({"additions": additions, "capped": True}, separators=(",", ":")))
+        raise SystemExit(0)
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(remaining + 1)
+    except OSError:
+        continue
+    if len(data) > remaining:
+        print(json.dumps({"additions": additions, "capped": True}, separators=(",", ":")))
+        raise SystemExit(0)
+    total_bytes += len(data)
+    if b"\0" in data:
+        continue
+    if data:
+        additions += data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+print(json.dumps({"additions": additions, "capped": False}, separators=(",", ":")))`;
 
 let currentSnapshot: GitStateSnapshot | null = null;
 let currentSignature = buildGitStateSignature(null);
@@ -33,6 +77,7 @@ let interval: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
 
 type GitCommand = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string }>;
+type UntrackedLineStatsReader = (repoRoot: string) => Promise<UntrackedLineStats>;
 
 type RemoteFooterSnapshot = {
   remoteCwd: string;
@@ -67,6 +112,15 @@ async function localGit(pi: ExtensionAPI, cwd: string, args: string[]): Promise<
   return { code: result.code, stdout: result.stdout };
 }
 
+async function localUntrackedLineStats(pi: ExtensionAPI, repoRoot: string): Promise<UntrackedLineStats> {
+  const result = await pi.exec("python3", ["-c", UNTRACKED_LINE_STATS_SCRIPT, String(UNTRACKED_LINE_COUNT_BYTE_LIMIT)], {
+    cwd: repoRoot,
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (result.code !== 0) return { additions: 0, capped: true };
+  return parseUntrackedLineStats(result.stdout) ?? { additions: 0, capped: true };
+}
+
 function buildRemoteGitCommand(cwd: string, args: string[]): string {
   const quotedArgs = args.map(shellQuote).join(" ");
   return `cd -- ${shellQuote(cwd)} && git --no-optional-locks ${quotedArgs}`;
@@ -77,6 +131,22 @@ async function remoteGit(session: PiSshSession, cwd: string, args: string[]): Pr
     timeoutSeconds: GIT_TIMEOUT_SECONDS,
   });
   return { code: result.exitCode ?? 1, stdout: result.output };
+}
+
+function buildRemoteUntrackedLineStatsCommand(repoRoot: string): string {
+  return [
+    `cd -- ${shellQuote(repoRoot)}`,
+    "if command -v python3 >/dev/null 2>&1; then PI_PY=python3; elif command -v python >/dev/null 2>&1; then PI_PY=python; else exit 127; fi",
+    `"$PI_PY" -c ${shellQuote(UNTRACKED_LINE_STATS_SCRIPT)} ${shellQuote(String(UNTRACKED_LINE_COUNT_BYTE_LIMIT))}`,
+  ].join(" && ");
+}
+
+async function remoteUntrackedLineStats(session: PiSshSession, repoRoot: string): Promise<UntrackedLineStats> {
+  const result: PiSshExecTextResult = await session.execText(buildRemoteUntrackedLineStatsCommand(repoRoot), {
+    timeoutSeconds: GIT_TIMEOUT_SECONDS,
+  });
+  if (result.exitCode !== 0) return { additions: 0, capped: true };
+  return parseUntrackedLineStats(result.output) ?? { additions: 0, capped: true };
 }
 
 async function readBranchName(git: GitCommand, repoRoot: string): Promise<string> {
@@ -91,17 +161,25 @@ async function readBranchName(git: GitCommand, repoRoot: string): Promise<string
   return "unknown";
 }
 
-async function readGitStateWithCommand(git: GitCommand, cwd: string): Promise<GitStateSnapshot | null> {
+async function readGitStateWithCommand(
+  git: GitCommand,
+  readUntrackedLineStats: UntrackedLineStatsReader,
+  cwd: string,
+): Promise<GitStateSnapshot | null> {
   const rootResult = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (rootResult.code !== 0) return null;
 
   const repoRoot = rootResult.stdout.trim();
   if (!repoRoot) return null;
 
-  return readGitStateInRepo(git, repoRoot);
+  return readGitStateInRepo(git, readUntrackedLineStats, repoRoot);
 }
 
-async function readGitStateInRepo(git: GitCommand, repoRoot: string): Promise<GitStateSnapshot | null> {
+async function readGitStateInRepo(
+  git: GitCommand,
+  readUntrackedLineStats: UntrackedLineStatsReader,
+  repoRoot: string,
+): Promise<GitStateSnapshot | null> {
   const branchName = await readBranchName(git, repoRoot);
 
   const statusResult = await git(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
@@ -113,12 +191,17 @@ async function readGitStateInRepo(git: GitCommand, repoRoot: string): Promise<Gi
   }
 
   const { additions, deletions } = parseNumstat(diffResult.code === 0 ? diffResult.stdout : "");
+  const untrackedFiles = parsePorcelainUntrackedFileCount(statusResult.stdout);
+  const untrackedLineStats = untrackedFiles > 0
+    ? await readUntrackedLineStats(repoRoot).catch(() => ({ additions: 0, capped: true }))
+    : { additions: 0, capped: false };
 
   return {
     branchName,
     files: parsePorcelainFileCount(statusResult.stdout),
-    additions,
+    additions: additions + untrackedLineStats.additions,
     deletions,
+    additionsUnknown: untrackedLineStats.capped,
     repoRoot,
   };
 }
@@ -142,7 +225,11 @@ async function readRemoteGitState(
   const repoRoot = await session.repoRoot(remoteCwd);
   if (!repoRoot) return null;
 
-  return readGitStateInRepo((cwd, args) => remoteGit(session, cwd, args), repoRoot);
+  return readGitStateInRepo(
+    (cwd, args) => remoteGit(session, cwd, args),
+    (root) => remoteUntrackedLineStats(session, root),
+    repoRoot,
+  );
 }
 
 export async function readGitState(
@@ -157,7 +244,11 @@ export async function readGitState(
     return readRemoteGitState(session, cwd, getRemoteFooterSnapshot());
   }
 
-  return readGitStateWithCommand((gitCwd, args) => localGit(pi, gitCwd, args), cwd);
+  return readGitStateWithCommand(
+    (gitCwd, args) => localGit(pi, gitCwd, args),
+    (repoRoot) => localUntrackedLineStats(pi, repoRoot),
+    cwd,
+  );
 }
 
 async function refresh(pi: ExtensionAPI): Promise<void> {

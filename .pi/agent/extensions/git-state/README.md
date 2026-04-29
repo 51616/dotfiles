@@ -16,8 +16,9 @@ Clean label format:
 
 - ` main` is the current branch using the common Powerline branch glyph. Detached HEADs are shown as `detached@<short-hash>`.
 - `3` is the number of changed files reported by `git status --porcelain=v1 --untracked-files=all`, using the common Nerd Font diff/changed-file glyph.
-- `+120 -8` are tracked line additions/deletions from `git diff --numstat HEAD --`.
-- Untracked files count toward ``, but their full line counts are intentionally not computed because doing so can be expensive in large generated trees.
+- `+120 -8` are tracked line additions/deletions from `git diff --numstat HEAD --`, plus counted untracked text-file lines when the untracked-file scan stays under the safety cap.
+- Untracked files count toward ``. Untracked text-file lines count toward `+` only while the total scanned untracked bytes stay under 256 KiB. If the cap is exceeded, the addition label becomes partial, for example `+120+?` or `+?`.
+- Binary untracked files are ignored for line counts, but they still count toward the 256 KiB safety cap so the editor meter does not repeatedly scan large generated artifacts.
 - Numbers are ANSI-colored: files are cyan when dirty, additions are green, deletions are red, and `CLEAN!` is green.
 
 The extension does not own TUI surfaces directly. It registers a `tui-broker` editor top-right status provider and asks the broker to refresh when polling detects a changed snapshot.
