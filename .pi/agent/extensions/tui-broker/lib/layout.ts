@@ -1,6 +1,8 @@
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const MODEL_ICON = "󰚩";
+const EFFORT_ICON = "󰧑";
 const MODEL_TOKEN_DISPLAY_NAMES: Record<string, string> = {
   chatgpt: "ChatGPT",
   claude: "Claude",
@@ -182,10 +184,12 @@ export function buildModelEffortLabel(
   reasoning: boolean | undefined,
   thinkingLevel: string | undefined,
 ): string {
-  const displayModelId = formatModelIdForDisplay(modelId);
-  if (!reasoning) return displayModelId;
+  const normalizedModelId = modelId?.trim() || "no-model";
+  const modelLabel = `${MODEL_ICON} ${normalizedModelId}`;
+  if (!reasoning) return modelLabel;
 
-  return `${displayModelId} • ${formatThinkingLevelForDisplay(thinkingLevel)}`;
+  const normalizedThinkingLevel = thinkingLevel?.trim() || "off";
+  return `${modelLabel} · ${EFFORT_ICON} ${normalizedThinkingLevel}`;
 }
 
 export function buildSingleLineFooter(left: string, right: string, width: number): string {

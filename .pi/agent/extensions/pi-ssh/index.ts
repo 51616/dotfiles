@@ -258,14 +258,16 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
-function buildModelEffortLabel(modelId: string | undefined, reasoning: boolean | undefined, thinkingLevel: string | undefined): string {
-  const normalizedModelId = modelId?.trim() ? modelId : "no-model";
-  if (!reasoning) return normalizedModelId;
+const MODEL_ICON = "󰚩";
+const EFFORT_ICON = "󰧑";
 
-  const normalizedThinkingLevel = thinkingLevel?.trim() ? thinkingLevel : "off";
-  return normalizedThinkingLevel === "off"
-    ? `${normalizedModelId} • thinking off`
-    : `${normalizedModelId} • ${normalizedThinkingLevel}`;
+function buildModelEffortLabel(modelId: string | undefined, reasoning: boolean | undefined, thinkingLevel: string | undefined): string {
+  const normalizedModelId = modelId?.trim() || "no-model";
+  const modelLabel = `${MODEL_ICON} ${normalizedModelId}`;
+  if (!reasoning) return modelLabel;
+
+  const normalizedThinkingLevel = thinkingLevel?.trim() || "off";
+  return `${modelLabel} · ${EFFORT_ICON} ${normalizedThinkingLevel}`;
 }
 
 function buildSingleLineFooter(left: string, right: string, width: number): string {

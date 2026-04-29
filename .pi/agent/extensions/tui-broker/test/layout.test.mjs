@@ -65,19 +65,19 @@ test("formatThinkingLevelForDisplay makes effort labels human readable", () => {
 });
 
 test("buildModelEffortLabel keeps only model and effort", () => {
-  assert.equal(buildModelEffortLabel("gpt-5.4", true, "high"), "GPT-5.4 • High");
-  assert.equal(buildModelEffortLabel("gpt-5.4", true, "off"), "GPT-5.4 • Thinking Off");
-  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high"), "GPT-5.4");
+  assert.equal(buildModelEffortLabel("gpt-5.4", true, "high"), "󰚩 gpt-5.4 · 󰧑 high");
+  assert.equal(buildModelEffortLabel("gpt-5.4", true, "off"), "󰚩 gpt-5.4 · 󰧑 off");
+  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high"), "󰚩 gpt-5.4");
 });
 
 test("buildSingleLineFooter keeps model label right-aligned", () => {
   assert.equal(
-    buildSingleLineFooter(" ~/vault", "GPT-5.4 • High", 40),
-    " ~/vault                 GPT-5.4 • High",
+    buildSingleLineFooter(" ~/vault", "󰚩 gpt-5.4 · 󰧑 high", 40),
+    " ~/vault             󰚩 gpt-5.4 · 󰧑 high",
   );
   assert.equal(
-    buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "GPT-5.4 • High", 30),
-    "/a/very/long... GPT-5.4 • High",
+    buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "󰚩 gpt-5.4 · 󰧑 high", 30),
+    "/a/very/... 󰚩 gpt-5.4 · 󰧑 high",
   );
 });
 
