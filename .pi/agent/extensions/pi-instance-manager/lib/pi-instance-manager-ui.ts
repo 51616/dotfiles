@@ -26,7 +26,7 @@ export function instanceManagerStatusLine(mode: ManagerStatusMode, owner: string
     return `manager: waiting for lock${queueSuffix}`;
   }
 
-  return `manager: on${queueSuffix}`;
+  return `󰒓 Ready${queueSuffix}`;
 }
 
 export function ensureManagerSpinnerStatus(

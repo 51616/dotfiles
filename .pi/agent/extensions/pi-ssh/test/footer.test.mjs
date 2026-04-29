@@ -91,13 +91,13 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
       reasoning: true,
       thinkingLevel: "high",
       availableProviderCount: 1,
-      extensionStatuses: ["manager: on | discord: on"],
+      extensionStatuses: ["󰒓 Ready | 󰙯 Online"],
     },
     12,
   );
 
   assert.equal(lines[0], `dim:${buildSingleLineFooter("tan@example.com:~/project (main)", "gpt-5.4 • high", 12)}`);
-  assert.equal(stripAnsi(lines[1]), "dim:manager: ...");
+  assert.equal(stripAnsi(lines[1]), "dim:󰒓 Ready |...");
 });
 
 test("buildStartupNoticeEntries includes enabled, remote context, and warnings", () => {

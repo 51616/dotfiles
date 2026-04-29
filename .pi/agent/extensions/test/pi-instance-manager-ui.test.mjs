@@ -16,8 +16,8 @@ test("instanceManagerStatusLine includes queue suffix for combined queue depth",
   assert.match(line, /queue: 3/i);
 });
 
-test("instanceManagerStatusLine formats the idle state as on", () => {
-  assert.equal(instanceManagerStatusLine("idle", "", 0), "manager: on");
+test("instanceManagerStatusLine formats the idle state as ready", () => {
+  assert.equal(instanceManagerStatusLine("idle", "", 0), "󰒓 Ready");
 });
 
 test("instanceManagerStatusLine formats discord waiting state distinctly", () => {
