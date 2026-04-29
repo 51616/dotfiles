@@ -9,9 +9,10 @@ It renders the lean footer layout, the editor-bottom context meter, and the shar
 It exposes a neutral contribution registry in [[tui-broker/lib/runtime.ts]] so other extensions can contribute:
 - footer path labels
 - editor badges
+- editor top-right statuses
 - autocomplete-provider wrappers
 - footer refresh requests
-- editor reinstall requests
+- editor refresh/reinstall requests
 
 When the broker is active in the local extension stack, non-broker extensions should not call `ctx.ui.setFooter()` or `ctx.ui.setEditorComponent()` directly for steady-state ownership. They should register contributions instead. That rule is currently enforced by local tests over the curated extension set, not by a pi-core runtime hook.
 
@@ -25,9 +26,12 @@ The editor override subclasses `CustomEditor` and decorates the final rendered b
 
 The context-meter label format is `12.2%/272k` or `?/272k` when the percentage is unknown.
 
+The top-right editor status slot is right-aligned on the top border and is intended for compact live state such as the `git-state` meter.
+
 Current contributors:
 - `do-not-stop` contributes the repeat badge
 - `snippets` contributes the active snippet badge
+- `git-state` contributes the Git working-tree meter in the editor top-right border
 - `pi-ssh` contributes the footer path label while SSH is active
 - `pi-fff` contributes an autocomplete-provider wrapper instead of taking editor ownership
 

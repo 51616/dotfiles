@@ -34,6 +34,14 @@ See also [[do-not-stop]].
 
 Entrypoint: [[do-not-stop/index.ts]].
 
+## git-state
+
+Owns the live Git working-tree meter that contributes to the `tui-broker` editor top-right border slot.
+
+See also [[git-state]].
+
+Entrypoint: [[git-state/index.ts]].
+
 ## pi-diff-review-tui
 
 Owns the interactive diff-review overlay and related TUI surfaces for human-in-the-loop patch review.

@@ -4,6 +4,7 @@ import {
   buildContextUsageBorderText,
   buildContextUsageLabel,
   buildEditorBorderBadgeText,
+  buildEditorTopBorderLine,
   buildModelEffortLabel,
   buildSingleLineFooter,
   formatTokens,
@@ -72,4 +73,17 @@ test("buildEditorBorderBadgeText joins badges and scroll info compactly", () => 
     "↻ repeat 1/3 • ✎ snippet investigate • ↑ 12 more",
   );
   assert.equal(buildEditorBorderBadgeText([], null), undefined);
+});
+
+test("buildEditorTopBorderLine keeps a right label aligned on the border", () => {
+  assert.equal(
+    buildEditorTopBorderLine({
+      leftText: "↻ repeat 1/3",
+      rightText: "git 2f +10 -3",
+      width: 40,
+      borderChar: "─",
+      colorizeBorder: (text) => text,
+    }),
+    " ↻ repeat 1/3 ────────── git 2f +10 -3 ─",
+  );
 });

@@ -46,6 +46,38 @@ export function buildEditorBorderBadgeText(badges: string[], moreText?: string |
   return parts.join(" • ");
 }
 
+export function buildEditorTopBorderLine(args: {
+  leftText?: string | null;
+  rightText?: string | null;
+  width: number;
+  borderChar: string;
+  colorizeBorder: (text: string) => string;
+}): string | undefined {
+  if (args.width <= 0) return "";
+
+  const leftText = sanitizeStatusText(String(args.leftText ?? ""));
+  const rightText = sanitizeStatusText(String(args.rightText ?? ""));
+  if (!leftText && !rightText) return undefined;
+
+  const leftLabel = leftText ? ` ${leftText} ` : "";
+  const rightLabel = rightText ? ` ${rightText} ` : "";
+  const rightWidth = visibleWidth(rightLabel);
+  const trailingBorderWidth = rightWidth > 0 ? 1 : 0;
+
+  if (rightWidth + trailingBorderWidth >= args.width) {
+    return truncateToWidth(rightLabel, args.width, "");
+  }
+
+  const availableLeftWidth = Math.max(0, args.width - rightWidth - trailingBorderWidth - (rightWidth > 0 ? 1 : 0));
+  const truncatedLeftLabel = leftLabel ? truncateToWidth(leftLabel, availableLeftWidth, "") : "";
+  const leftWidth = visibleWidth(truncatedLeftLabel);
+  const fillWidth = Math.max(0, args.width - leftWidth - rightWidth - trailingBorderWidth);
+  const borderPrefix = `${truncatedLeftLabel}${args.borderChar.repeat(fillWidth)}`;
+  const trailingBorder = trailingBorderWidth > 0 ? args.colorizeBorder(args.borderChar) : "";
+
+  return `${args.colorizeBorder(borderPrefix)}${rightLabel}${trailingBorder}`;
+}
+
 export function getContextUsageHighlightLevel(tokens: number | null): ContextUsageHighlightLevel {
   if (!Number.isFinite(tokens) || tokens === null) return "none";
   if (tokens >= 224_000) return "red";

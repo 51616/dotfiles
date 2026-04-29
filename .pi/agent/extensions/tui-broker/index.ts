@@ -9,6 +9,7 @@ import {
   buildContextUsageBorderText,
   buildContextUsageLabel,
   buildEditorBorderBadgeText,
+  buildEditorTopBorderLine,
   buildModelEffortLabel,
   buildSingleLineFooter,
   getContextUsageHighlightAnsiCodes,
@@ -17,9 +18,11 @@ import {
 import {
   getTuiBrokerAutocompleteProviderWrappers,
   getTuiBrokerEditorBadges,
+  getTuiBrokerEditorTopRightStatuses,
   getTuiBrokerFooterPath,
   getTuiBrokerRuntimeSnapshot,
   markTuiBrokerInstalled,
+  setTuiBrokerEditorRefreshHandler,
   setTuiBrokerEditorReinstallHandler,
   subscribeTuiBrokerFooterRefresh,
 } from "./lib/runtime.ts";
@@ -69,6 +72,7 @@ function colorizeEditorBorder(theme: BrokerTheme, text: string): string {
 class ContextUsageEditor extends CustomEditor {
   private readonly getContextUsageLabelFn: () => { label: string; tokens: number | null } | null;
   private readonly getEditorBadgesFn: () => string[];
+  private readonly getEditorTopRightStatusesFn: () => string[];
   private readonly getThemeFn: () => BrokerTheme;
   private readonly getAutocompleteProviderWrappersFn: () => Array<
     (provider: AutocompleteProvider) => AutocompleteProvider
@@ -81,12 +85,14 @@ class ContextUsageEditor extends CustomEditor {
     getTheme: () => BrokerTheme,
     getContextUsageLabel: () => { label: string; tokens: number | null } | null,
     getEditorBadges: () => string[],
+    getEditorTopRightStatuses: () => string[],
     getAutocompleteProviderWrappers: () => Array<(provider: AutocompleteProvider) => AutocompleteProvider>,
   ) {
     super(tui, theme, keybindings);
     this.getThemeFn = getTheme;
     this.getContextUsageLabelFn = getContextUsageLabel;
     this.getEditorBadgesFn = getEditorBadges;
+    this.getEditorTopRightStatusesFn = getEditorTopRightStatuses;
     this.getAutocompleteProviderWrappersFn = getAutocompleteProviderWrappers;
 
     Object.defineProperty(this, "borderColor", {
@@ -123,10 +129,16 @@ class ContextUsageEditor extends CustomEditor {
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
     const labelText = buildEditorBorderBadgeText(this.getEditorBadgesFn(), moreMatch?.[0]);
-    if (labelText) {
-      const label = truncateToWidth(` ${labelText} `, Math.max(1, width), "");
-      const fill = EDITOR_BORDER_CHAR.repeat(Math.max(0, width - visibleWidth(label)));
-      lines[0] = this.borderColor(`${label}${fill}`);
+    const topRightText = this.getEditorTopRightStatusesFn().join(" • ");
+    const topBorderLine = buildEditorTopBorderLine({
+      leftText: labelText,
+      rightText: topRightText,
+      width,
+      borderChar: EDITOR_BORDER_CHAR,
+      colorizeBorder: (text) => this.borderColor(text),
+    });
+    if (topBorderLine !== undefined) {
+      lines[0] = topBorderLine;
     }
 
     const contextUsage = this.getContextUsageLabelFn();
@@ -287,6 +299,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
       const parts = [
         `footer=${snapshot.footerPathSourceKey ?? "local"}`,
         `badges=${snapshot.editorBadgeKeys.join(",") || "none"}`,
+        `topRight=${snapshot.editorTopRightStatusKeys.join(",") || "none"}`,
         `border=${EDITOR_BORDER_COLOR_LABEL}`,
         `autocomplete=${snapshot.autocompleteWrappers.join(",") || "none"}`,
       ];
@@ -298,8 +311,9 @@ export default function tuiBroker(pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
 
     ctx.ui.setEditorComponent(
-      (tui, editorTheme, keybindings) =>
-        new ContextUsageEditor(
+      (tui, editorTheme, keybindings) => {
+        setTuiBrokerEditorRefreshHandler(() => tui.requestRender());
+        return new ContextUsageEditor(
           tui,
           editorTheme,
           keybindings,
@@ -313,8 +327,10 @@ export default function tuiBroker(pi: ExtensionAPI) {
             return label ? { label, tokens } : null;
           },
           () => getTuiBrokerEditorBadges().map((entry) => entry.text),
+          () => getTuiBrokerEditorTopRightStatuses().map((entry) => entry.text),
           () => getTuiBrokerAutocompleteProviderWrappers(),
-        ),
+        );
+      },
     );
 
     setTuiBrokerEditorReinstallHandler(() => {
@@ -373,5 +389,6 @@ export default function tuiBroker(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", () => {
     setTuiBrokerEditorReinstallHandler(undefined);
+    setTuiBrokerEditorRefreshHandler(undefined);
   });
 }

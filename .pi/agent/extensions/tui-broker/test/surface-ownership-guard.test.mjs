@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 const SEARCH_ROOTS = [
   "/home/tan/.pi/agent/extensions/tui-broker",
   "/home/tan/.pi/agent/extensions/do-not-stop",
+  "/home/tan/.pi/agent/extensions/git-state",
   "/home/tan/.pi/agent/extensions/pi-ssh",
   "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src",
 ];

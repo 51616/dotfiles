@@ -3,12 +3,18 @@ import type { AutocompleteProvider } from "@mariozechner/pi-tui";
 const ACTIVE_KEY = "__PI_TUI_BROKER_ACTIVE__";
 const AUTOCOMPLETE_WRAPPERS_KEY = "__PI_TUI_BROKER_AUTOCOMPLETE_WRAPPERS__";
 const EDITOR_BADGES_KEY = "__PI_TUI_BROKER_EDITOR_BADGES__";
+const EDITOR_TOP_RIGHT_STATUSES_KEY = "__PI_TUI_BROKER_EDITOR_TOP_RIGHT_STATUSES__";
 const FOOTER_PATH_PROVIDERS_KEY = "__PI_TUI_BROKER_FOOTER_PATH_PROVIDERS__";
 const FOOTER_REFRESH_LISTENERS_KEY = "__PI_TUI_BROKER_FOOTER_REFRESH_LISTENERS__";
 const EDITOR_REINSTALL_HANDLER_KEY = "__PI_TUI_BROKER_EDITOR_REINSTALL_HANDLER__";
+const EDITOR_REFRESH_HANDLER_KEY = "__PI_TUI_BROKER_EDITOR_REFRESH_HANDLER__";
 
 export type TuiBrokerAutocompleteProviderWrapper = (provider: AutocompleteProvider) => AutocompleteProvider;
 export type TuiBrokerEditorBadge = {
+  text: string;
+  priority?: number;
+};
+export type TuiBrokerEditorTopRightStatus = {
   text: string;
   priority?: number;
 };
@@ -22,6 +28,7 @@ export type TuiBrokerFooterPathContribution = {
 
 type GlobalState = Record<string, unknown>;
 type TuiBrokerEditorBadgeProvider = () => TuiBrokerEditorBadge | null | undefined;
+type TuiBrokerEditorTopRightStatusProvider = () => TuiBrokerEditorTopRightStatus | null | undefined;
 type TuiBrokerFooterPathProvider = (
   args: TuiBrokerFooterPathArgs,
 ) => TuiBrokerFooterPathContribution | null | undefined;
@@ -120,6 +127,21 @@ export function getTuiBrokerEditorBadges(): Array<ContributionWithKey<TuiBrokerE
   return collectContributions(getMap<TuiBrokerEditorBadgeProvider>(EDITOR_BADGES_KEY).entries());
 }
 
+export function registerTuiBrokerEditorTopRightStatusProvider(
+  key: string,
+  provider: TuiBrokerEditorTopRightStatusProvider,
+): void {
+  getMap<TuiBrokerEditorTopRightStatusProvider>(EDITOR_TOP_RIGHT_STATUSES_KEY).set(key, provider);
+}
+
+export function unregisterTuiBrokerEditorTopRightStatusProvider(key: string): void {
+  getMap<TuiBrokerEditorTopRightStatusProvider>(EDITOR_TOP_RIGHT_STATUSES_KEY).delete(key);
+}
+
+export function getTuiBrokerEditorTopRightStatuses(): Array<ContributionWithKey<TuiBrokerEditorTopRightStatus>> {
+  return collectContributions(getMap<TuiBrokerEditorTopRightStatusProvider>(EDITOR_TOP_RIGHT_STATUSES_KEY).entries());
+}
+
 export function registerTuiBrokerFooterPathProvider(key: string, provider: TuiBrokerFooterPathProvider): void {
   getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).set(key, provider);
 }
@@ -170,6 +192,23 @@ export function setTuiBrokerEditorReinstallHandler(handler: (() => void) | undef
   delete state[EDITOR_REINSTALL_HANDLER_KEY];
 }
 
+export function setTuiBrokerEditorRefreshHandler(handler: (() => void) | undefined): void {
+  const state = getGlobalState();
+  if (handler) {
+    state[EDITOR_REFRESH_HANDLER_KEY] = handler;
+    return;
+  }
+
+  delete state[EDITOR_REFRESH_HANDLER_KEY];
+}
+
+export function requestTuiBrokerEditorRefresh(): void {
+  const handler = getGlobalState()[EDITOR_REFRESH_HANDLER_KEY];
+  if (typeof handler === "function") {
+    handler();
+  }
+}
+
 export function requestTuiBrokerEditorReinstall(): void {
   const handler = getGlobalState()[EDITOR_REINSTALL_HANDLER_KEY];
   if (typeof handler === "function") {
@@ -182,11 +221,14 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
   editorBadgeKeys: string[];
   editorBadges: string[];
   editorBorderColor: "#fab387";
+  editorTopRightStatusKeys: string[];
+  editorTopRightStatuses: string[];
   footerPathProviderKeys: string[];
   footerPathText: string | null;
   footerPathSourceKey: string | null;
 } {
   const badges = getTuiBrokerEditorBadges();
+  const topRightStatuses = getTuiBrokerEditorTopRightStatuses();
   const footerPath = getTuiBrokerFooterPath(args);
 
   return {
@@ -194,6 +236,8 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
     editorBadgeKeys: badges.map((entry) => entry.key),
     editorBadges: badges.map((entry) => entry.text),
     editorBorderColor: "#fab387",
+    editorTopRightStatusKeys: topRightStatuses.map((entry) => entry.key),
+    editorTopRightStatuses: topRightStatuses.map((entry) => entry.text),
     footerPathProviderKeys: Array.from(getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).keys()).sort(),
     footerPathText: footerPath?.text ?? null,
     footerPathSourceKey: footerPath?.key ?? null,
@@ -204,8 +248,10 @@ export function __resetTuiBrokerRuntimeForTests(): void {
   const state = getGlobalState();
   delete state[ACTIVE_KEY];
   delete state[EDITOR_REINSTALL_HANDLER_KEY];
+  delete state[EDITOR_REFRESH_HANDLER_KEY];
   delete state[AUTOCOMPLETE_WRAPPERS_KEY];
   delete state[EDITOR_BADGES_KEY];
+  delete state[EDITOR_TOP_RIGHT_STATUSES_KEY];
   delete state[FOOTER_PATH_PROVIDERS_KEY];
   delete state[FOOTER_REFRESH_LISTENERS_KEY];
 }

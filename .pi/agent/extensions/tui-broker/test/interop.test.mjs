@@ -11,6 +11,7 @@ import {
   getTuiBrokerRuntimeSnapshot,
   isTuiBrokerInstalled,
   registerTuiBrokerAutocompleteProviderWrapper,
+  registerTuiBrokerEditorTopRightStatusProvider,
   registerTuiBrokerFooterPathProvider,
   requestTuiBrokerEditorReinstall,
   unregisterTuiBrokerAutocompleteProviderWrapper,
@@ -20,7 +21,12 @@ import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts
 
 const BORDER_COLOR_OPEN = "\x1b[38;2;250;179;135m";
 const ANSI_RESET = "\x1b[0m";
+const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const NORMAL_BORDER = "─";
+
+function stripAnsi(text) {
+  return text.replace(ANSI_REGEX, "");
+}
 
 function createFakePi() {
   const events = new Map();
@@ -370,6 +376,29 @@ test("tui-broker renders the context usage label into the editor bottom border",
   assert.match(lines.at(-1) ?? "", /12\.2%\/272k/);
   assert.ok((lines.at(-1) ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(lines.at(-1) ?? "", /━/);
+});
+
+test("tui-broker renders registered top-right editor statuses", async () => {
+  __resetTuiBrokerRuntimeForTests();
+  __resetDoNotStopRuntimeStoreForTests();
+
+  registerTuiBrokerEditorTopRightStatusProvider("git-state", () => ({ text: "git 2f +10 -3", priority: 100 }));
+
+  const pi = createFakePi();
+  tuiBroker(pi);
+
+  const ctx = createFakeCtx();
+  for (const handler of pi.events.get("session_start") ?? []) {
+    await handler({}, ctx);
+  }
+
+  const lines = createRenderedEditorLines(ctx, 50);
+  assert.match(lines[0] ?? "", /git 2f \+10 -3/);
+  assert.ok(stripAnsi(lines[0] ?? "").endsWith(" git 2f +10 -3 ─"));
+
+  const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
+  assert.deepEqual(snapshot.editorTopRightStatusKeys, ["git-state"]);
+  assert.deepEqual(snapshot.editorTopRightStatuses, ["git 2f +10 -3"]);
 });
 
 test("tui-broker falls back to the startup default model context window before the first turn", async () => {
