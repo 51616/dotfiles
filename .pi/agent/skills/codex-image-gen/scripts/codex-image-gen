@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+MODEL = "gpt-5.5"
+REASONING_EFFORT = "medium"
+DEFAULT_TIMEOUT_SECONDS = 900
+SESSION_ROOT = Path.home() / ".codex" / "sessions"
+DEFAULT_OUTPUT_ROOT = Path("/tmp/pi-work/codex-image-gen")
+
+GENERAL_PREAMBLE = (
+    "You are acting as an image-generation helper for pi. "
+    "Use Codex's built-in image generation capability for raster image generation or edits. "
+    "Do not substitute an SVG, HTML mock, matplotlib plot, or code-rendered placeholder unless native image generation is unavailable and the user explicitly accepts a fallback. "
+    "If a destination directory is provided, generate first, then locate the selected generated bitmap under $CODEX_HOME/generated_images or ~/.codex/generated_images, copy the final selected image into that destination, and verify the copied file exists. "
+    "Report final saved paths, the final prompt/spec used, and whether native image generation was used. "
+    "Be honest about failures and do not claim an image was generated until the file exists.\n\n"
+)
+
+FRONTEND_PREAMBLE = (
+    "Frontend design workflow:\n"
+    "1. First generate a polished web UI mockup image using native image generation. "
+    "Prefer an elegant Catppuccin-inspired palette when the user does not specify a different visual direction. "
+    "Make the UI visually useful: coherent layout, spacing, hierarchy, card/surface treatment, typography direction, interactive states, and realistic content placeholders.\n"
+    "2. Only after the image is generated and copied to the destination directory, inspect/describe the generated UI image in concrete implementation terms: layout regions, colors, spacing, components, states, and notable decorative details.\n"
+    "3. Write an HTML skeleton with embedded CSS that approximates the generated UI. Save it as index.html in the destination directory unless the user specifies another path. "
+    "The skeleton should be static, dependency-free HTML/CSS, with semantic structure and CSS custom properties for the palette. "
+    "It should be faithful to the generated image, but it does not need pixel-perfect assets.\n"
+    "4. Save a short design note as design-note.md containing the final image prompt, the visual description, and implementation assumptions.\n"
+    "5. Final response must list the image path, HTML path, design note path, and any caveats.\n\n"
+)
+
+
+def _require_codex_on_path() -> None:
+    if shutil.which("codex") is None:
+        print(
+            "Error: `codex` CLI not found on PATH. Install/login Codex first (e.g. `codex login`).",
+            file=sys.stderr,
+        )
+        raise SystemExit(127)
+
+
+def _decode_maybe_bytes(value: Optional[str | bytes]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
+def _parse_codex_jsonl(stdout_text: str) -> tuple[Optional[str], Optional[str]]:
+    session_id: Optional[str] = None
+    last_msg: Optional[str] = None
+
+    for raw_line in stdout_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if ev.get("type") == "thread.started":
+            thread_id = ev.get("thread_id")
+            if isinstance(thread_id, str):
+                session_id = thread_id
+            continue
+
+        if ev.get("type") != "item.completed":
+            continue
+        item = ev.get("item")
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "agent_message":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            last_msg = text
+
+    return session_id, last_msg
+
+
+def _find_session_file(session_id: Optional[str], *, wait_seconds: float = 0.0) -> Optional[Path]:
+    if not session_id or not SESSION_ROOT.exists():
+        return None
+
+    deadline = time.monotonic() + max(wait_seconds, 0.0)
+    while True:
+        matches = sorted(SESSION_ROOT.rglob(f"*{session_id}.jsonl"))
+        if matches:
+            return matches[-1]
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def _format_resume_command(session_id: str) -> str:
+    return (
+        "codex exec resume "
+        f"{session_id} "
+        '"Continue and finish the interrupted image-generation task. Reuse the existing context from this session. '
+        'Return only the final artifact report with saved paths."'
+    )
+
+
+def _print_recovery_details(*, timeout_seconds: int, session_id: Optional[str], session_file: Optional[Path], stderr_text: str) -> None:
+    print(
+        f"Error: codex-image-gen timed out after {timeout_seconds} seconds.",
+        file=sys.stderr,
+    )
+    if session_id:
+        print(f"Session ID: {session_id}", file=sys.stderr)
+    if session_file:
+        print(f"Session file: {session_file}", file=sys.stderr)
+        print(
+            "Read that exact JSONL session file under `~/.codex/sessions/...`; do not use `--last` or the newest file when multiple Codex jobs may be running.",
+            file=sys.stderr,
+        )
+    if session_id:
+        print("Resume command:", file=sys.stderr)
+        print(f"  {_format_resume_command(session_id)}", file=sys.stderr)
+    if stderr_text.strip():
+        print("Codex stderr:", file=sys.stderr)
+        print(stderr_text.rstrip(), file=sys.stderr)
+
+
+def _run_codex(cmd: list[str], timeout_seconds: int) -> tuple[str, Optional[Path]]:
+    try:
+        completed = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=None if timeout_seconds <= 0 else timeout_seconds,
+        )
+        stdout_text = completed.stdout
+        stderr_text = completed.stderr
+        returncode = completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        stdout_text = _decode_maybe_bytes(exc.stdout)
+        stderr_text = _decode_maybe_bytes(exc.stderr)
+        session_id, _ = _parse_codex_jsonl(stdout_text)
+        session_file = _find_session_file(session_id, wait_seconds=2.0)
+        _print_recovery_details(
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+            session_file=session_file,
+            stderr_text=stderr_text,
+        )
+        raise SystemExit(124)
+
+    session_id, last_msg = _parse_codex_jsonl(stdout_text)
+    session_file = _find_session_file(session_id)
+
+    if returncode != 0:
+        if stderr_text.strip():
+            print(stderr_text.rstrip(), file=sys.stderr)
+        if session_id or session_file:
+            print("Recovery context:", file=sys.stderr)
+            if session_id:
+                print(f"  Session ID: {session_id}", file=sys.stderr)
+            if session_file:
+                print(f"  Session file: {session_file}", file=sys.stderr)
+        raise SystemExit(returncode)
+
+    if not last_msg:
+        print("Error: codex produced no agent_message in JSON output.", file=sys.stderr)
+        if session_file:
+            print(f"Session file: {session_file}", file=sys.stderr)
+        raise SystemExit(2)
+
+    return last_msg, session_file
+
+
+def _default_output_dir() -> Path:
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    return DEFAULT_OUTPUT_ROOT / timestamp
+
+
+def _build_prompt(*, user_prompt: str, output_dir: Path, frontend_ui: bool, size: str) -> str:
+    output_dir = output_dir.expanduser().resolve()
+    mode = FRONTEND_PREAMBLE if frontend_ui else ""
+    return (
+        GENERAL_PREAMBLE
+        + mode
+        + "Task settings:\n"
+        + f"- Destination directory: {output_dir}\n"
+        + f"- Requested final image size or aspect: {size}\n"
+        + "- Create the destination directory if it does not exist.\n"
+        + "- Verify final files with shell commands before reporting success.\n\n"
+        + "User request:\n"
+        + user_prompt
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="codex-image-gen",
+        add_help=True,
+        description=(
+            "Codex-backed image-generation helper for pi.\n\n"
+            f"Default timer: {DEFAULT_TIMEOUT_SECONDS} seconds (15 minutes). Use --timeout-seconds to override.\n"
+            "The default path asks Codex to use its native image generation, then copy verified outputs into an output directory."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  codex-image-gen --output-dir /tmp/pi-work/hero \"Generate a cozy Catppuccin-themed website hero illustration for a notes app.\"\n\n"
+            "  codex-image-gen --frontend-ui --output-dir /tmp/pi-work/ui \"Design a polished dashboard for a habit tracker.\"\n\n"
+            "  codex-image-gen --timeout-seconds 1200 --size 16:9 --frontend-ui \"Create a landing page concept for a research notebook app.\"\n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="Max runtime for the underlying codex exec call in seconds (default: 900; use 0 to disable).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory where Codex should copy/save final image artifacts and optional frontend files. Defaults to /tmp/pi-work/codex-image-gen/<timestamp>.",
+    )
+    parser.add_argument(
+        "--frontend-ui",
+        action="store_true",
+        help="After generating the UI mockup image, ask Codex to describe it and write index.html + design-note.md in the output directory.",
+    )
+    parser.add_argument(
+        "--size",
+        default="1024x1024",
+        help="Requested final image size or aspect hint passed to Codex (default: 1024x1024).",
+    )
+    parser.add_argument(
+        "prompt",
+        nargs=argparse.REMAINDER,
+        help="Image-generation prompt (everything after options becomes the prompt).",
+    )
+
+    args = parser.parse_args()
+    _require_codex_on_path()
+
+    user_prompt = " ".join(args.prompt).strip()
+    if not user_prompt:
+        parser.print_usage(sys.stderr)
+        print("error: missing prompt", file=sys.stderr)
+        raise SystemExit(2)
+
+    output_dir = args.output_dir if args.output_dir is not None else _default_output_dir()
+    prompt = _build_prompt(
+        user_prompt=user_prompt,
+        output_dir=output_dir,
+        frontend_ui=args.frontend_ui,
+        size=args.size,
+    )
+
+    cmd = [
+        "codex",
+        "exec",
+        "-m",
+        MODEL,
+        "-c",
+        f"model_reasoning_effort={REASONING_EFFORT}",
+        "--json",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        prompt,
+    ]
+
+    msg, _ = _run_codex(cmd, args.timeout_seconds)
+    sys.stdout.write(msg)
+    if not msg.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()
