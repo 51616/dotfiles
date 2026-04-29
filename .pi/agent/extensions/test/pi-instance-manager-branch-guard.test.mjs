@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { guardBranchNavigation } from "../pi-instance-manager/lib/pi-instance-manager-branch-guard.ts";
 
-test("guardBranchNavigation blocks when local turn lock is active", async () => {
+test("guardBranchNavigation allows /tree while local turn lock is active", async () => {
   const notices = [];
   const result = await guardBranchNavigation({
     ctx: {
@@ -20,8 +20,8 @@ test("guardBranchNavigation blocks when local turn lock is active", async () => 
     triggerManagerAutoHeal: () => {},
   });
 
-  assert.equal(result.cancel, true);
-  assert.match(String(notices[0]?.text || ""), /conversation lock active/);
+  assert.equal(result.cancel, false);
+  assert.deepEqual(notices, []);
 });
 
 test("guardBranchNavigation fail-closes when manager state is unavailable", async () => {
@@ -79,7 +79,7 @@ test("guardBranchNavigation allows /fork while local turn lock is active", async
   assert.deepEqual(notices, []);
 });
 
-test("guardBranchNavigation allows /fork while manager reports a session lock", async () => {
+test("guardBranchNavigation allows /tree while manager reports a session lock", async () => {
   const notices = [];
   const result = await guardBranchNavigation({
     ctx: {
@@ -87,7 +87,7 @@ test("guardBranchNavigation allows /fork while manager reports a session lock", 
       sessionManager: { getSessionId: () => "s1" },
       ui: { notify: (text, level) => notices.push({ text, level }) },
     },
-    op: "fork",
+    op: "tree",
     activeTurnLockToken: "",
     activeTurnLockSessionId: "",
     managerDownSince: 0,

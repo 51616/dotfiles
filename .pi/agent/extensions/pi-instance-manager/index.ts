@@ -458,7 +458,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     });
   }
 
-  async function guardBranchNavigationWithChecks(ctx: ExtensionContext, op: "tree" | "fork") {
+  async function guardBranchNavigationWithChecks(ctx: ExtensionContext, op: "tree" | "fork" | "clone") {
     return guardBranchNavigation({
       ctx,
       op,

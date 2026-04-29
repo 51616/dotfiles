@@ -1,6 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { asString, type ManagerStateProbe } from "./pi-instance-manager-common.ts";
-import { findSessionLock } from "./pi-instance-manager-state.ts";
 
 export async function guardBranchNavigation({
   ctx,
@@ -14,7 +13,7 @@ export async function guardBranchNavigation({
   triggerManagerAutoHeal,
 }: {
   ctx: ExtensionContext;
-  op: "tree" | "fork";
+  op: "tree" | "fork" | "clone";
   activeTurnLockToken: string;
   activeTurnLockSessionId: string;
   managerDownSince: number;
@@ -27,16 +26,11 @@ export async function guardBranchNavigation({
   if (!sid) return { cancel: true };
 
   if (activeTurnLockToken && activeTurnLockSessionId === sid) {
-    if (op === "fork") return { cancel: false };
-    if (ctx.hasUI) {
-      ctx.ui.notify(`/${op} blocked: conversation lock active for this session.`, "warning");
-    }
-    return { cancel: true };
+    return { cancel: false };
   }
 
   const probe = await probeManagerState(500);
-  const state = probe.state;
-  if (!state) {
+  if (!probe.state) {
     setManagerUnavailableError(asString(probe.errorMessage).trim() || "state.get failed");
     if (!managerDownSince) setManagerDownSince(Date.now());
     triggerManagerAutoHeal(ctx, probe);
@@ -46,15 +40,5 @@ export async function guardBranchNavigation({
     return { cancel: true };
   }
 
-  const lock = findSessionLock(state, sid);
-
-  if (!lock) return { cancel: false };
-  if (op === "fork") return { cancel: false };
-
-  if (ctx.hasUI) {
-    const owner = asString(lock?.owner).trim();
-    ctx.ui.notify(`/${op} blocked: conversation lock active${owner ? ` (owner: ${owner})` : ""}.`, "warning");
-  }
-
-  return { cancel: true };
+  return { cancel: false };
 }

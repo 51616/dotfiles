@@ -69,7 +69,7 @@ export function registerInstanceManagerEventHooks({
   clearUiState: (ctx: ExtensionContext) => void;
   beginCompaction: (ctx: ExtensionContext) => Promise<void>;
   endCompaction: (ctx: ExtensionContext) => Promise<void>;
-  guardBranchNavigation: (ctx: ExtensionContext, op: "tree" | "fork") => Promise<{ cancel: boolean }>;
+  guardBranchNavigation: (ctx: ExtensionContext, op: "tree" | "fork" | "clone") => Promise<{ cancel: boolean }>;
   getActiveTurnLockToken: () => string;
   getActiveTurnLockSessionId: () => string;
   setAwaitingTurnEnd: (value: boolean) => void;
@@ -151,8 +151,8 @@ export function registerInstanceManagerEventHooks({
     return guardBranchNavigation(ctx, "tree");
   });
 
-  pi.on("session_before_fork", async (_event, ctx) => {
-    return guardBranchNavigation(ctx, "fork");
+  pi.on("session_before_fork", async (event, ctx) => {
+    return guardBranchNavigation(ctx, event?.position === "at" ? "clone" : "fork");
   });
 
   pi.on("turn_start", async (_event, ctx) => {

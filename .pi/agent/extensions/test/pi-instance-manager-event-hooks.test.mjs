@@ -176,7 +176,7 @@ test("input hook expands prompt-template commands before queueing", async () => 
     },
     enqueueTurnTicket: async (sessionId, text) => {
       enqueuedTexts.push({ sessionId, text });
-      return "ticket-1";
+      return { ticketId: "ticket-1", fencingToken: "turn-fence-1", managerGeneration: 1 };
     },
     setFooter: noop,
     expandQueuedCommandText: (text) => expandPromptTemplateCommand(text, commandLookup),
@@ -219,4 +219,70 @@ test("input hook expands prompt-template commands before queueing", async () => 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("session_before_fork maps clone position to clone guard op", async () => {
+  const handlers = new Map();
+  const seenOps = [];
+  const queue = new SessionInputQueue();
+
+  const pi = {
+    on(name, handler) {
+      const key = String(name);
+      const list = handlers.get(key) || [];
+      list.push(handler);
+      handlers.set(key, list);
+    },
+  };
+
+  registerInstanceManagerEventHooks({
+    pi,
+    queue,
+    getCurrentSessionId: () => "session-1",
+    setCurrentSessionId: noop,
+    setLastCtx: noop,
+    setSessionResyncCurrentFile: noop,
+    resetExternalWriteExpected: noop,
+    refreshTrackedSessionFile: noop,
+    resetSessionScopedState: noop,
+    ensurePollTimer: noopAsync,
+    clearPollTimer: noop,
+    clearQueueRetryTimer: noop,
+    clearSpinnerTimer: noop,
+    stopTurnLockRenew: noop,
+    clearSessionResyncState: noop,
+    getActiveTurnTicketId: () => "",
+    getActiveTurnTicketFencingToken: () => "",
+    clearActiveTurnTicketId: noop,
+    finishTurnTicket: noopAsync,
+    getActiveCompactionId: () => "",
+    endCompactionById: noopAsync,
+    clearActiveCompactionId: noop,
+    releaseTurnLock: noopAsync,
+    clearUiState: noop,
+    beginCompaction: noopAsync,
+    endCompaction: noopAsync,
+    guardBranchNavigation: async (_ctx, op) => {
+      seenOps.push(op);
+      return { cancel: false };
+    },
+    getActiveTurnLockToken: () => "",
+    getActiveTurnLockSessionId: () => "",
+    setAwaitingTurnEnd: noop,
+    refreshManagerState: noopAsync,
+    pumpInputQueue: noopAsync,
+    setManagerUnavailableError: noop,
+    setLastLocalSubmitAt: noop,
+    enqueueTurnTicket: async () => null,
+    setFooter: noop,
+    expandQueuedCommandText: (text) => text,
+  });
+
+  const forkHandlers = handlers.get("session_before_fork") || [];
+  assert.equal(forkHandlers.length, 1);
+
+  const result = await forkHandlers[0]({ position: "at" }, { hasUI: false });
+
+  assert.deepEqual(result, { cancel: false });
+  assert.deepEqual(seenOps, ["clone"]);
 });
