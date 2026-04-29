@@ -10,6 +10,8 @@ export { asString };
 export type ManagerLock = {
   sessionId?: string;
   token?: string;
+  fencingToken?: string;
+  managerGeneration?: number;
   owner?: string;
   acquiredAt?: number;
   expiresAt?: number;
@@ -20,6 +22,8 @@ export type ManagerLock = {
 export type ManagerTurnItem = {
   ticketId?: string;
   sessionId?: string;
+  fencingToken?: string;
+  managerGeneration?: number;
   owner?: string;
   state?: "queued" | "granted";
   createdAt?: number;
@@ -38,6 +42,8 @@ export type ManagerTurnQueue = {
 };
 
 export type ManagerState = {
+  managerGeneration?: number;
+  fencingToken?: string;
   compacting?: boolean;
   activeCompactions?: Array<{ sessionId?: string; id?: string }>;
   activeLocks?: ManagerLock[];

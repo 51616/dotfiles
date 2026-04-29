@@ -13,6 +13,7 @@ export function registerQueueCommand({
   getManagerLockOwner,
   getAwaitingTurnEnd,
   getActiveTurnTicketId,
+  getActiveTurnTicketFencingToken,
   clearActiveTurnTicketId,
   getActiveTurnText,
   finishTurnTicket,
@@ -25,9 +26,10 @@ export function registerQueueCommand({
   getManagerLockOwner: () => string;
   getAwaitingTurnEnd: () => boolean;
   getActiveTurnTicketId: () => string;
+  getActiveTurnTicketFencingToken: () => string;
   clearActiveTurnTicketId: () => void;
   getActiveTurnText: () => string;
-  finishTurnTicket: (ticketId: string, op: QueueAction) => Promise<void>;
+  finishTurnTicket: (ticketId: string, op: QueueAction, fencingToken?: string) => Promise<void>;
   refreshManagerState: () => Promise<void>;
   reissueQueueTickets: (sessionId: string, nextItems: QueueEditDraft[]) => Promise<boolean>;
   setFooter: (ctx: ExtensionContext) => void;
@@ -77,7 +79,7 @@ export function registerQueueCommand({
         if (action.action === "cancel_running") {
           const runningTicketId = getActiveTurnTicketId();
           if (runningTicketId) {
-            await finishTurnTicket(runningTicketId, "turn.cancel");
+            await finishTurnTicket(runningTicketId, "turn.cancel", getActiveTurnTicketFencingToken());
             clearActiveTurnTicketId();
             ctx.ui.notify("Best-effort cancel requested. Press Esc in main view to interrupt running turn.", "warning");
           } else {
@@ -89,8 +91,8 @@ export function registerQueueCommand({
         }
 
         if (action.action === "remove") {
-          await finishTurnTicket(action.ticketId, "turn.cancel");
-          queue.removeByTicket(sid, action.ticketId);
+          const removed = queue.removeByTicket(sid, action.ticketId);
+          await finishTurnTicket(action.ticketId, "turn.cancel", removed?.fencingToken);
           showQueueToast();
           await refreshManagerState();
           if (ctx.hasUI) setFooter(ctx);

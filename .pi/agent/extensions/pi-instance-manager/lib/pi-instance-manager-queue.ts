@@ -1,5 +1,7 @@
 export type QueuedInput = {
   ticketId: string;
+  fencingToken?: string;
+  managerGeneration?: number;
   text: string;
   queuedAt: number;
   owner?: string;
@@ -23,6 +25,8 @@ export class SessionInputQueue {
     const queuedAtRaw = Number(item?.queuedAt);
     return {
       ticketId,
+      fencingToken: String(item?.fencingToken || "").trim() || undefined,
+      managerGeneration: Number.isFinite(Number(item?.managerGeneration)) ? Math.trunc(Number(item.managerGeneration)) : undefined,
       text: String(item?.text || ""),
       queuedAt: Number.isFinite(queuedAtRaw) ? queuedAtRaw : Date.now(),
       owner: item?.owner,

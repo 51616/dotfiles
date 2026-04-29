@@ -7,10 +7,17 @@ import {
 
 type ManagerRequestFn = (op: string, payload: Record<string, unknown>, timeoutMs?: number) => Promise<any>;
 
+function parseManagerGeneration(value: unknown): number {
+  const raw = Number(value);
+  return Number.isFinite(raw) ? Math.trunc(raw) : 0;
+}
+
 export function createTurnLockController({
   managerRequest,
   getActiveTurnLockToken,
   setActiveTurnLockToken,
+  getActiveTurnLockFencingToken,
+  setActiveTurnLockFencingToken,
   getActiveTurnLockSessionId,
   setActiveTurnLockSessionId,
   setAwaitingTurnEnd,
@@ -26,6 +33,8 @@ export function createTurnLockController({
   managerRequest: ManagerRequestFn;
   getActiveTurnLockToken: () => string;
   setActiveTurnLockToken: (value: string) => void;
+  getActiveTurnLockFencingToken: () => string;
+  setActiveTurnLockFencingToken: (value: string) => void;
   getActiveTurnLockSessionId: () => string;
   setActiveTurnLockSessionId: (value: string) => void;
   setAwaitingTurnEnd: (value: boolean) => void;
@@ -46,23 +55,29 @@ export function createTurnLockController({
     turnLockRenewTimer = null;
   }
 
-  function startTurnLockRenew(token: string, sessionId: string, owner: string) {
+  function startTurnLockRenew(token: string, fencingToken: string, sessionId: string, owner: string) {
     stopTurnLockRenew();
 
     turnLockRenewTimer = setInterval(() => {
       if (!getActiveTurnLockToken() || getActiveTurnLockToken() !== token || getActiveTurnLockSessionId() !== sessionId) return;
 
-      void managerRequest("lock.renew", { token, leaseMs: turnLockLeaseMs }, 3500)
+      const payload: Record<string, unknown> = { token, leaseMs: turnLockLeaseMs };
+      const currentFence = asString(getActiveTurnLockFencingToken() || fencingToken).trim();
+      if (currentFence) payload.fencingToken = currentFence;
+
+      void managerRequest("lock.renew", payload, 3500)
         .then((data) => {
           if (data?.renewed) {
+            const nextFence = asString(data?.fencingToken).trim();
+            if (nextFence) setActiveTurnLockFencingToken(nextFence);
             setManagerUnavailableError("");
             return;
           }
-          setManagerUnavailableError(`lock.renew rejected (owner=${owner})`);
+          setManagerUnavailableError(`lock.renew rejected (owner=${owner}, generation=${parseManagerGeneration(data?.managerGeneration) || "unknown"})`);
           scheduleQueueRetry(1200);
         })
         .catch((error) => {
-          setManagerUnavailableError(`lock.renew failed: ${String(error?.message || error)}`);
+          setManagerUnavailableError(`lock.renew failed: ${String(error instanceof Error ? error.message : error)}`);
           scheduleQueueRetry(1200);
         })
         .finally(() => {
@@ -75,7 +90,9 @@ export function createTurnLockController({
 
   async function releaseTurnLock() {
     const token = getActiveTurnLockToken();
+    const fencingToken = getActiveTurnLockFencingToken();
     setActiveTurnLockToken("");
+    setActiveTurnLockFencingToken("");
     setActiveTurnLockSessionId("");
     setAwaitingTurnEnd(false);
     clearActiveTurnText();
@@ -84,17 +101,21 @@ export function createTurnLockController({
     if (!token) return;
 
     try {
-      await managerRequest("lock.release", { token }, 1600);
+      const payload: Record<string, unknown> = { token };
+      if (fencingToken) payload.fencingToken = fencingToken;
+      await managerRequest("lock.release", payload, 1600);
       setManagerUnavailableError("");
     } catch (error) {
-      setManagerUnavailableError(`lock.release failed: ${String(error?.message || error)}`);
+      setManagerUnavailableError(`lock.release failed: ${String(error instanceof Error ? error.message : error)}`);
       scheduleQueueRetry(1200);
     }
   }
 
-  async function acquireTurnLock(sessionId: string): Promise<{ token: string; waited: boolean }> {
+  async function acquireTurnLock(
+    sessionId: string,
+  ): Promise<{ token: string; fencingToken: string; managerGeneration: number; waited: boolean }> {
     const sid = asString(sessionId).trim();
-    if (!sid) return { token: "", waited: false };
+    if (!sid) return { token: "", fencingToken: "", managerGeneration: 0, waited: false };
 
     const owner = `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
     const deadline = Date.now() + lockWaitTimeoutMs;
@@ -105,7 +126,7 @@ export function createTurnLockController({
       if (remaining <= 0) {
         setManagerUnavailableError("lock.acquire timed out");
         scheduleQueueRetry(1500);
-        return { token: "", waited };
+        return { token: "", fencingToken: "", managerGeneration: 0, waited };
       }
 
       const slice = Math.min(remaining, 15_000);
@@ -124,15 +145,18 @@ export function createTurnLockController({
         );
 
         const token = asString(data?.token).trim();
+        const fencingToken = asString(data?.fencingToken).trim();
+        const managerGeneration = parseManagerGeneration(data?.managerGeneration);
         if (token) {
           setManagerUnavailableError("");
           setActiveTurnLockToken(token);
+          setActiveTurnLockFencingToken(fencingToken);
           setActiveTurnLockSessionId(sid);
-          startTurnLockRenew(token, sid, owner);
-          return { token, waited };
+          startTurnLockRenew(token, fencingToken, sid, owner);
+          return { token, fencingToken, managerGeneration, waited };
         }
       } catch (error) {
-        const message = String(error?.message || error);
+        const message = String(error instanceof Error ? error.message : error);
         if (message === "timeout") {
           // Expected while waiting in manager FIFO queue.
           waited = true;
@@ -141,7 +165,7 @@ export function createTurnLockController({
 
         setManagerUnavailableError(message);
         scheduleQueueRetry(1200);
-        return { token: "", waited };
+        return { token: "", fencingToken: "", managerGeneration: 0, waited };
       }
     }
   }

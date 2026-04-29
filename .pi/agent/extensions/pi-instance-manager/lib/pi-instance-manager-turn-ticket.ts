@@ -4,6 +4,17 @@ type TurnTicketOp = "turn.done" | "turn.cancel";
 
 type ManagerRequestFn = (op: string, payload: Record<string, unknown>, timeoutMs?: number) => Promise<any>;
 
+export type TurnTicketHandle = {
+  ticketId: string;
+  fencingToken: string;
+  managerGeneration: number;
+};
+
+function parseManagerGeneration(value: unknown): number {
+  const raw = Number(value);
+  return Number.isFinite(raw) ? Math.trunc(raw) : 0;
+}
+
 export function createTurnTicketClient({
   managerRequest,
   setManagerUnavailableError,
@@ -17,9 +28,9 @@ export function createTurnTicketClient({
   lockWaitTimeoutMs?: number;
   ownerPid?: number;
 }) {
-  async function enqueueTurnTicket(sessionId: string, text: string): Promise<string> {
+  async function enqueueTurnTicket(sessionId: string, text: string): Promise<TurnTicketHandle | null> {
     const sid = asString(sessionId).trim();
-    if (!sid) return "";
+    if (!sid) return null;
 
     const owner = `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
     try {
@@ -36,20 +47,28 @@ export function createTurnTicketClient({
       const ticketId = asString(data?.ticketId).trim();
       if (!ticketId) {
         setManagerUnavailableError("turn.enqueue returned empty ticketId");
-        return "";
+        return null;
       }
       setManagerUnavailableError("");
-      return ticketId;
+      return {
+        ticketId,
+        fencingToken: asString(data?.fencingToken).trim(),
+        managerGeneration: parseManagerGeneration(data?.managerGeneration),
+      };
     } catch (error) {
-      setManagerUnavailableError(`turn.enqueue failed: ${String(error?.message || error)}`);
+      setManagerUnavailableError(`turn.enqueue failed: ${String(error instanceof Error ? error.message : error)}`);
       scheduleQueueRetry(1200);
-      return "";
+      return null;
     }
   }
 
-  async function waitForTurnGrant(ticketId: string): Promise<{ granted: boolean; waited: boolean }> {
+  async function waitForTurnGrant(
+    ticketId: string,
+    fencingToken = "",
+  ): Promise<{ granted: boolean; waited: boolean; managerGeneration: number; fencingToken: string }> {
     const tid = asString(ticketId).trim();
-    if (!tid) return { granted: false, waited: false };
+    const fence = asString(fencingToken).trim();
+    if (!tid) return { granted: false, waited: false, managerGeneration: 0, fencingToken: fence };
 
     const deadline = Date.now() + lockWaitTimeoutMs;
     let waited = false;
@@ -59,19 +78,26 @@ export function createTurnTicketClient({
       if (remaining <= 0) {
         setManagerUnavailableError(`turn.wait timed out (ticket=${tid})`);
         scheduleQueueRetry(1200);
-        return { granted: false, waited };
+        return { granted: false, waited, managerGeneration: 0, fencingToken: fence };
       }
 
       const slice = Math.min(remaining, 15_000);
       try {
-        const data = await managerRequest("turn.wait", { ticketId: tid, timeoutMs: slice }, slice + 1200);
+        const payload: Record<string, unknown> = { ticketId: tid, timeoutMs: slice };
+        if (fence) payload.fencingToken = fence;
+        const data = await managerRequest("turn.wait", payload, slice + 1200);
         if (data?.granted) {
           setManagerUnavailableError("");
-          return { granted: true, waited };
+          return {
+            granted: true,
+            waited,
+            managerGeneration: parseManagerGeneration(data?.managerGeneration),
+            fencingToken: asString(data?.fencingToken).trim() || fence,
+          };
         }
         waited = true;
       } catch (error) {
-        const message = String(error?.message || error);
+        const message = String(error instanceof Error ? error.message : error);
         if (message === "timeout") {
           waited = true;
           continue;
@@ -79,24 +105,27 @@ export function createTurnTicketClient({
 
         if (message.includes("unknown ticket")) {
           setManagerUnavailableError(`turn.wait unknown ticket: ${tid}`);
-          return { granted: false, waited };
+          return { granted: false, waited, managerGeneration: 0, fencingToken: fence };
         }
 
         setManagerUnavailableError(`turn.wait failed: ${message}`);
         scheduleQueueRetry(1200);
-        return { granted: false, waited };
+        return { granted: false, waited, managerGeneration: 0, fencingToken: fence };
       }
     }
   }
 
-  async function finishTurnTicket(ticketId: string, op: TurnTicketOp) {
+  async function finishTurnTicket(ticketId: string, op: TurnTicketOp, fencingToken = "") {
     const tid = asString(ticketId).trim();
+    const fence = asString(fencingToken).trim();
     if (!tid) return;
     try {
-      await managerRequest(op, { ticketId: tid }, 1800);
+      const payload: Record<string, unknown> = { ticketId: tid };
+      if (fence) payload.fencingToken = fence;
+      await managerRequest(op, payload, 1800);
       setManagerUnavailableError("");
     } catch (error) {
-      setManagerUnavailableError(`${op} failed: ${String(error?.message || error)}`);
+      setManagerUnavailableError(`${op} failed: ${String(error instanceof Error ? error.message : error)}`);
       scheduleQueueRetry(1200);
     }
   }

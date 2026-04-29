@@ -58,8 +58,10 @@ export default function piInstanceManager(pi: ExtensionAPI) {
   let managerDownSince = 0;
   let remoteDiscordQueueDepth = 0;
   let activeTurnLockToken = "";
+  let activeTurnLockFencingToken = "";
   let activeTurnLockSessionId = "";
   let activeTurnTicketId = "";
+  let activeTurnTicketFencingToken = "";
   let activeTurnText = "";
   let awaitingTurnEnd = false;
   let lastLocalSubmitAt = 0;
@@ -144,6 +146,10 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     setActiveTurnLockToken: (value) => {
       activeTurnLockToken = value;
     },
+    getActiveTurnLockFencingToken: () => activeTurnLockFencingToken,
+    setActiveTurnLockFencingToken: (value) => {
+      activeTurnLockFencingToken = value;
+    },
     getActiveTurnLockSessionId: () => activeTurnLockSessionId,
     setActiveTurnLockSessionId: (value) => {
       activeTurnLockSessionId = value;
@@ -217,16 +223,22 @@ export default function piInstanceManager(pi: ExtensionAPI) {
         return;
       }
 
-      const turn = await waitForTurnGrant(next.ticketId);
+      const turn = await waitForTurnGrant(next.ticketId, next.fencingToken);
       if (!turn.granted) return;
 
       const lock = await acquireTurnLock(sid);
       if (!lock.token) {
-        await finishTurnTicket(next.ticketId, "turn.cancel");
-        const replacementTicketId = await enqueueTurnTicket(sid, next.text);
-        if (replacementTicketId) {
+        await finishTurnTicket(next.ticketId, "turn.cancel", next.fencingToken || turn.fencingToken);
+        const replacementTicket = await enqueueTurnTicket(sid, next.text);
+        if (replacementTicket) {
           queue.removeByTicket(sid, next.ticketId);
-          queue.unshift(sid, { ...next, ticketId: replacementTicketId, queuedAt: Date.now() });
+          queue.unshift(sid, {
+            ...next,
+            ticketId: replacementTicket.ticketId,
+            fencingToken: replacementTicket.fencingToken,
+            managerGeneration: replacementTicket.managerGeneration,
+            queuedAt: Date.now(),
+          });
         }
         return;
       }
@@ -254,16 +266,24 @@ export default function piInstanceManager(pi: ExtensionAPI) {
 
       try {
         activeTurnTicketId = item.ticketId;
+        activeTurnTicketFencingToken = item.fencingToken || turn.fencingToken;
         activeTurnText = item.text;
         pi.sendUserMessage(item.text);
         awaitingTurnEnd = true;
       } catch {
         activeTurnTicketId = "";
+        activeTurnTicketFencingToken = "";
         activeTurnText = "";
-        await finishTurnTicket(item.ticketId, "turn.cancel");
-        const replacementTicketId = await enqueueTurnTicket(sid, item.text);
-        if (replacementTicketId) {
-          queue.unshift(sid, { ...item, ticketId: replacementTicketId, queuedAt: Date.now() });
+        await finishTurnTicket(item.ticketId, "turn.cancel", item.fencingToken || turn.fencingToken);
+        const replacementTicket = await enqueueTurnTicket(sid, item.text);
+        if (replacementTicket) {
+          queue.unshift(sid, {
+            ...item,
+            ticketId: replacementTicket.ticketId,
+            fencingToken: replacementTicket.fencingToken,
+            managerGeneration: replacementTicket.managerGeneration,
+            queuedAt: Date.now(),
+          });
         }
         await releaseTurnLock();
       }
@@ -409,8 +429,10 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     getManagerLockOwner: () => asString(managerLockThisSession?.owner).trim(),
     getAwaitingTurnEnd: () => awaitingTurnEnd,
     getActiveTurnTicketId: () => activeTurnTicketId,
+    getActiveTurnTicketFencingToken: () => activeTurnTicketFencingToken,
     clearActiveTurnTicketId: () => {
       activeTurnTicketId = "";
+      activeTurnTicketFencingToken = "";
     },
     getActiveTurnText: () => activeTurnText,
     finishTurnTicket,
@@ -477,8 +499,10 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       clearSessionResyncState(sessionResync);
     },
     getActiveTurnTicketId: () => activeTurnTicketId,
+    getActiveTurnTicketFencingToken: () => activeTurnTicketFencingToken,
     clearActiveTurnTicketId: () => {
       activeTurnTicketId = "";
+      activeTurnTicketFencingToken = "";
     },
     finishTurnTicket,
     getActiveCompactionId: () => activeCompactionId,

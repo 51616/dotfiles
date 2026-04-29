@@ -21,6 +21,7 @@ export function registerInstanceManagerEventHooks({
   stopTurnLockRenew,
   clearSessionResyncState,
   getActiveTurnTicketId,
+  getActiveTurnTicketFencingToken,
   clearActiveTurnTicketId,
   finishTurnTicket,
   getActiveCompactionId,
@@ -58,8 +59,9 @@ export function registerInstanceManagerEventHooks({
   stopTurnLockRenew: () => void;
   clearSessionResyncState: () => void;
   getActiveTurnTicketId: () => string;
+  getActiveTurnTicketFencingToken: () => string;
   clearActiveTurnTicketId: () => void;
-  finishTurnTicket: (ticketId: string, op: QueueAction) => Promise<void>;
+  finishTurnTicket: (ticketId: string, op: QueueAction, fencingToken?: string) => Promise<void>;
   getActiveCompactionId: () => string;
   endCompactionById: (compactionId: string) => Promise<void>;
   clearActiveCompactionId: () => void;
@@ -75,7 +77,10 @@ export function registerInstanceManagerEventHooks({
   pumpInputQueue: (ctx: ExtensionContext) => Promise<void>;
   setManagerUnavailableError: (value: string) => void;
   setLastLocalSubmitAt: (value: number) => void;
-  enqueueTurnTicket: (sessionId: string, text: string) => Promise<string>;
+  enqueueTurnTicket: (
+    sessionId: string,
+    text: string,
+  ) => Promise<{ ticketId: string; fencingToken: string; managerGeneration: number } | null>;
   setFooter: (ctx: ExtensionContext) => void;
   expandQueuedCommandText: (text: string) => string;
 }) {
@@ -120,7 +125,7 @@ export function registerInstanceManagerEventHooks({
 
     const activeTicketId = getActiveTurnTicketId();
     if (activeTicketId) {
-      await finishTurnTicket(activeTicketId, "turn.cancel");
+      await finishTurnTicket(activeTicketId, "turn.cancel", getActiveTurnTicketFencingToken());
       clearActiveTurnTicketId();
     }
 
@@ -165,9 +170,10 @@ export function registerInstanceManagerEventHooks({
 
   pi.on("agent_end", async (_event, ctx) => {
     const finishedTicketId = getActiveTurnTicketId();
+    const finishedTicketFence = getActiveTurnTicketFencingToken();
     clearActiveTurnTicketId();
     if (finishedTicketId) {
-      await finishTurnTicket(finishedTicketId, "turn.done");
+      await finishTurnTicket(finishedTicketId, "turn.done", finishedTicketFence);
     }
     await releaseTurnLock();
     await refreshManagerState();
@@ -192,14 +198,16 @@ export function registerInstanceManagerEventHooks({
       setLastLocalSubmitAt(Date.now());
 
       const queuedText = expandQueuedCommandText(event.text) || event.text;
-      const ticketId = await enqueueTurnTicket(sid, queuedText);
-      if (!ticketId) {
+      const ticket = await enqueueTurnTicket(sid, queuedText);
+      if (!ticket) {
         if (ctx.hasUI) setFooter(ctx);
         return { action: "handled" };
       }
 
       queue.enqueue(sid, {
-        ticketId,
+        ticketId: ticket.ticketId,
+        fencingToken: ticket.fencingToken,
+        managerGeneration: ticket.managerGeneration,
         text: queuedText,
         queuedAt: Date.now(),
         owner: `pi-tui:prompt:pid=${process.pid}:session=${sid}`,
