@@ -26,7 +26,7 @@ test("parseNumstat sums text file additions and deletions and ignores binary mar
 
 test("formatGitStateLabel keeps a compact plain-text contract with colored numbers", () => {
   const label = formatGitStateLabel({ repoRoot: "/repo", branchName: "main", files: 3, additions: 120, deletions: 8 });
-  assert.equal(stripAnsi(label), " main 3f +120 -8");
+  assert.equal(stripAnsi(label), " main 3f +120 -8");
   assert.match(label, /\x1b\[1;36m3\x1b\[0m/);
   assert.match(label, /\x1b\[1;32m120\x1b\[0m/);
   assert.match(label, /\x1b\[1;31m8\x1b\[0m/);

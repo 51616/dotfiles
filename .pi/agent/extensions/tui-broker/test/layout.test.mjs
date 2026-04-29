@@ -79,11 +79,11 @@ test("buildEditorTopBorderLine keeps a right label aligned on the border", () =>
   assert.equal(
     buildEditorTopBorderLine({
       leftText: "↻ repeat 1/3",
-      rightText: " main 2f +10 -3",
+      rightText: " main 2f +10 -3",
       width: 40,
       borderChar: "─",
       colorizeBorder: (text) => text,
     }),
-    " ↻ repeat 1/3 ───────  main 2f +10 -3 ─",
+    " ↻ repeat 1/3 ───────  main 2f +10 -3 ─",
   );
 });
