@@ -61,12 +61,14 @@ export function formatGitStateLabel(snapshot: GitStateSnapshot): string {
 
   const branchLabel = snapshot.branchName.trim() || "unknown";
 
+  const branchText = ` ${branchLabel}`;
+
   if (snapshot.files === 0 && snapshot.additions === 0 && snapshot.deletions === 0) {
-    return [color(` ${branchLabel}`, ANSI_DIM), color("CLEAN!", ANSI_GREEN)].join(" ");
+    return [branchText, color("CLEAN!", ANSI_GREEN)].join(" ");
   }
 
   return [
-    color(` ${branchLabel}`, ANSI_DIM),
+    branchText,
     `${color(formatCount(snapshot.files), filesColor)}${color("", ANSI_DIM)}`,
     `${color("+", ANSI_DIM)}${color(formatCount(snapshot.additions), additionsColor)}`,
     `${color("-", ANSI_DIM)}${color(formatCount(snapshot.deletions), deletionsColor)}`,
