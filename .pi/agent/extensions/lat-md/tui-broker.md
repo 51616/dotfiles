@@ -22,7 +22,7 @@ The canonical implementation lives in [[tui-broker/index.ts]]. Shared formatting
 
 The footer keeps the folder-glyph cwd / session-name line and preserves extension status lines from `ctx.ui.setStatus()`.
 
-The right side of the footer identifies model and reasoning effort as `󰚩 <model-id> · 󰧑 <thinking-level>` for reasoning-capable models, and `󰚩 <model-id>` otherwise. It uses the raw model id so the footer matches model-selection refs exactly.
+The right side of the footer identifies model and reasoning effort as `󰚩 <display-model> · 󰧑 <display-thinking-level>` for reasoning-capable models, and `󰚩 <display-model>` otherwise. It keeps the existing human-readable model and thinking-level formatting while adding glyphs.
 
 It intentionally omits git branch text from the cwd line because `git-state` owns the compact branch meter in the editor top-right border. It intentionally drops cumulative token, cache, and dollar stats from the footer.
 

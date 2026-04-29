@@ -184,12 +184,10 @@ export function buildModelEffortLabel(
   reasoning: boolean | undefined,
   thinkingLevel: string | undefined,
 ): string {
-  const normalizedModelId = modelId?.trim() || "no-model";
-  const modelLabel = `${MODEL_ICON} ${normalizedModelId}`;
+  const modelLabel = `${MODEL_ICON} ${formatModelIdForDisplay(modelId)}`;
   if (!reasoning) return modelLabel;
 
-  const normalizedThinkingLevel = thinkingLevel?.trim() || "off";
-  return `${modelLabel} · ${EFFORT_ICON} ${normalizedThinkingLevel}`;
+  return `${modelLabel} · ${EFFORT_ICON} ${formatThinkingLevelForDisplay(thinkingLevel)}`;
 }
 
 export function buildSingleLineFooter(left: string, right: string, width: number): string {
