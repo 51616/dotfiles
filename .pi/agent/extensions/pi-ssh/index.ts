@@ -309,7 +309,7 @@ function buildFooterPathLabel(path: string, home: string, _branch: string | null
   if (sessionName) {
     label = `${label} • ${sessionName}`;
   }
-  return ` ${label}`;
+  return ` ${label}`;
 }
 
 function buildRemoteFooterLabel(

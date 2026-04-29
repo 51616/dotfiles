@@ -6,7 +6,7 @@ This extension keeps the pi process, model access, auth, and billing local while
 
 When `--ssh` is set, it overrides `read`, `write`, `edit`, and `bash`, plus user `!` shell commands, so file and shell work happen on the remote host.
 
-It maintains one remote shell session for bash-style work, publishes remote footer state so the interactive cwd line becomes ` <ssh-alias>:<remote-path>` after SSH connects, omits branch text from that footer path, and injects remote prompt context from the exact remote working directory when `AGENTS.md` or `CLAUDE.md` exists there.
+It maintains one remote shell session for bash-style work, publishes remote footer state so the interactive cwd line becomes ` <ssh-alias>:<remote-path>` after SSH connects, omits branch text from that footer path, and injects remote prompt context from the exact remote working directory when `AGENTS.md` or `CLAUDE.md` exists there.
 
 It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. Other extensions should consume that module instead of importing `skill-uri` internals when they need remote workspace ops, repo-root lookup, local→remote path mapping, exact one-shot SSH probes, low-latency persistent text commands, or remote exists/stat checks. `execText()` is the text-oriented low-latency path; `stat()` should stay on stdout-only exact capture so JSON helpers do not depend on PTY-clean output.
 
@@ -16,7 +16,7 @@ It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runti
 
 Without `--ssh`, the extension must stay inert and preserve normal local tool behavior.
 
-In SSH mode, the interactive footer cwd line should replace the local session cwd with ` <ssh-alias>:<remote-path>`, immediately after connect. If the `--ssh` value directly names a `~/.ssh/config` alias, the footer must use that alias exactly; otherwise it should prefer the first concrete `Host` alias whose resolved user, hostname, and port match the target.
+In SSH mode, the interactive footer cwd line should replace the local session cwd with ` <ssh-alias>:<remote-path>`, immediately after connect. If the `--ssh` value directly names a `~/.ssh/config` alias, the footer must use that alias exactly; otherwise it should prefer the first concrete `Host` alias whose resolved user, hostname, and port match the target.
 
 If [[tui-broker]] is installed, `pi-ssh` must not replace the footer. It should publish remote footer state through its runtime store, register a footer-path contribution with [[tui-broker/lib/runtime.ts]], and let [[tui-broker]] render the remote cwd inside the canonical footer layout.
 

@@ -73,7 +73,7 @@ export function buildPiSshFooterLabel(
   if (sessionName) {
     location = `${location} • ${sessionName}`;
   }
-  return ` ${snapshot.remoteDisplayTarget}:${location}`;
+  return ` ${snapshot.remoteDisplayTarget}:${location}`;
 }
 
 export function __resetPiSshFooterRuntimeForTests(): void {

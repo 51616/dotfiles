@@ -66,18 +66,18 @@ Host gcp_slurm_sakana_eu-pi-agent
 });
 
 test("buildFooterPathLabel prefixes the remote path icon and omits branch display", () => {
-  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", "main", undefined), " ~/project");
+  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", "main", undefined), " ~/project");
 });
 
 test("buildFooterPathLabel appends the session name when present", () => {
   assert.equal(
     buildFooterPathLabel("/remote/home/project", "/remote/home", "main", "ssh session"),
-    " ~/project • ssh session",
+    " ~/project • ssh session",
   );
 });
 
 test("buildFooterPathLabel keeps the icon when remote branch is unavailable", () => {
-  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", null, undefined), " ~/project");
+  assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", null, undefined), " ~/project");
 });
 
 test("buildRemoteFooterLabel replaces the grey footer path with the ssh target and remote path", () => {
@@ -96,7 +96,7 @@ test("buildRemoteFooterLabel replaces the grey footer path with the ssh target a
       "main",
       undefined,
     ),
-    " tan@example.com:~/project",
+    " tan@example.com:~/project",
   );
 });
 
@@ -108,7 +108,7 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
       },
     },
     {
-      pwd: " tan@example.com:~/project",
+      pwd: " tan@example.com:~/project",
       modelId: "gpt-5.4",
       modelProvider: "openai",
       reasoning: true,
@@ -120,7 +120,7 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
   );
 
   assert.deepEqual(lines, [
-    `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48)}`,
+    `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48)}`,
     "dim:ssh active",
   ]);
 });
@@ -133,7 +133,7 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
       },
     },
     {
-      pwd: " tan@example.com:~/project",
+      pwd: " tan@example.com:~/project",
       modelId: "gpt-5.4",
       modelProvider: "openai",
       reasoning: true,
@@ -144,7 +144,7 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
     12,
   );
 
-  assert.equal(lines[0], `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 12)}`);
+  assert.equal(lines[0], `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 12)}`);
   assert.equal(stripAnsi(lines[1]), "dim:󰒓 Ready |...");
 });
 
