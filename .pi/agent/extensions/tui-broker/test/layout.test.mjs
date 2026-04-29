@@ -7,6 +7,8 @@ import {
   buildEditorTopBorderLine,
   buildModelEffortLabel,
   buildSingleLineFooter,
+  formatModelIdForDisplay,
+  formatThinkingLevelForDisplay,
   formatTokens,
   getContextUsageHighlightAnsiCodes,
   getContextUsageHighlightLevel,
@@ -46,20 +48,36 @@ test("getContextUsageHighlightAnsiCodes makes highlighted states bold", () => {
   assert.equal(getContextUsageHighlightAnsiCodes(224_000), "1;31");
 });
 
+test("formatModelIdForDisplay makes common model ids human readable", () => {
+  assert.equal(formatModelIdForDisplay("gpt-5.4"), "GPT-5.4");
+  assert.equal(formatModelIdForDisplay("gpt-5.3-codex"), "GPT-5.3 Codex");
+  assert.equal(formatModelIdForDisplay("gpt-oss-120b"), "GPT-OSS 120b");
+  assert.equal(formatModelIdForDisplay("o4-mini"), "o4 Mini");
+  assert.equal(formatModelIdForDisplay("claude-sonnet-4-5"), "Claude Sonnet 4.5");
+  assert.equal(formatModelIdForDisplay("gemini-2.5-pro"), "Gemini 2.5 Pro");
+  assert.equal(formatModelIdForDisplay(undefined), "No Model");
+});
+
+test("formatThinkingLevelForDisplay makes effort labels human readable", () => {
+  assert.equal(formatThinkingLevelForDisplay("high"), "High");
+  assert.equal(formatThinkingLevelForDisplay("xhigh"), "Extra High");
+  assert.equal(formatThinkingLevelForDisplay("off"), "Thinking Off");
+});
+
 test("buildModelEffortLabel keeps only model and effort", () => {
-  assert.equal(buildModelEffortLabel("gpt-5.4", true, "high"), "gpt-5.4 • high");
-  assert.equal(buildModelEffortLabel("gpt-5.4", true, "off"), "gpt-5.4 • thinking off");
-  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high"), "gpt-5.4");
+  assert.equal(buildModelEffortLabel("gpt-5.4", true, "high"), "GPT-5.4 • High");
+  assert.equal(buildModelEffortLabel("gpt-5.4", true, "off"), "GPT-5.4 • Thinking Off");
+  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high"), "GPT-5.4");
 });
 
 test("buildSingleLineFooter keeps model label right-aligned", () => {
   assert.equal(
-    buildSingleLineFooter("~/vault (main)", "gpt-5.4 • high", 40),
-    "~/vault (main)            gpt-5.4 • high",
+    buildSingleLineFooter("~/vault (main)", "GPT-5.4 • High", 40),
+    "~/vault (main)            GPT-5.4 • High",
   );
   assert.equal(
-    buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "gpt-5.4 • high", 30),
-    "/a/very/long... gpt-5.4 • high",
+    buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "GPT-5.4 • High", 30),
+    "/a/very/long... GPT-5.4 • High",
   );
 });
 

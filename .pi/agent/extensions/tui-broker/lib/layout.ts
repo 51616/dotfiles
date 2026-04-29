@@ -1,9 +1,84 @@
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const MODEL_TOKEN_DISPLAY_NAMES: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  codex: "Codex",
+  deepseek: "DeepSeek",
+  gemini: "Gemini",
+  gpt: "GPT",
+  grok: "Grok",
+  haiku: "Haiku",
+  llama: "Llama",
+  medium: "Medium",
+  mini: "Mini",
+  mistral: "Mistral",
+  mixtral: "Mixtral",
+  opus: "Opus",
+  oss: "OSS",
+  qwen: "Qwen",
+  sonnet: "Sonnet",
+  turbo: "Turbo",
+};
+const THINKING_LEVEL_DISPLAY_NAMES: Record<string, string> = {
+  auto: "Auto",
+  high: "High",
+  low: "Low",
+  medium: "Medium",
+  off: "Thinking Off",
+  xhigh: "Extra High",
+  "extra-high": "Extra High",
+  extra_high: "Extra High",
+  "extra high": "Extra High",
+};
 
 function stripAnsi(text: string): string {
   return text.replace(ANSI_REGEX, "");
+}
+
+function toTitleCase(text: string): string {
+  if (!text) return text;
+  return `${text.slice(0, 1).toLocaleUpperCase()}${text.slice(1).toLocaleLowerCase()}`;
+}
+
+function formatModelToken(token: string): string {
+  const lower = token.toLocaleLowerCase();
+  if (/^o\d/.test(lower)) return lower;
+  return MODEL_TOKEN_DISPLAY_NAMES[lower] ?? toTitleCase(token);
+}
+
+function collapseClaudeVersionTokens(tokens: string[]): string[] {
+  const versionStartIndex = tokens.findIndex((token) => /^\d+$/.test(token));
+  if (versionStartIndex < 0 || versionStartIndex + 1 >= tokens.length) return tokens;
+  const major = tokens[versionStartIndex];
+  const minor = tokens[versionStartIndex + 1];
+  if (!/^\d+$/.test(minor) || minor.length > 2) return tokens;
+  return [...tokens.slice(0, versionStartIndex), `${major}.${minor}`, ...tokens.slice(versionStartIndex + 2)];
+}
+
+export function formatModelIdForDisplay(modelId: string | undefined): string {
+  const normalizedModelId = modelId?.trim();
+  if (!normalizedModelId) return "No Model";
+
+  const rawTokens = normalizedModelId.split(/[-_\s]+/).filter(Boolean);
+  if (rawTokens.length === 0) return "No Model";
+
+  const tokens = rawTokens[0]?.toLocaleLowerCase() === "claude" ? collapseClaudeVersionTokens(rawTokens) : rawTokens;
+  const formattedTokens = tokens.map(formatModelToken);
+  if (formattedTokens[0] === "GPT" && formattedTokens.length > 1) {
+    return [`GPT-${formattedTokens[1]}`, ...formattedTokens.slice(2)].join(" ");
+  }
+
+  return formattedTokens.join(" ");
+}
+
+export function formatThinkingLevelForDisplay(thinkingLevel: string | undefined): string {
+  const normalizedThinkingLevel = thinkingLevel?.trim() || "off";
+  const lower = normalizedThinkingLevel.toLocaleLowerCase();
+  const mapped = THINKING_LEVEL_DISPLAY_NAMES[lower];
+  if (mapped) return mapped;
+  return lower.split(/[-_\s]+/).filter(Boolean).map(toTitleCase).join(" ");
 }
 
 export type ContextUsageSnapshot = {
@@ -107,13 +182,10 @@ export function buildModelEffortLabel(
   reasoning: boolean | undefined,
   thinkingLevel: string | undefined,
 ): string {
-  const normalizedModelId = modelId?.trim() ? modelId : "no-model";
-  if (!reasoning) return normalizedModelId;
+  const displayModelId = formatModelIdForDisplay(modelId);
+  if (!reasoning) return displayModelId;
 
-  const normalizedThinkingLevel = thinkingLevel?.trim() ? thinkingLevel : "off";
-  return normalizedThinkingLevel === "off"
-    ? `${normalizedModelId} • thinking off`
-    : `${normalizedModelId} • ${normalizedThinkingLevel}`;
+  return `${displayModelId} • ${formatThinkingLevelForDisplay(thinkingLevel)}`;
 }
 
 export function buildSingleLineFooter(left: string, right: string, width: number): string {
