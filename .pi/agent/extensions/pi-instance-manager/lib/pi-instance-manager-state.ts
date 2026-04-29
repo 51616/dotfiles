@@ -1,4 +1,9 @@
-import { asString, type ManagerLock, type ManagerState } from "./pi-instance-manager-common.ts";
+import {
+  asString,
+  type ManagerLock,
+  type ManagerState,
+  type ManagerTurnItem,
+} from "./pi-instance-manager-common.ts";
 
 export function isSessionCompacting(state: ManagerState | null | undefined, sessionId: string): boolean {
   const sid = asString(sessionId).trim();
@@ -14,8 +19,32 @@ export function findSessionLock(state: ManagerState | null | undefined, sessionI
   return (state.activeLocks.find((lock) => asString((lock as any)?.sessionId).trim() === sid) ?? null) as ManagerLock | null;
 }
 
+export function getSessionTurnItems(state: ManagerState | null | undefined, sessionId: string): ManagerTurnItem[] {
+  const sid = asString(sessionId).trim();
+  if (!sid) return [];
+  if (!state || !Array.isArray((state as any).turnQueues)) return [];
+
+  const row = (state as any).turnQueues.find((q: any) => asString(q?.sessionId).trim() === sid);
+  return Array.isArray(row?.items) ? (row.items as ManagerTurnItem[]) : [];
+}
+
 export function toLocalTicketIdSet(items: Array<{ ticketId?: string }>): Set<string> {
   return new Set(items.map((row) => asString(row?.ticketId).trim()).filter(Boolean));
+}
+
+export function isDiscordTurnOwner(owner: unknown): boolean {
+  return /^pi-discord-bot:/.test(asString(owner).trim());
+}
+
+export function isTuiTurnOwner(owner: unknown): boolean {
+  return /^pi-tui:/.test(asString(owner).trim());
+}
+
+export function ownerPid(owner: unknown): number {
+  const match = asString(owner).trim().match(/(?:^|:)pid=(\d+)(?::|$)/);
+  if (!match) return 0;
+  const pid = Math.trunc(Number(match[1]));
+  return Number.isFinite(pid) && pid > 0 ? pid : 0;
 }
 
 export function countRemoteQueuedTurns(
@@ -23,19 +52,15 @@ export function countRemoteQueuedTurns(
   sessionId: string,
   localTicketIds: Set<string>,
 ): number {
-  const sid = asString(sessionId).trim();
-  if (!sid) return 0;
-  if (!state || !Array.isArray((state as any).turnQueues)) return 0;
+  const items = getSessionTurnItems(state, sessionId);
 
-  const row = (state as any).turnQueues.find((q: any) => asString(q?.sessionId).trim() === sid);
-  const items = Array.isArray(row?.items) ? row.items : [];
-
-  const remoteQueued = items.filter((item: any) => {
+  const remoteQueued = items.filter((item: ManagerTurnItem) => {
     const ticketId = asString(item?.ticketId).trim();
     const status = asString(item?.state).trim();
     if (status !== "queued") return false;
     if (!ticketId) return false;
-    return !localTicketIds.has(ticketId);
+    if (localTicketIds.has(ticketId)) return false;
+    return isDiscordTurnOwner(item?.owner);
   }).length;
 
   return Math.max(0, remoteQueued);

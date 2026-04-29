@@ -111,6 +111,29 @@ export function createTurnLockController({
     }
   }
 
+  function adoptTurnLock({
+    sessionId,
+    token,
+    fencingToken,
+    owner,
+  }: {
+    sessionId: string;
+    token: string;
+    fencingToken: string;
+    owner: string;
+  }): boolean {
+    const sid = asString(sessionId).trim();
+    const lockToken = asString(token).trim();
+    const fence = asString(fencingToken).trim();
+    if (!sid || !lockToken || !fence) return false;
+
+    setActiveTurnLockToken(lockToken);
+    setActiveTurnLockFencingToken(fence);
+    setActiveTurnLockSessionId(sid);
+    startTurnLockRenew(lockToken, fence, sid, asString(owner).trim() || `pi-tui:prompt:pid=${ownerPid}:session=${sid}`);
+    return true;
+  }
+
   async function acquireTurnLock(
     sessionId: string,
   ): Promise<{ token: string; fencingToken: string; managerGeneration: number; waited: boolean }> {
@@ -174,5 +197,6 @@ export function createTurnLockController({
     stopTurnLockRenew,
     releaseTurnLock,
     acquireTurnLock,
+    adoptTurnLock,
   };
 }

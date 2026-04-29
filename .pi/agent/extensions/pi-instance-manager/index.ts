@@ -21,7 +21,10 @@ import {
 import {
   countRemoteQueuedTurns,
   findSessionLock,
+  getSessionTurnItems,
   isSessionCompacting,
+  isTuiTurnOwner,
+  ownerPid,
   toLocalTicketIdSet,
 } from "./lib/pi-instance-manager-state.ts";
 import { isSessionEffectivelyCompacting } from "./lib/pi-instance-manager-status.ts";
@@ -68,6 +71,8 @@ export default function piInstanceManager(pi: ExtensionAPI) {
   let externalWriteExpectedUntil = 0;
   let autoHealInFlight = false;
   let lastAutoHealAt = 0;
+  let orphanTuiCleanupInFlight = false;
+  let lastOrphanTuiCleanupNoticeAt = 0;
   const sessionResync = createSessionResyncState();
   const queue = new SessionInputQueue();
 
@@ -168,7 +173,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       if (lastCtx?.hasUI) updateFooterStatus(lastCtx);
     },
   });
-  const { stopTurnLockRenew, releaseTurnLock, acquireTurnLock } = turnLockController;
+  const { stopTurnLockRenew, releaseTurnLock, acquireTurnLock, adoptTurnLock } = turnLockController;
 
   function resetSessionScopedState(ctx: ExtensionContext) {
     managerCompactingThisSession = false;
@@ -293,6 +298,73 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     }
   }
 
+  async function cancelSameProcessOrphanQueuedTuiTickets(
+    state: NonNullable<ManagerStateProbe["state"]>,
+    sessionId: string,
+    localTicketIds: Set<string>,
+  ) {
+    if (orphanTuiCleanupInFlight) return;
+
+    const orphanTickets = getSessionTurnItems(state, sessionId).filter((item) => {
+      const ticketId = asString(item?.ticketId).trim();
+      const owner = asString(item?.owner).trim();
+      if (!ticketId) return false;
+      if (item?.state !== "queued") return false;
+      if (localTicketIds.has(ticketId)) return false;
+      return isTuiTurnOwner(owner) && ownerPid(owner) === process.pid;
+    });
+
+    if (orphanTickets.length === 0) return;
+    orphanTuiCleanupInFlight = true;
+
+    try {
+      for (const ticket of orphanTickets) {
+        await finishTurnTicket(
+          asString(ticket.ticketId).trim(),
+          "turn.cancel",
+          asString(ticket.fencingToken).trim(),
+        );
+      }
+
+      const now = Date.now();
+      if (lastCtx?.hasUI && now - lastOrphanTuiCleanupNoticeAt > 10_000) {
+        lastOrphanTuiCleanupNoticeAt = now;
+        lastCtx.ui.notify(
+          `Cancelled ${orphanTickets.length} recovered TUI queue item${orphanTickets.length === 1 ? "" : "s"} whose full prompt text was lost during reload.`,
+          "warning",
+        );
+      }
+    } finally {
+      orphanTuiCleanupInFlight = false;
+    }
+  }
+
+  function adoptSameProcessActiveTuiTurn(state: NonNullable<ManagerStateProbe["state"]>, sessionId: string) {
+    const lock = managerLockThisSession;
+    const lockOwner = asString(lock?.owner).trim();
+    const lockToken = asString(lock?.token).trim();
+    const lockFence = asString(lock?.fencingToken).trim();
+    const sameProcessLock = Boolean(
+      lock && lockToken && lockFence && isTuiTurnOwner(lockOwner) && ownerPid(lockOwner) === process.pid,
+    );
+
+    const grantedTicket = getSessionTurnItems(state, sessionId).find((item) => {
+      const owner = asString(item?.owner).trim();
+      return item?.state === "granted" && isTuiTurnOwner(owner) && ownerPid(owner) === process.pid;
+    });
+
+    if (sameProcessLock && activeTurnLockToken !== lockToken) {
+      adoptTurnLock({ sessionId, token: lockToken, fencingToken: lockFence, owner: lockOwner });
+    }
+
+    const ticketId = asString(grantedTicket?.ticketId).trim();
+    if (ticketId && !activeTurnTicketId) {
+      activeTurnTicketId = ticketId;
+      activeTurnTicketFencingToken = asString(grantedTicket?.fencingToken).trim();
+      awaitingTurnEnd = true;
+    }
+  }
+
   async function refreshManagerState() {
     const previousLock = managerLockThisSession;
     const probe = await probeManagerState();
@@ -319,6 +391,8 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     if (sid) {
       const localTicketIds = toLocalTicketIdSet(queue.list(sid));
       remoteDiscordQueueDepth = countRemoteQueuedTurns(state, sid, localTicketIds);
+      adoptSameProcessActiveTuiTurn(state, sid);
+      await cancelSameProcessOrphanQueuedTuiTickets(state, sid, localTicketIds);
     } else {
       remoteDiscordQueueDepth = 0;
     }
