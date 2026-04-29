@@ -19,12 +19,16 @@ export function createTurnTicketClient({
   managerRequest,
   setManagerUnavailableError,
   scheduleQueueRetry,
+  getTuiWriterLease,
+  buildTuiOwner,
   lockWaitTimeoutMs = LOCK_WAIT_TIMEOUT_MS,
   ownerPid = process.pid,
 }: {
   managerRequest: ManagerRequestFn;
   setManagerUnavailableError: (message: string) => void;
   scheduleQueueRetry: (ms?: number) => void;
+  getTuiWriterLease: (sessionId: string) => Promise<{ ownerId: string; fencingToken: string } | null>;
+  buildTuiOwner: (sessionId: string) => string;
   lockWaitTimeoutMs?: number;
   ownerPid?: number;
 }) {
@@ -32,7 +36,10 @@ export function createTurnTicketClient({
     const sid = asString(sessionId).trim();
     if (!sid) return null;
 
-    const owner = `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
+    const owner = buildTuiOwner(sid) || `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
+    const writerLease = await getTuiWriterLease(sid);
+    if (!writerLease) return null;
+
     try {
       const data = await managerRequest(
         "turn.enqueue",
@@ -41,6 +48,8 @@ export function createTurnTicketClient({
           owner,
           pid: ownerPid,
           preview: text,
+          writerOwnerId: writerLease.ownerId,
+          writerFencingToken: writerLease.fencingToken,
         },
         2200,
       );

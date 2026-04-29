@@ -41,6 +41,19 @@ export type ManagerTurnQueue = {
   items?: ManagerTurnItem[];
 };
 
+export type ManagerTuiWriter = {
+  sessionId?: string;
+  ownerId?: string;
+  fencingToken?: string;
+  managerGeneration?: number;
+  owner?: string;
+  pid?: number;
+  acquiredAt?: number;
+  expiresAt?: number;
+  lastRenewedAt?: number;
+  renewCount?: number;
+};
+
 export type ManagerState = {
   managerGeneration?: number;
   fencingToken?: string;
@@ -49,6 +62,7 @@ export type ManagerState = {
   activeLocks?: ManagerLock[];
   queuedTurnRequests?: number;
   turnQueues?: ManagerTurnQueue[];
+  tuiWriters?: ManagerTuiWriter[];
 };
 
 export type ManagerStateProbe = {

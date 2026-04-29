@@ -19,6 +19,8 @@ export function registerInstanceManagerEventHooks({
   clearQueueRetryTimer,
   clearSpinnerTimer,
   stopTurnLockRenew,
+  stopTuiWriterRenew,
+  releaseTuiWriterLease,
   clearSessionResyncState,
   getActiveTurnTicketId,
   getActiveTurnTicketFencingToken,
@@ -40,6 +42,7 @@ export function registerInstanceManagerEventHooks({
   setManagerUnavailableError,
   setLastLocalSubmitAt,
   enqueueTurnTicket,
+  getTuiPromptOwner,
   setFooter,
   expandQueuedCommandText,
 }: {
@@ -57,6 +60,8 @@ export function registerInstanceManagerEventHooks({
   clearQueueRetryTimer: () => void;
   clearSpinnerTimer: () => void;
   stopTurnLockRenew: () => void;
+  stopTuiWriterRenew: () => void;
+  releaseTuiWriterLease: () => Promise<void>;
   clearSessionResyncState: () => void;
   getActiveTurnTicketId: () => string;
   getActiveTurnTicketFencingToken: () => string;
@@ -81,6 +86,7 @@ export function registerInstanceManagerEventHooks({
     sessionId: string,
     text: string,
   ) => Promise<{ ticketId: string; fencingToken: string; managerGeneration: number } | null>;
+  getTuiPromptOwner: (sessionId: string) => string;
   setFooter: (ctx: ExtensionContext) => void;
   expandQueuedCommandText: (text: string) => string;
 }) {
@@ -120,6 +126,7 @@ export function registerInstanceManagerEventHooks({
     clearQueueRetryTimer();
     clearSpinnerTimer();
     stopTurnLockRenew();
+    stopTuiWriterRenew();
     resetExternalWriteExpected();
     clearSessionResyncState();
 
@@ -136,6 +143,7 @@ export function registerInstanceManagerEventHooks({
     }
 
     await releaseTurnLock();
+    await releaseTuiWriterLease();
     clearUiState(ctx);
   });
 
@@ -210,7 +218,7 @@ export function registerInstanceManagerEventHooks({
         managerGeneration: ticket.managerGeneration,
         text: queuedText,
         queuedAt: Date.now(),
-        owner: `pi-tui:prompt:pid=${process.pid}:session=${sid}`,
+        owner: getTuiPromptOwner(sid),
       });
 
       if (ctx.hasUI) {

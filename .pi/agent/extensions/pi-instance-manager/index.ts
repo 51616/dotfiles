@@ -30,6 +30,7 @@ import {
 import { isSessionEffectivelyCompacting } from "./lib/pi-instance-manager-status.ts";
 import { type SpinnerState } from "./lib/pi-instance-manager-ui.ts";
 import { createTurnTicketClient } from "./lib/pi-instance-manager-turn-ticket.ts";
+import { createTuiWriterLeaseController } from "./lib/pi-instance-manager-tui-writer.ts";
 import { createTurnLockController } from "./lib/pi-instance-manager-turn-lock.ts";
 import { createQueueRetryScheduler } from "./lib/pi-instance-manager-queue-retry.ts";
 import { triggerManagerAutoHealRuntime } from "./lib/pi-instance-manager-autoheal-runtime.ts";
@@ -119,12 +120,31 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     },
   });
 
+  const tuiWriterLeaseController = createTuiWriterLeaseController({
+    managerRequest,
+    setManagerUnavailableError: (message) => {
+      managerUnavailableError = message;
+    },
+    scheduleQueueRetry,
+    onRenewAttemptFinished: () => {
+      if (lastCtx?.hasUI) updateFooterStatus(lastCtx);
+    },
+  });
+  const {
+    ownerForSession: tuiPromptOwnerForSession,
+    acquireTuiWriterLease,
+    releaseTuiWriterLease,
+    stopTuiWriterRenew,
+  } = tuiWriterLeaseController;
+
   const turnTicketClient = createTurnTicketClient({
     managerRequest,
     setManagerUnavailableError: (message) => {
       managerUnavailableError = message;
     },
     scheduleQueueRetry,
+    getTuiWriterLease: acquireTuiWriterLease,
+    buildTuiOwner: tuiPromptOwnerForSession,
   });
   const { enqueueTurnTicket, waitForTurnGrant, finishTurnTicket } = turnTicketClient;
 
@@ -569,6 +589,8 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       spinner.timer = null;
     },
     stopTurnLockRenew,
+    stopTuiWriterRenew,
+    releaseTuiWriterLease,
     clearSessionResyncState: () => {
       clearSessionResyncState(sessionResync);
     },
@@ -615,6 +637,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       lastLocalSubmitAt = value;
     },
     enqueueTurnTicket,
+    getTuiPromptOwner: tuiPromptOwnerForSession,
     setFooter: updateFooterStatus,
     expandQueuedCommandText,
   });

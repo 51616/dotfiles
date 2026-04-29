@@ -47,6 +47,8 @@ test("input hook bypasses headless print/json callers", async () => {
     clearQueueRetryTimer: noop,
     clearSpinnerTimer: noop,
     stopTurnLockRenew: noop,
+    stopTuiWriterRenew: noop,
+    releaseTuiWriterLease: noopAsync,
     clearSessionResyncState: noop,
     getActiveTurnTicketId: () => "",
     clearActiveTurnTicketId: noop,
@@ -72,6 +74,7 @@ test("input hook bypasses headless print/json callers", async () => {
       enqueuedTexts.push({ sessionId, text });
       return "ticket-1";
     },
+    getTuiPromptOwner: (sessionId) => `pi-tui:prompt:pid=${process.pid}:instance=test:session=${sessionId}`,
     setFooter: noop,
     expandQueuedCommandText: (text) => text,
   });
@@ -153,6 +156,8 @@ test("input hook expands prompt-template commands before queueing", async () => 
     clearQueueRetryTimer: noop,
     clearSpinnerTimer: noop,
     stopTurnLockRenew: noop,
+    stopTuiWriterRenew: noop,
+    releaseTuiWriterLease: noopAsync,
     clearSessionResyncState: noop,
     getActiveTurnTicketId: () => "",
     clearActiveTurnTicketId: noop,
@@ -178,6 +183,7 @@ test("input hook expands prompt-template commands before queueing", async () => 
       enqueuedTexts.push({ sessionId, text });
       return { ticketId: "ticket-1", fencingToken: "turn-fence-1", managerGeneration: 1 };
     },
+    getTuiPromptOwner: (sessionId) => `pi-tui:prompt:pid=${process.pid}:instance=test:session=${sessionId}`,
     setFooter: noop,
     expandQueuedCommandText: (text) => expandPromptTemplateCommand(text, commandLookup),
   });
@@ -250,6 +256,8 @@ test("session_before_fork maps clone position to clone guard op", async () => {
     clearQueueRetryTimer: noop,
     clearSpinnerTimer: noop,
     stopTurnLockRenew: noop,
+    stopTuiWriterRenew: noop,
+    releaseTuiWriterLease: noopAsync,
     clearSessionResyncState: noop,
     getActiveTurnTicketId: () => "",
     getActiveTurnTicketFencingToken: () => "",
@@ -274,6 +282,7 @@ test("session_before_fork maps clone position to clone guard op", async () => {
     setManagerUnavailableError: noop,
     setLastLocalSubmitAt: noop,
     enqueueTurnTicket: async () => null,
+    getTuiPromptOwner: (sessionId) => `pi-tui:prompt:pid=${process.pid}:instance=test:session=${sessionId}`,
     setFooter: noop,
     expandQueuedCommandText: (text) => text,
   });
