@@ -119,10 +119,8 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
     48,
   );
 
-  assert.deepEqual(lines, [
-    `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48)}`,
-    "dim:ssh active",
-  ]);
+  const footerLine = buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48);
+  assert.deepEqual(lines, [`mdCode:dim:${footerLine.slice("".length)}`, "dim:ssh active"]);
 });
 
 test("buildRemoteFooterLines dims truncated extension status text, not only the ellipsis", () => {
@@ -144,7 +142,8 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
     12,
   );
 
-  assert.equal(lines[0], `dim:${buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 12)}`);
+  const footerLine = buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 12);
+  assert.equal(lines[0], `dim:${footerLine}`);
   assert.equal(stripAnsi(lines[1]), "dim:󰒓 Ready |...");
 });
 

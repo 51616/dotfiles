@@ -241,7 +241,7 @@ function sanitizeStatusText(text: string): string {
 }
 
 type FooterTheme = {
-  fg: (color: "dim", text: string) => string;
+  fg: (color: "dim" | "mdCode", text: string) => string;
 };
 
 type RemoteFooterRenderState = {
@@ -260,6 +260,7 @@ function stripAnsi(text: string): string {
 
 const MODEL_ICON = "󰚩";
 const EFFORT_ICON = "󰧑";
+const REMOTE_FOOTER_ICON = "";
 
 function buildModelEffortLabel(modelId: string | undefined, reasoning: boolean | undefined, thinkingLevel: string | undefined): string {
   const normalizedModelId = modelId?.trim() || "no-model";
@@ -288,6 +289,11 @@ function buildSingleLineFooter(left: string, right: string, width: number): stri
   return `${normalizedLeft}${padding}${normalizedRight}`;
 }
 
+function colorizeRemoteFooterLine(theme: FooterTheme, line: string): string {
+  if (!line.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
+  return `${theme.fg("mdCode", REMOTE_FOOTER_ICON)}${theme.fg("dim", line.slice(REMOTE_FOOTER_ICON.length))}`;
+}
+
 function buildRemoteFooterLines(theme: FooterTheme, state: RemoteFooterRenderState, width: number): string[] {
   const modelLabel = buildModelEffortLabel(state.modelId, state.reasoning, state.thinkingLevel);
   const rightSide =
@@ -295,7 +301,7 @@ function buildRemoteFooterLines(theme: FooterTheme, state: RemoteFooterRenderSta
       ? `(${state.modelProvider}) ${modelLabel}`
       : modelLabel;
 
-  const lines = [theme.fg("dim", buildSingleLineFooter(state.pwd, rightSide, width))];
+  const lines = [colorizeRemoteFooterLine(theme, buildSingleLineFooter(state.pwd, rightSide, width))];
 
   if (state.extensionStatuses.length > 0) {
     lines.push(theme.fg("dim", truncateToWidth(state.extensionStatuses.join(" "), width, "...")));
@@ -309,7 +315,7 @@ function buildFooterPathLabel(path: string, home: string, _branch: string | null
   if (sessionName) {
     label = `${label} • ${sessionName}`;
   }
-  return ` ${label}`;
+  return `${REMOTE_FOOTER_ICON} ${label}`;
 }
 
 function buildRemoteFooterLabel(

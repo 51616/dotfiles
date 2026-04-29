@@ -475,7 +475,7 @@ test("tui-broker uses the highest-priority footer path contributor without losin
 
   const footer = footerFactory(
     { requestRender() {} },
-    { fg: (_color, text) => text },
+    { fg: (color, text) => (color === "mdCode" ? `code:${text}` : text) },
     {
       getGitBranch: () => "ignored-local-branch",
       getExtensionStatuses: () => new Map(),
@@ -485,6 +485,6 @@ test("tui-broker uses the highest-priority footer path contributor without losin
 
   const lines = footer.render(80);
   assert.equal(lines.length, 1);
-  assert.ok(lines[0].startsWith(" tan@example.com:~/project"));
+  assert.ok(lines[0].startsWith("code: tan@example.com:~/project"));
   assert.ok(lines[0].endsWith("󰚩 GPT-5.4 · 󰧑 High"));
 });

@@ -28,12 +28,13 @@ import {
 } from "./lib/runtime.ts";
 
 type BrokerTheme = {
-  fg: (color: "dim" | "text", text: string) => string;
+  fg: (color: "dim" | "mdCode" | "text", text: string) => string;
 };
 
 const EDITOR_BORDER_HEX = "#fab387";
 const EDITOR_BORDER_COLOR_LABEL = EDITOR_BORDER_HEX;
 const EDITOR_BORDER_CHAR = "─";
+const REMOTE_FOOTER_ICON = "";
 const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 type AgentSettingsSnapshot = {
@@ -282,6 +283,11 @@ function formatPwd(cwd: string, sessionName: string | null | undefined): string 
   return ` ${pwd}`;
 }
 
+function colorizeFooterLine(theme: BrokerTheme, line: string): string {
+  if (!line.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
+  return `${theme.fg("mdCode", REMOTE_FOOTER_ICON)}${theme.fg("dim", line.slice(REMOTE_FOOTER_ICON.length))}`;
+}
+
 export default function tuiBroker(pi: ExtensionAPI) {
   // Runtime contribution maps live on globalThis, but commands/event handlers belong to
   // the current extension runner and must be registered again for each session runtime.
@@ -349,7 +355,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
           const pwd = contributedPath?.text ?? formatPwd(ctx.sessionManager.getCwd(), sessionName);
           const modelLineText = buildModelEffortLabel(ctx.model?.id, ctx.model?.reasoning, pi.getThinkingLevel());
           const footerLine = buildSingleLineFooter(pwd, modelLineText, width);
-          lines.push(theme.fg("dim", footerLine));
+          lines.push(colorizeFooterLine(theme, footerLine));
 
           const extensionStatuses = footerData.getExtensionStatuses();
           if (extensionStatuses.size > 0) {

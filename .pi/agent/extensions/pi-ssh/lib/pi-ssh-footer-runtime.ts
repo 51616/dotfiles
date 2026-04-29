@@ -10,6 +10,7 @@ type PiSshFooterStore = {
 };
 
 const STORE_KEY = "__PI_SSH_FOOTER_RUNTIME__";
+const REMOTE_FOOTER_ICON = "";
 
 function getStore(): PiSshFooterStore {
   const g = globalThis as Record<string, unknown>;
@@ -73,7 +74,7 @@ export function buildPiSshFooterLabel(
   if (sessionName) {
     location = `${location} • ${sessionName}`;
   }
-  return ` ${snapshot.remoteDisplayTarget}:${location}`;
+  return `${REMOTE_FOOTER_ICON} ${snapshot.remoteDisplayTarget}:${location}`;
 }
 
 export function __resetPiSshFooterRuntimeForTests(): void {
