@@ -5,10 +5,10 @@ Shows the current local Git working-tree state in the user editor top-right bord
 Label format:
 
 ```text
-🌿 main 3f +120 -8
+ main 3f +120 -8
 ```
 
-- `🌿 main` is the current branch. Detached HEADs are shown as `detached@<short-hash>`.
+- ` main` is the current branch using the common Powerline branch glyph. Detached HEADs are shown as `detached@<short-hash>`.
 - `3f` is the number of changed files reported by `git status --porcelain=v1 --untracked-files=all`.
 - `+120 -8` are tracked line additions/deletions from `git diff --numstat HEAD --`.
 - Untracked files count toward `f`, but their full line counts are intentionally not computed because doing so can be expensive in large generated trees.

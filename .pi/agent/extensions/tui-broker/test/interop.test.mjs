@@ -382,7 +382,7 @@ test("tui-broker renders registered top-right editor statuses", async () => {
   __resetTuiBrokerRuntimeForTests();
   __resetDoNotStopRuntimeStoreForTests();
 
-  registerTuiBrokerEditorTopRightStatusProvider("git-state", () => ({ text: "🌿 main 2f +10 -3", priority: 100 }));
+  registerTuiBrokerEditorTopRightStatusProvider("git-state", () => ({ text: " main 2f +10 -3", priority: 100 }));
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -393,12 +393,12 @@ test("tui-broker renders registered top-right editor statuses", async () => {
   }
 
   const lines = createRenderedEditorLines(ctx, 50);
-  assert.match(lines[0] ?? "", /🌿 main 2f \+10 -3/);
-  assert.ok(stripAnsi(lines[0] ?? "").endsWith(" 🌿 main 2f +10 -3 ─"));
+  assert.match(lines[0] ?? "", / main 2f \+10 -3/);
+  assert.ok(stripAnsi(lines[0] ?? "").endsWith("  main 2f +10 -3 ─"));
 
   const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
   assert.deepEqual(snapshot.editorTopRightStatusKeys, ["git-state"]);
-  assert.deepEqual(snapshot.editorTopRightStatuses, ["🌿 main 2f +10 -3"]);
+  assert.deepEqual(snapshot.editorTopRightStatuses, [" main 2f +10 -3"]);
 });
 
 test("tui-broker falls back to the startup default model context window before the first turn", async () => {
