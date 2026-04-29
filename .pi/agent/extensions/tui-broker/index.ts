@@ -11,7 +11,6 @@ import {
   buildEditorBorderBadgeText,
   buildEditorTopBorderLine,
   buildModelEffortLabel,
-  buildSingleLineFooter,
   getContextUsageHighlightAnsiCodes,
   sanitizeStatusText,
 } from "./lib/layout.ts";
@@ -29,6 +28,7 @@ import {
 
 type BrokerTheme = {
   fg: (color: "dim" | "mdCode" | "text", text: string) => string;
+  bold: (text: string) => string;
 };
 
 const EDITOR_BORDER_HEX = "#fab387";
@@ -283,9 +283,38 @@ function formatPwd(cwd: string, sessionName: string | null | undefined): string 
   return ` ${pwd}`;
 }
 
-function colorizeFooterLine(theme: BrokerTheme, line: string): string {
-  if (!line.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
-  return `${theme.fg("mdCode", REMOTE_FOOTER_ICON)}${theme.fg("dim", line.slice(REMOTE_FOOTER_ICON.length))}`;
+type SingleLineFooterParts = {
+  left: string;
+  padding: string;
+  right: string;
+};
+
+function buildSingleLineFooterParts(left: string, right: string, width: number): SingleLineFooterParts {
+  if (width <= 0) return { left: "", padding: "", right: "" };
+
+  const normalizedRight = stripAnsi(truncateToWidth(right, width, ""));
+  const rightWidth = visibleWidth(normalizedRight);
+  if (rightWidth >= width) {
+    return { left: "", padding: "", right: normalizedRight };
+  }
+
+  const availableLeft = Math.max(0, width - rightWidth - 1);
+  const normalizedLeft = availableLeft > 0 ? stripAnsi(truncateToWidth(left, availableLeft, "...")) : "";
+  const leftWidth = visibleWidth(normalizedLeft);
+  const paddingWidth = Math.max(1, width - leftWidth - rightWidth);
+
+  return {
+    left: normalizedLeft,
+    padding: " ".repeat(paddingWidth),
+    right: normalizedRight,
+  };
+}
+
+function colorizeFooterLine(theme: BrokerTheme, left: string, right: string, width: number): string {
+  const parts = buildSingleLineFooterParts(left, right, width);
+  const line = `${parts.left}${parts.padding}${parts.right}`;
+  if (!parts.left.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
+  return `${theme.bold(theme.fg("mdCode", parts.left))}${theme.fg("dim", `${parts.padding}${parts.right}`)}`;
 }
 
 export default function tuiBroker(pi: ExtensionAPI) {
@@ -354,8 +383,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
           const contributedPath = getTuiBrokerFooterPath({ sessionName });
           const pwd = contributedPath?.text ?? formatPwd(ctx.sessionManager.getCwd(), sessionName);
           const modelLineText = buildModelEffortLabel(ctx.model?.id, ctx.model?.reasoning, pi.getThinkingLevel());
-          const footerLine = buildSingleLineFooter(pwd, modelLineText, width);
-          lines.push(colorizeFooterLine(theme, footerLine));
+          lines.push(colorizeFooterLine(theme, pwd, modelLineText, width));
 
           const extensionStatuses = footerData.getExtensionStatuses();
           if (extensionStatuses.size > 0) {

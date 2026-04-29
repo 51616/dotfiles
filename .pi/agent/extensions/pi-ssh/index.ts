@@ -242,6 +242,7 @@ function sanitizeStatusText(text: string): string {
 
 type FooterTheme = {
   fg: (color: "dim" | "mdCode", text: string) => string;
+  bold: (text: string) => string;
 };
 
 type RemoteFooterRenderState = {
@@ -271,27 +272,43 @@ function buildModelEffortLabel(modelId: string | undefined, reasoning: boolean |
   return `${modelLabel} · ${EFFORT_ICON} ${normalizedThinkingLevel}`;
 }
 
-function buildSingleLineFooter(left: string, right: string, width: number): string {
-  if (width <= 0) return "";
+type SingleLineFooterParts = {
+  left: string;
+  padding: string;
+  right: string;
+};
+
+function buildSingleLineFooterParts(left: string, right: string, width: number): SingleLineFooterParts {
+  if (width <= 0) return { left: "", padding: "", right: "" };
 
   const normalizedRight = stripAnsi(truncateToWidth(right, width, ""));
   const rightWidth = visibleWidth(normalizedRight);
   if (rightWidth >= width) {
-    return normalizedRight;
+    return { left: "", padding: "", right: normalizedRight };
   }
 
   const availableLeft = Math.max(0, width - rightWidth - 1);
   const normalizedLeft = availableLeft > 0 ? stripAnsi(truncateToWidth(left, availableLeft, "...")) : "";
   const leftWidth = visibleWidth(normalizedLeft);
   const paddingWidth = Math.max(1, width - leftWidth - rightWidth);
-  const padding = " ".repeat(paddingWidth);
 
-  return `${normalizedLeft}${padding}${normalizedRight}`;
+  return {
+    left: normalizedLeft,
+    padding: " ".repeat(paddingWidth),
+    right: normalizedRight,
+  };
 }
 
-function colorizeRemoteFooterLine(theme: FooterTheme, line: string): string {
-  if (!line.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
-  return `${theme.fg("mdCode", REMOTE_FOOTER_ICON)}${theme.fg("dim", line.slice(REMOTE_FOOTER_ICON.length))}`;
+function buildSingleLineFooter(left: string, right: string, width: number): string {
+  const parts = buildSingleLineFooterParts(left, right, width);
+  return `${parts.left}${parts.padding}${parts.right}`;
+}
+
+function colorizeRemoteFooterLine(theme: FooterTheme, left: string, right: string, width: number): string {
+  const parts = buildSingleLineFooterParts(left, right, width);
+  const line = `${parts.left}${parts.padding}${parts.right}`;
+  if (!parts.left.startsWith(REMOTE_FOOTER_ICON)) return theme.fg("dim", line);
+  return `${theme.bold(theme.fg("mdCode", parts.left))}${theme.fg("dim", `${parts.padding}${parts.right}`)}`;
 }
 
 function buildRemoteFooterLines(theme: FooterTheme, state: RemoteFooterRenderState, width: number): string[] {
@@ -301,7 +318,7 @@ function buildRemoteFooterLines(theme: FooterTheme, state: RemoteFooterRenderSta
       ? `(${state.modelProvider}) ${modelLabel}`
       : modelLabel;
 
-  const lines = [colorizeRemoteFooterLine(theme, buildSingleLineFooter(state.pwd, rightSide, width))];
+  const lines = [colorizeRemoteFooterLine(theme, state.pwd, rightSide, width)];
 
   if (state.extensionStatuses.length > 0) {
     lines.push(theme.fg("dim", truncateToWidth(state.extensionStatuses.join(" "), width, "...")));

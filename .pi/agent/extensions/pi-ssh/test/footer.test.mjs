@@ -106,6 +106,9 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
       fg(color, text) {
         return `${color}:${text}`;
       },
+      bold(text) {
+        return `bold:${text}`;
+      },
     },
     {
       pwd: " tan@example.com:~/project",
@@ -120,7 +123,9 @@ test("buildRemoteFooterLines keeps the tui-broker layout without a footer token 
   );
 
   const footerLine = buildSingleLineFooter(" tan@example.com:~/project", "󰚩 gpt-5.4 · 󰧑 high", 48);
-  assert.deepEqual(lines, [`mdCode:dim:${footerLine.slice("".length)}`, "dim:ssh active"]);
+  const remoteInfo = " tan@example.com:~/project";
+  const rest = footerLine.slice(remoteInfo.length);
+  assert.deepEqual(lines, [`bold:mdCode:${remoteInfo}dim:${rest}`, "dim:ssh active"]);
 });
 
 test("buildRemoteFooterLines dims truncated extension status text, not only the ellipsis", () => {
@@ -128,6 +133,9 @@ test("buildRemoteFooterLines dims truncated extension status text, not only the 
     {
       fg(color, text) {
         return `${color}:${text}`;
+      },
+      bold(text) {
+        return `bold:${text}`;
       },
     },
     {
