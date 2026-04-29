@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
@@ -37,6 +38,17 @@ import {
 interface SshConnection extends PiSshConnection {
   remoteDisplayTarget: string;
 }
+
+type SshEffectiveTarget = {
+  user: string | null;
+  hostname: string | null;
+  port: string | null;
+};
+
+type SshDisplayTargetDeps = {
+  readConfigText?: () => string | null;
+  resolveEffectiveTarget?: (remote: string, port: number) => Promise<SshEffectiveTarget | null>;
+};
 
 interface SshCaptureOptions {
   stdin?: string | Buffer;
@@ -458,7 +470,54 @@ function buildSshBaseArgs(port: number): string[] {
   ];
 }
 
-async function resolveSshDisplayTarget(remote: string, port: number): Promise<string> {
+function readSshConfigText(): string | null {
+  try {
+    return readFileSync(`${homedir()}/.ssh/config`, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function parseSshConfigHostAliases(configText: string | null): string[] {
+  if (!configText) return [];
+
+  const aliases: string[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of configText.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+#.*$/, "").trim();
+    const match = /^Host\s+(.+)$/i.exec(line);
+    if (!match) continue;
+
+    for (const rawPattern of match[1].trim().split(/\s+/)) {
+      const pattern = rawPattern.trim();
+      if (!pattern || pattern.startsWith("!") || /[*?]/.test(pattern)) continue;
+      if (seen.has(pattern)) continue;
+      seen.add(pattern);
+      aliases.push(pattern);
+    }
+  }
+  return aliases;
+}
+
+function parseSshEffectiveTarget(configText: string): SshEffectiveTarget {
+  let user: string | null = null;
+  let hostname: string | null = null;
+  let resolvedPort: string | null = null;
+
+  for (const line of configText.split(/\r?\n/)) {
+    const [rawKey, ...rest] = line.trim().split(/\s+/);
+    const key = rawKey?.toLowerCase();
+    if (!key || rest.length === 0) continue;
+    const value = rest.join(" ");
+    if (key === "user" && !user) user = value;
+    if (key === "hostname" && !hostname) hostname = value;
+    if (key === "port" && !resolvedPort) resolvedPort = value;
+  }
+
+  return { user, hostname, port: resolvedPort };
+}
+
+async function readSshEffectiveTarget(remote: string, port: number): Promise<SshEffectiveTarget | null> {
   return new Promise((resolve) => {
     const child = spawn("ssh", ["-G", "-p", String(port), remote], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -470,33 +529,69 @@ async function resolveSshDisplayTarget(remote: string, port: number): Promise<st
     child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     child.on("error", () => {
       clearTimeout(timeoutHandle);
-      resolve(remote);
+      resolve(null);
     });
     child.on("close", (code) => {
       clearTimeout(timeoutHandle);
       if (code !== 0) {
-        resolve(remote);
+        resolve(null);
         return;
       }
 
-      const config = Buffer.concat(stdoutChunks).toString("utf-8");
-      let user: string | null = null;
-      let hostname: string | null = null;
-      for (const line of config.split(/\r?\n/)) {
-        const [key, ...rest] = line.trim().split(/\s+/);
-        if (!key || rest.length === 0) continue;
-        const value = rest.join(" ");
-        if (key === "user" && !user) user = value;
-        if (key === "hostname" && !hostname) hostname = value;
-      }
-
-      if (user && hostname) {
-        resolve(`${user}@${hostname}`);
-        return;
-      }
-      resolve(remote);
+      resolve(parseSshEffectiveTarget(Buffer.concat(stdoutChunks).toString("utf-8")));
     });
   });
+}
+
+function sameSshEffectiveTarget(left: SshEffectiveTarget, right: SshEffectiveTarget): boolean {
+  return (
+    (left.hostname ?? "").toLowerCase() === (right.hostname ?? "").toLowerCase() &&
+    (left.user ?? "") === (right.user ?? "") &&
+    (left.port ?? "") === (right.port ?? "")
+  );
+}
+
+function formatSshEffectiveTargetFallback(remote: string, target: SshEffectiveTarget | null): string {
+  if (target?.user && target.hostname) return `${target.user}@${target.hostname}`;
+  if (target?.hostname) return target.hostname;
+  return remote;
+}
+
+async function resolveSshConfigAliasForTarget(
+  remote: string,
+  port: number,
+  target: SshEffectiveTarget,
+  aliases: string[],
+  resolveEffectiveTarget: (remote: string, port: number) => Promise<SshEffectiveTarget | null>,
+): Promise<string | null> {
+  for (const alias of aliases) {
+    if (alias === remote) continue;
+    const aliasTarget = await resolveEffectiveTarget(alias, port);
+    if (aliasTarget && sameSshEffectiveTarget(aliasTarget, target)) return alias;
+  }
+  return null;
+}
+
+async function resolveSshDisplayTarget(
+  remote: string,
+  port: number,
+  deps: SshDisplayTargetDeps = {},
+): Promise<string> {
+  const readConfig = deps.readConfigText ?? readSshConfigText;
+  const resolveEffectiveTarget = deps.resolveEffectiveTarget ?? readSshEffectiveTarget;
+  const aliases = parseSshConfigHostAliases(readConfig());
+
+  if (aliases.includes(remote)) {
+    return remote;
+  }
+
+  const target = await resolveEffectiveTarget(remote, port);
+  const alias = target
+    ? await resolveSshConfigAliasForTarget(remote, port, target, aliases, resolveEffectiveTarget)
+    : null;
+  if (alias) return alias;
+  if (!remote.includes("@")) return remote;
+  return formatSshEffectiveTargetFallback(remote, target);
 }
 
 function buildResolveRemotePathCommand(remotePath: string): string {
@@ -1612,7 +1707,9 @@ export const __testInternals = {
   buildRemoteFooterLines,
   buildSingleLineFooter,
   buildStartupNoticeEntries,
+  parseSshConfigHostAliases,
   renderStartupNoticeLines,
+  resolveSshDisplayTarget,
   shouldPublishStartupNotice,
   filterStartupNoticeMessages,
   parseDelimitedShellOutput,

@@ -11,10 +11,59 @@ const {
   buildRemoteFooterLabel,
   buildSingleLineFooter,
   buildStartupNoticeEntries,
+  parseSshConfigHostAliases,
   renderStartupNoticeLines,
+  resolveSshDisplayTarget,
   shouldPublishStartupNotice,
   filterStartupNoticeMessages,
 } = __testInternals;
+
+test("parseSshConfigHostAliases returns concrete host aliases in config order", () => {
+  assert.deepEqual(
+    parseSshConfigHostAliases(`
+Host gcp_slurm_sakana_eu *.example !blocked
+  HostName 34.91.238.94
+Host gcp_slurm_sakana_eu-pi-agent # comment
+  HostName 34.91.238.94
+Host *
+  ServerAliveInterval 30
+`),
+    ["gcp_slurm_sakana_eu", "gcp_slurm_sakana_eu-pi-agent"],
+  );
+});
+
+test("resolveSshDisplayTarget uses a directly requested ssh config alias", async () => {
+  const target = await resolveSshDisplayTarget("gcp_slurm_sakana_eu-pi-agent", 22, {
+    readConfigText: () => "Host gcp_slurm_sakana_eu-pi-agent\n  HostName 34.91.238.94\n",
+    resolveEffectiveTarget: async () => {
+      throw new Error("alias input should not need ssh -G resolution");
+    },
+  });
+
+  assert.equal(target, "gcp_slurm_sakana_eu-pi-agent");
+});
+
+test("resolveSshDisplayTarget maps a full user-host target to the first matching ssh config alias", async () => {
+  const effectiveTargets = new Map([
+    ["rujikorn_sakana_ai@34.91.238.94", { user: "rujikorn_sakana_ai", hostname: "34.91.238.94", port: "22" }],
+    ["gcp_slurm_sakana_eu", { user: "rujikorn_sakana_ai", hostname: "34.91.238.94", port: "22" }],
+    ["gcp_slurm_sakana_eu-pi-agent", { user: "rujikorn_sakana_ai", hostname: "34.91.238.94", port: "22" }],
+  ]);
+
+  const target = await resolveSshDisplayTarget("rujikorn_sakana_ai@34.91.238.94", 22, {
+    readConfigText: () => `
+Host gcp_slurm_sakana_eu
+  HostName 34.91.238.94
+  User rujikorn_sakana_ai
+Host gcp_slurm_sakana_eu-pi-agent
+  HostName 34.91.238.94
+  User rujikorn_sakana_ai
+`,
+    resolveEffectiveTarget: async (remote) => effectiveTargets.get(remote) ?? null,
+  });
+
+  assert.equal(target, "gcp_slurm_sakana_eu");
+});
 
 test("buildFooterPathLabel prefixes the remote path icon and omits branch display", () => {
   assert.equal(buildFooterPathLabel("/remote/home/project", "/remote/home", "main", undefined), " ~/project");
