@@ -67,7 +67,7 @@ test("discordBadge uses glyph wording for online and offline states", () => {
       restarts: 0,
       error: "",
     }),
-    "| 󰙯 Online",
+    "| 󰙯 online",
   );
   assert.equal(
     discordBadge({
@@ -78,7 +78,7 @@ test("discordBadge uses glyph wording for online and offline states", () => {
       restarts: 2,
       error: "",
     }),
-    "| 󰙯 Offline (restarts: 2)",
+    "| 󰙯 offline (restarts: 2)",
   );
 });
 

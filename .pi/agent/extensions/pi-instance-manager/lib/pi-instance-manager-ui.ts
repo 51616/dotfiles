@@ -17,16 +17,16 @@ export function isDiscordPromptOwner(owner: string): boolean {
 export function instanceManagerStatusLine(mode: ManagerStatusMode, owner: string, queuedCount: number): string {
   const queueSuffix = queuedCount > 0 ? ` (queue: ${queuedCount})` : "";
 
-  if (mode === "manager_down") return `󰒓 Offline${queueSuffix}`;
-  if (mode === "compacting") return `󰒓 Compacting${queueSuffix}`;
-  if (mode === "in_turn") return `󰒓 Turn Running${queueSuffix}`;
+  if (mode === "manager_down") return `󰒓 offline${queueSuffix}`;
+  if (mode === "compacting") return `󰒓 compacting${queueSuffix}`;
+  if (mode === "in_turn") return `󰒓 turn running${queueSuffix}`;
 
   if (mode === "waiting_lock") {
-    if (isDiscordPromptOwner(owner)) return `󰒓 Waiting for Discord${queueSuffix}`;
-    return `󰒓 Waiting for Lock${queueSuffix}`;
+    if (isDiscordPromptOwner(owner)) return `󰒓 waiting for discord${queueSuffix}`;
+    return `󰒓 waiting for lock${queueSuffix}`;
   }
 
-  return `󰒓 Ready${queueSuffix}`;
+  return `󰒓 ready${queueSuffix}`;
 }
 
 export function ensureManagerSpinnerStatus(
