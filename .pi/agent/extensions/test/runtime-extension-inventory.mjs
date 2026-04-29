@@ -32,6 +32,7 @@ export const REGRESSION_MATRIX = {
   ],
   "git-state": [
     "git-state/test/git-state.test.mjs",
+    "git-state/test/git-state-ssh.test.mjs",
   ],
   "low-effort-compaction": [
     "test/runtime-entrypoint-imports.test.mjs",

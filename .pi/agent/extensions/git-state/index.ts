@@ -2,6 +2,12 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
+  getActivePiSshSession,
+  type PiSshExecTextResult,
+  type PiSshSession,
+} from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
+import { getPiSshFooterSnapshot } from "../pi-ssh/lib/pi-ssh-footer-runtime.ts";
+import {
   registerTuiBrokerEditorTopRightStatusProvider,
   requestTuiBrokerEditorRefresh,
   unregisterTuiBrokerEditorTopRightStatusProvider,
@@ -17,6 +23,7 @@ import {
 const CONTRIBUTION_KEY = "git-state";
 const POLL_INTERVAL_MS = 3_000;
 const GIT_TIMEOUT_MS = 2_000;
+const GIT_TIMEOUT_SECONDS = GIT_TIMEOUT_MS / 1_000;
 
 let currentSnapshot: GitStateSnapshot | null = null;
 let currentSignature = buildGitStateSignature(null);
@@ -24,6 +31,22 @@ let activeCtx: ExtensionContext | null = null;
 let refreshInFlight = false;
 let interval: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
+
+type GitCommand = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string }>;
+
+type RemoteFooterSnapshot = {
+  remoteCwd: string;
+};
+
+type ReadGitStateDeps = {
+  getActiveSession?: () => PiSshSession | null;
+  getRemoteFooterSnapshot?: () => RemoteFooterSnapshot | null;
+};
+
+const defaultReadGitStateDeps: Required<ReadGitStateDeps> = {
+  getActiveSession: getActivePiSshSession,
+  getRemoteFooterSnapshot: getPiSshFooterSnapshot,
+};
 
 function setSnapshot(snapshot: GitStateSnapshot | null): void {
   const nextSignature = buildGitStateSignature(snapshot);
@@ -34,38 +57,59 @@ function setSnapshot(snapshot: GitStateSnapshot | null): void {
   requestTuiBrokerEditorRefresh();
 }
 
-async function git(pi: ExtensionAPI, cwd: string, args: string[]): Promise<{ code: number; stdout: string }> {
+function shellQuote(value: string): string {
+  if (!value) return "''";
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+async function localGit(pi: ExtensionAPI, cwd: string, args: string[]): Promise<{ code: number; stdout: string }> {
   const result = await pi.exec("git", args, { cwd, timeout: GIT_TIMEOUT_MS });
   return { code: result.code, stdout: result.stdout };
 }
 
-async function readBranchName(pi: ExtensionAPI, repoRoot: string): Promise<string> {
-  const branchResult = await git(pi, repoRoot, ["branch", "--show-current"]);
+function buildRemoteGitCommand(cwd: string, args: string[]): string {
+  const quotedArgs = args.map(shellQuote).join(" ");
+  return `cd -- ${shellQuote(cwd)} && git --no-optional-locks ${quotedArgs}`;
+}
+
+async function remoteGit(session: PiSshSession, cwd: string, args: string[]): Promise<{ code: number; stdout: string }> {
+  const result: PiSshExecTextResult = await session.execText(buildRemoteGitCommand(cwd, args), {
+    timeoutSeconds: GIT_TIMEOUT_SECONDS,
+  });
+  return { code: result.exitCode ?? 1, stdout: result.output };
+}
+
+async function readBranchName(git: GitCommand, repoRoot: string): Promise<string> {
+  const branchResult = await git(repoRoot, ["branch", "--show-current"]);
   const branchName = branchResult.stdout.trim();
   if (branchResult.code === 0 && branchName) return branchName;
 
-  const headResult = await git(pi, repoRoot, ["rev-parse", "--short", "HEAD"]);
+  const headResult = await git(repoRoot, ["rev-parse", "--short", "HEAD"]);
   const head = headResult.stdout.trim();
   if (headResult.code === 0 && head) return `detached@${head}`;
 
   return "unknown";
 }
 
-async function readGitState(pi: ExtensionAPI, cwd: string): Promise<GitStateSnapshot | null> {
-  const rootResult = await git(pi, cwd, ["rev-parse", "--show-toplevel"]);
+async function readGitStateWithCommand(git: GitCommand, cwd: string): Promise<GitStateSnapshot | null> {
+  const rootResult = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (rootResult.code !== 0) return null;
 
   const repoRoot = rootResult.stdout.trim();
   if (!repoRoot) return null;
 
-  const branchName = await readBranchName(pi, repoRoot);
+  return readGitStateInRepo(git, repoRoot);
+}
 
-  const statusResult = await git(pi, repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
+async function readGitStateInRepo(git: GitCommand, repoRoot: string): Promise<GitStateSnapshot | null> {
+  const branchName = await readBranchName(git, repoRoot);
+
+  const statusResult = await git(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (statusResult.code !== 0) return null;
 
-  let diffResult = await git(pi, repoRoot, ["diff", "--numstat", "HEAD", "--"]);
+  let diffResult = await git(repoRoot, ["diff", "--numstat", "HEAD", "--"]);
   if (diffResult.code !== 0) {
-    diffResult = await git(pi, repoRoot, ["diff", "--numstat", "--"]);
+    diffResult = await git(repoRoot, ["diff", "--numstat", "--"]);
   }
 
   const { additions, deletions } = parseNumstat(diffResult.code === 0 ? diffResult.stdout : "");
@@ -77,6 +121,43 @@ async function readGitState(pi: ExtensionAPI, cwd: string): Promise<GitStateSnap
     deletions,
     repoRoot,
   };
+}
+
+function resolveRemoteCwd(session: PiSshSession, localCwd: string, snapshot: RemoteFooterSnapshot | null): string {
+  const snapshotCwd = snapshot?.remoteCwd?.trim();
+  if (snapshotCwd) return snapshotCwd;
+
+  const mappedCwd = session.mapLocalPathToRemote(localCwd).trim();
+  if (mappedCwd && mappedCwd !== localCwd) return mappedCwd;
+
+  return session.getConnectionInfo().remoteCwd;
+}
+
+async function readRemoteGitState(
+  session: PiSshSession,
+  localCwd: string,
+  snapshot: RemoteFooterSnapshot | null,
+): Promise<GitStateSnapshot | null> {
+  const remoteCwd = resolveRemoteCwd(session, localCwd, snapshot);
+  const repoRoot = await session.repoRoot(remoteCwd);
+  if (!repoRoot) return null;
+
+  return readGitStateInRepo((cwd, args) => remoteGit(session, cwd, args), repoRoot);
+}
+
+export async function readGitState(
+  pi: ExtensionAPI,
+  cwd: string,
+  deps: ReadGitStateDeps = defaultReadGitStateDeps,
+): Promise<GitStateSnapshot | null> {
+  const getActiveSession = deps.getActiveSession ?? defaultReadGitStateDeps.getActiveSession;
+  const session = getActiveSession();
+  if (session) {
+    const getRemoteFooterSnapshot = deps.getRemoteFooterSnapshot ?? defaultReadGitStateDeps.getRemoteFooterSnapshot;
+    return readRemoteGitState(session, cwd, getRemoteFooterSnapshot());
+  }
+
+  return readGitStateWithCommand((gitCwd, args) => localGit(pi, gitCwd, args), cwd);
 }
 
 async function refresh(pi: ExtensionAPI): Promise<void> {
