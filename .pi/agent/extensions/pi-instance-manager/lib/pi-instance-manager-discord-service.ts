@@ -58,19 +58,21 @@ export function readUnitSnapshot(unit: string): UnitSnapshot {
 export function discordBadge(snap: UnitSnapshot): string {
   const restartsSuffix = snap.restarts > 0 ? ` (restarts: ${snap.restarts})` : "";
 
-  if (snap.error) return `| discord: unknown${restartsSuffix}`;
-  if (snap.loadState === "not-found") return `| discord: missing${restartsSuffix}`;
+  if (snap.error) return `| 󰙯 Unknown${restartsSuffix}`;
+  if (snap.loadState === "not-found") return `| 󰙯 Missing${restartsSuffix}`;
   if (snap.activeState === "active") return `| 󰙯 Online${restartsSuffix}`;
-  if (snap.activeState === "inactive") return `| discord: off${restartsSuffix}`;
+  if (snap.activeState === "inactive") return `| 󰙯 Offline${restartsSuffix}`;
   if (snap.activeState === "failed") {
     const detail = snap.result && snap.result !== "success" ? ` (${snap.result})` : "";
-    return `| discord: failed${detail}${restartsSuffix}`;
+    return `| 󰙯 Failed${detail}${restartsSuffix}`;
   }
   if (snap.activeState === "activating" || snap.activeState === "deactivating" || snap.activeState === "reloading") {
+    const label = snap.activeState[0].toUpperCase() + snap.activeState.slice(1);
     const detail = snap.subState ? ` (${snap.subState})` : "";
-    return `| discord: ${snap.activeState}${detail}${restartsSuffix}`;
+    return `| 󰙯 ${label}${detail}${restartsSuffix}`;
   }
-  return `| discord: ${snap.activeState || "unknown"}${restartsSuffix}`;
+  const label = snap.activeState ? snap.activeState[0].toUpperCase() + snap.activeState.slice(1) : "Unknown";
+  return `| 󰙯 ${label}${restartsSuffix}`;
 }
 
 export function renderDiscordServiceStatus(ctx: ExtensionContext) {

@@ -17,13 +17,13 @@ export function isDiscordPromptOwner(owner: string): boolean {
 export function instanceManagerStatusLine(mode: ManagerStatusMode, owner: string, queuedCount: number): string {
   const queueSuffix = queuedCount > 0 ? ` (queue: ${queuedCount})` : "";
 
-  if (mode === "manager_down") return `manager: off${queueSuffix}`;
-  if (mode === "compacting") return `manager: compacting${queueSuffix}`;
-  if (mode === "in_turn") return `manager: turn running${queueSuffix}`;
+  if (mode === "manager_down") return `󰒓 Offline${queueSuffix}`;
+  if (mode === "compacting") return `󰒓 Compacting${queueSuffix}`;
+  if (mode === "in_turn") return `󰒓 Turn Running${queueSuffix}`;
 
   if (mode === "waiting_lock") {
-    if (isDiscordPromptOwner(owner)) return `manager: waiting for discord${queueSuffix}`;
-    return `manager: waiting for lock${queueSuffix}`;
+    if (isDiscordPromptOwner(owner)) return `󰒓 Waiting for Discord${queueSuffix}`;
+    return `󰒓 Waiting for Lock${queueSuffix}`;
   }
 
   return `󰒓 Ready${queueSuffix}`;

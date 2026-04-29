@@ -13,16 +13,18 @@ test("isDiscordPromptOwner matches discord prompt owners", () => {
 
 test("instanceManagerStatusLine includes queue suffix for combined queue depth", () => {
   const line = instanceManagerStatusLine("waiting_lock", "", 3);
-  assert.match(line, /queue: 3/i);
+  assert.equal(line, "󰒓 Waiting for Lock (queue: 3)");
 });
 
 test("instanceManagerStatusLine formats the idle state as ready", () => {
   assert.equal(instanceManagerStatusLine("idle", "", 0), "󰒓 Ready");
 });
 
-test("instanceManagerStatusLine formats discord waiting state distinctly", () => {
-  const line = instanceManagerStatusLine("waiting_lock", "pi-discord-bot:prompt:session=s1", 0);
-  assert.match(line, /waiting for discord/i);
+test("instanceManagerStatusLine formats all manager states with the manager glyph", () => {
+  assert.equal(instanceManagerStatusLine("manager_down", "", 0), "󰒓 Offline");
+  assert.equal(instanceManagerStatusLine("compacting", "", 0), "󰒓 Compacting");
+  assert.equal(instanceManagerStatusLine("in_turn", "", 0), "󰒓 Turn Running");
+  assert.equal(instanceManagerStatusLine("waiting_lock", "pi-discord-bot:prompt:session=s1", 0), "󰒓 Waiting for Discord");
 });
 
 test("ensureManagerSpinnerStatus keeps compact status untouched when idle but remote queue exists", () => {
