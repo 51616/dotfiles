@@ -40,7 +40,7 @@ function createDeps(events) {
   };
 }
 
-test("handleAssistantMessageEnd starts compaction when footer uses an absolute checkpoint path under the workspace", async () => {
+test("handleAssistantMessageEnd starts compaction synchronously in headless mode", () => {
   const events = [];
   const deps = createDeps(events);
   const ctx = { hasUI: false };
@@ -63,7 +63,6 @@ test("handleAssistantMessageEnd starts compaction when footer uses an absolute c
   };
 
   handleAssistantMessageEnd(deps, event, ctx);
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(events.map(([name]) => name), [
     "pushDebug",
@@ -80,4 +79,39 @@ test("handleAssistantMessageEnd starts compaction when footer uses an absolute c
   ]);
   assert.equal(events[1][1], "/remote/home/repo/work/log/checkpoints/demo.md");
   assert.equal(events[10][1], "/remote/home/repo/work/log/checkpoints/demo.md");
+});
+
+test("handleAssistantMessageEnd drops deferred TUI compaction when ctx becomes stale", async () => {
+  const events = [];
+  const deps = createDeps(events);
+  let active = true;
+  const ctx = {
+    get hasUI() {
+      if (!active) throw new Error("stale ctx");
+      return true;
+    },
+  };
+  const event = {
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: [
+            "Checkpoint done.",
+            "__pi_compact_instructions_begin__",
+            "Preserve state",
+            "__pi_compact_instructions_end__",
+            "__pi_autocheckpoint_done__ path=/remote/home/repo/work/log/checkpoints/demo.md",
+          ].join("\n"),
+        },
+      ],
+    },
+  };
+
+  handleAssistantMessageEnd(deps, event, ctx);
+  active = false;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(events.some(([name]) => name === "startCompaction"), false);
 });

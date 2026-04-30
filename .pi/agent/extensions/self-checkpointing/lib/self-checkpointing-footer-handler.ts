@@ -171,8 +171,41 @@ export function handleAssistantMessageEnd(
   // stays muted while compaction is spinning up.
   deps.setCheckpointCycleActive(ctx, true);
 
-  // Defer to next tick so we don't start compaction inside the event handler stack.
-  setTimeout(() => {
-    deps.startCompaction(ctx, checkpointPath, compactionInstructions);
-  }, 0);
+  const readHasUI = (): boolean | null => {
+    try {
+      return ctx.hasUI === true;
+    } catch {
+      return null;
+    }
+  };
+
+  const startCompactionIfContextActive = () => {
+    // Headless one-shot runs can invalidate the extension context as soon as the event
+    // pipeline finishes. Never let a deferred timer touch a stale ctx; it escapes pi's
+    // event-handler error boundary and crashes the Discord worker process.
+    if (readHasUI() === null) return;
+
+    try {
+      deps.startCompaction(ctx, checkpointPath, compactionInstructions);
+    } catch (err) {
+      try {
+        const msg = err instanceof Error ? err.message : String(err);
+        deps.pushDebug(ctx, `message_end: compaction start failed (${msg})`);
+      } catch {
+        // ignore; the ctx may have gone stale between the guard and debug write
+      }
+    }
+  };
+
+  const hasUI = readHasUI();
+  if (hasUI === null) return;
+
+  if (!hasUI) {
+    startCompactionIfContextActive();
+    return;
+  }
+
+  // In the TUI, defer to next tick so we don't start compaction inside the event handler stack.
+  const timer = setTimeout(startCompactionIfContextActive, 0);
+  timer.unref?.();
 }
