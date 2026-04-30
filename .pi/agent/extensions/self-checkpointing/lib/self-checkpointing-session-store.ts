@@ -109,7 +109,11 @@ export function createSelfCheckpointingSessionStore(opts: {
 
     const lockPath = compactionLockHeldPath ?? compactionLockPathFor(ctx);
     const ok = releasePidLock(lockPath, process.pid);
-    pushDebug(ctx, `compaction lock released ok=${ok} reason=${reason}`);
+    try {
+      pushDebug(ctx, `compaction lock released ok=${ok} reason=${reason}`);
+    } catch {
+      // Compaction can invalidate ctx before completion callbacks run. The lock must still clear.
+    }
     compactionLockHeld = null;
     compactionLockHeldPath = null;
   };

@@ -55,6 +55,37 @@ test("pending resume uses injected checkpoint availability for ssh-backed checkp
   assert.equal(events[3][1], pending.resumeText);
 });
 
+test("pending resume takes over a dead owner process for the same session", () => {
+  const events = [];
+  const pending = {
+    ...createPending(),
+    ownerPid: 999_999_999,
+  };
+  const ctx = createCtx();
+
+  const controller = createPendingResumeController({
+    pid: process.pid,
+    readPending: () => pending,
+    writePending: (_ctx, next) => events.push(["writePending", next]),
+    clearPending: () => events.push(["clearPending"]),
+    sessionIdFor: () => "sess-1",
+    getActiveCompactionLock: () => null,
+    isCheckpointAvailable: () => true,
+    pushDebug: (_ctx, line) => events.push(["debug", line]),
+    sendUserMessage: (text) => events.push(["sendUserMessage", text]),
+  });
+
+  const sent = controller.trySend(ctx, "test");
+
+  assert.equal(sent, true);
+  assert.equal(events[0][0], "debug");
+  assert.match(events[0][1], /taking over pending resume from dead ownerPid=/);
+  assert.equal(events[1][0], "writePending");
+  assert.equal(events[1][1].ownerPid, process.pid);
+  assert.equal(events[2][0], "debug");
+  assert.deepEqual(events[3], ["sendUserMessage", pending.resumeText]);
+});
+
 test("pending resume clears state when checkpoint is unavailable", () => {
   const events = [];
   const pending = createPending();

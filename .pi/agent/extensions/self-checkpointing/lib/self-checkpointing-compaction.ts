@@ -31,6 +31,32 @@ export type CompactThenResumeDeps = {
   updateArmedStatus: (ctx: ExtensionContext) => void;
 };
 
+function ctxHasUI(ctx: ExtensionContext): boolean {
+  try {
+    return ctx.hasUI === true;
+  } catch {
+    return false;
+  }
+}
+
+function safeCtxOp(op: () => void): void {
+  try {
+    op();
+  } catch {
+    // The context may have been invalidated by compaction/session replacement.
+  }
+}
+
+async function safeWaitForIdle(ctx: ExtensionContext): Promise<void> {
+  try {
+    if (typeof (ctx as any).waitForIdle === "function") {
+      await (ctx as any).waitForIdle();
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function compactThenResume(
   deps: CompactThenResumeDeps,
   ctx: ExtensionContext,
@@ -72,77 +98,71 @@ export function compactThenResume(
     ctx.compact({
       customInstructions,
       onComplete: async () => {
-        deps.clearCompactionLoader(ctx);
-        deps.pushDebug(ctx, "compaction complete");
-        if (deps.getDebugEnabled() && ctx.hasUI) {
-          deps.notify(ctx, "autockpt: compaction complete; sending resume ping…", "info");
+        // ctx.compact() can replace/invalidate the extension context before this callback runs.
+        // Treat every ctx-dependent action here as best-effort so headless Discord workers don't crash
+        // after a successful compaction.
+        safeCtxOp(() => deps.clearCompactionLoader(ctx));
+        safeCtxOp(() => deps.pushDebug(ctx, "compaction complete"));
+        if (deps.getDebugEnabled() && ctxHasUI(ctx)) {
+          safeCtxOp(() => deps.notify(ctx, "autockpt: compaction complete; sending resume ping…", "info"));
         }
 
-        deps.cleanupAutotest(ctx, "compaction complete");
-
-        try {
-          if (typeof (ctx as any).waitForIdle === "function") {
-            await (ctx as any).waitForIdle();
-          }
-        } catch {
-          // ignore
-        }
+        safeCtxOp(() => deps.cleanupAutotest(ctx, "compaction complete"));
+        await safeWaitForIdle(ctx);
 
         // After compaction, trigger the resume turn.
         // Do not fallback-send a raw user message here: if this callback fires while the agent is
         // still considered "streaming", sendUserMessage() can throw unless deliverAs is specified.
         // The pending-resume controller + timer will retry safely.
-        deps.trySendPendingResume(ctx, "compaction_complete");
+        safeCtxOp(() => {
+          deps.trySendPendingResume(ctx, "compaction_complete");
+        });
 
         deps.setPendingCompactionRequested(false);
-        deps.setCheckpointCycleActive(ctx, false);
-        deps.releaseCompactionLock(ctx, "compaction_complete");
-        deps.updateArmedStatus(ctx);
+        safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
+        safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_complete"));
+        safeCtxOp(() => deps.updateArmedStatus(ctx));
       },
       onError: async (err) => {
-        deps.clearCompactionLoader(ctx);
-        deps.pushDebug(ctx, `compaction error: ${err.message}`);
-        if (deps.getDebugEnabled() && ctx.hasUI) {
-          deps.notify(ctx, `autockpt: compaction failed (${err.message})`, "error");
+        safeCtxOp(() => deps.clearCompactionLoader(ctx));
+        safeCtxOp(() => deps.pushDebug(ctx, `compaction error: ${err.message}`));
+        if (deps.getDebugEnabled() && ctxHasUI(ctx)) {
+          safeCtxOp(() => deps.notify(ctx, `autockpt: compaction failed (${err.message})`, "error"));
         }
 
-        deps.cleanupAutotest(ctx, "compaction error");
-
-        deps.setStatus(ctx, `| Checkpoint: compaction failed (${err.message}) 🔴`);
-
-        try {
-          if (typeof (ctx as any).waitForIdle === "function") {
-            await (ctx as any).waitForIdle();
-          }
-        } catch {
-          // ignore
-        }
+        safeCtxOp(() => deps.cleanupAutotest(ctx, "compaction error"));
+        safeCtxOp(() => deps.setStatus(ctx, `| Checkpoint: compaction failed (${err.message}) 🔴`));
+        await safeWaitForIdle(ctx);
 
         // Even if compaction failed, still try to continue.
-        deps.trySendPendingResume(ctx, "compaction_error");
+        safeCtxOp(() => {
+          deps.trySendPendingResume(ctx, "compaction_error");
+        });
 
         deps.setPendingCompactionRequested(false);
-        deps.setCheckpointCycleActive(ctx, false);
-        deps.releaseCompactionLock(ctx, "compaction_error");
-        deps.updateArmedStatus(ctx);
+        safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
+        safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_error"));
+        safeCtxOp(() => deps.updateArmedStatus(ctx));
       },
     });
   } catch (err: any) {
-    deps.clearCompactionLoader(ctx);
+    safeCtxOp(() => deps.clearCompactionLoader(ctx));
     const msg = String(err?.message || err || "unknown error");
-    deps.pushDebug(ctx, `compaction threw: ${msg}`);
-    if (deps.getDebugEnabled() && ctx.hasUI) {
-      deps.notify(ctx, `autockpt: compaction threw (${msg})`, "error");
+    safeCtxOp(() => deps.pushDebug(ctx, `compaction threw: ${msg}`));
+    if (deps.getDebugEnabled() && ctxHasUI(ctx)) {
+      safeCtxOp(() => deps.notify(ctx, `autockpt: compaction threw (${msg})`, "error"));
     }
 
-    deps.setStatus(ctx, `| Checkpoint: compaction failed (${msg}) 🔴`);
+    safeCtxOp(() => deps.setStatus(ctx, `| Checkpoint: compaction failed (${msg}) 🔴`));
 
     // Compaction did not start; release the lock and keep going.
     deps.setPendingCompactionRequested(false);
-    deps.setCheckpointCycleActive(ctx, false);
-    deps.releaseCompactionLock(ctx, "compaction_throw");
-    deps.updateArmedStatus(ctx);
+    safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
+    safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_throw"));
+    safeCtxOp(() => deps.updateArmedStatus(ctx));
 
-    deps.trySendPendingResume(ctx, "compaction_throw");
+    safeCtxOp(() => {
+      deps.trySendPendingResume(ctx, "compaction_throw");
+    });
   }
 }

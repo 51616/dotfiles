@@ -28,8 +28,21 @@ export function createSelfCheckpointingUiRuntime(
   let closeCompactionLoader: (() => void) | undefined;
   let compactionLoaderVisible = false;
 
-  const setStatus = (ctx: ExtensionContext, text?: string) =>
-    ctx.ui.setStatus(options.statusKey, text && text.trim() ? text : undefined);
+  const hasLiveUI = (ctx: ExtensionContext): boolean => {
+    try {
+      return ctx.hasUI === true;
+    } catch {
+      return false;
+    }
+  };
+
+  const setStatus = (ctx: ExtensionContext, text?: string) => {
+    try {
+      ctx.ui.setStatus(options.statusKey, text && text.trim() ? text : undefined);
+    } catch {
+      // The ctx can become stale immediately after compaction/session replacement.
+    }
+  };
 
   const pushDebug = (ctx: ExtensionContext, line: string) => {
     if (!debugEnabled) return;
@@ -38,30 +51,43 @@ export function createSelfCheckpointingUiRuntime(
     debugLog.push(`[${ts}] ${line}`);
     if (debugLog.length > 50) debugLog.splice(0, debugLog.length - 50);
 
-    if (options.debugWidgetAuto && ctx.hasUI) {
-      ctx.ui.setWidget(options.debugWidgetKey, debugLog.slice(-20), { placement: "aboveEditor" });
+    if (options.debugWidgetAuto && hasLiveUI(ctx)) {
+      try {
+        ctx.ui.setWidget(options.debugWidgetKey, debugLog.slice(-20), { placement: "aboveEditor" });
+      } catch {
+        // ignore stale UI context
+      }
     }
   };
 
   const renderDebugWidget = (ctx: ExtensionContext) => {
-    if (!ctx.hasUI) return;
-    ctx.ui.setWidget(
-      options.debugWidgetKey,
-      debugLog.length ? debugLog.slice(-20) : ["(autockpt debug log empty)"],
-      { placement: "aboveEditor" },
-    );
+    if (!hasLiveUI(ctx)) return;
+    try {
+      ctx.ui.setWidget(
+        options.debugWidgetKey,
+        debugLog.length ? debugLog.slice(-20) : ["(autockpt debug log empty)"],
+        { placement: "aboveEditor" },
+      );
+    } catch {
+      // ignore stale UI context
+    }
   };
 
   const clearCompactionLoader = (ctx: ExtensionContext) => {
-    if (!ctx.hasUI || !compactionLoaderVisible) return;
-    closeCompactionLoader?.();
+    if (!hasLiveUI(ctx) || !compactionLoaderVisible) return;
+    try {
+      closeCompactionLoader?.();
+    } catch {
+      compactionLoaderVisible = false;
+      closeCompactionLoader = undefined;
+    }
   };
 
   const showCompactionLoader = (
     ctx: ExtensionContext,
     label = "Auto-checkpoint: compacting context…",
   ) => {
-    if (!ctx.hasUI || compactionLoaderVisible) return;
+    if (!hasLiveUI(ctx) || compactionLoaderVisible) return;
 
     compactionLoaderVisible = true;
 

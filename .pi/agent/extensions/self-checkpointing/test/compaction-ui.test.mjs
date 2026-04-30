@@ -86,6 +86,80 @@ test("compactThenResume shows and clears the compaction loader on completion", a
   assert.deepEqual(state.resumeReasons, ["compaction_complete"]);
 });
 
+test("compactThenResume tolerates stale ctx in completion callback", async () => {
+  const state = createDeps();
+  let compactOptions;
+  let active = true;
+  const ctx = {
+    get hasUI() {
+      if (!active) throw new Error("stale ctx");
+      return true;
+    },
+    compact: (options) => {
+      compactOptions = options;
+    },
+  };
+
+  state.deps.clearCompactionLoader = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.cleanupAutotest = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.releaseCompactionLock = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.updateArmedStatus = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.trySendPendingResume = () => {
+    throw new Error("stale ctx");
+  };
+
+  compactThenResume(state.deps, ctx, "work/log/checkpoints/done.md");
+  state.deps.setCheckpointCycleActive = () => {
+    throw new Error("stale ctx");
+  };
+  active = false;
+
+  await assert.doesNotReject(async () => compactOptions?.onComplete?.());
+  assert.equal(state.getPendingCompactionRequested(), false);
+});
+
+test("compactThenResume tolerates stale ctx in error callback", async () => {
+  const state = createDeps();
+  let compactOptions;
+  let active = true;
+  const ctx = {
+    get hasUI() {
+      if (!active) throw new Error("stale ctx");
+      return true;
+    },
+    compact: (options) => {
+      compactOptions = options;
+    },
+  };
+
+  state.deps.clearCompactionLoader = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.releaseCompactionLock = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.updateArmedStatus = () => {
+    throw new Error("stale ctx");
+  };
+
+  compactThenResume(state.deps, ctx, "work/log/checkpoints/fail.md");
+  state.deps.setStatus = () => {
+    throw new Error("stale ctx");
+  };
+  active = false;
+
+  await assert.doesNotReject(async () => compactOptions?.onError?.(new Error("boom")));
+  assert.equal(state.getPendingCompactionRequested(), false);
+});
+
 test("compactThenResume clears the compaction loader when ctx.compact throws", () => {
   const state = createDeps();
   const ctx = {

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { PendingResume } from "../../lib/autockpt/autockpt-pending-resume.ts";
-import type { PidLockRecord } from "../../lib/autockpt/autockpt-pid-lock.ts";
+import { isPidAlive, type PidLockRecord } from "../../lib/autockpt/autockpt-pid-lock.ts";
 import { probeCtxState } from "../../lib/autockpt/autockpt-ctx-probes.ts";
 
 export type PendingResumeControllerDeps = {
@@ -34,7 +34,13 @@ export function createPendingResumeController(deps: PendingResumeControllerDeps)
       deps.clearPending(ctx);
       return false;
     }
-    if (pending.ownerPid !== deps.pid) return false;
+    let ownerPid = pending.ownerPid;
+    if (pending.ownerPid !== deps.pid) {
+      const alive = isPidAlive(pending.ownerPid);
+      if (alive !== false) return false;
+      deps.pushDebug(ctx, `taking over pending resume from dead ownerPid=${pending.ownerPid}`);
+      ownerPid = deps.pid;
+    }
 
     const sid = deps.sessionIdFor(ctx);
     if (sid) {
@@ -63,6 +69,7 @@ export function createPendingResumeController(deps: PendingResumeControllerDeps)
 
     const next: PendingResume = {
       ...pending,
+      ownerPid,
       attempts: (pending.attempts || 0) + 1,
       lastSentAt: t,
     };
