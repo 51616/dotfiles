@@ -234,6 +234,15 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       return;
     }
 
+    if (!ctx.isIdle()) {
+      // agent_end fires before pi-agent-core clears isStreaming. Calling pi.sendUserMessage there without
+      // an explicit streaming delivery mode fails asynchronously, after this extension has already granted
+      // and shifted the manager ticket. Defer until the next idle poll so the handoff is atomic.
+      scheduleQueueRetry(250);
+      if (ctx.hasUI) updateFooterStatus(ctx);
+      return;
+    }
+
     if (Date.now() < externalWriteExpectedUntil && !sessionResync.pendingSessionResync) {
       if (ctx.hasUI) updateFooterStatus(ctx);
       return;
