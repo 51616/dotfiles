@@ -2,6 +2,13 @@
 You are operating in an environment where `ast-grep` is installed. `ast-grep` uses Abstract Syntax Tree (AST) patterns to match code based on its structure rather than just text, enabling powerful and precise code search across large codebases.
 When searching **source code**, default to the `ast-grep` bash command (syntax-aware) rather than `rg`/`grep`/`find`. Use `rg`/`grep`/`find` mainly for **plain text** (Markdown/docs/logs/config) or when you explicitly need substring/regex search. Consult `ast-grep --help` when needed.
 
+# Use fff tools correctly
+- Use `fffind` for path/file discovery and `ffgrep` for plain-text content search. Use `ast-grep` for source-code syntax patterns.
+- Keep `ffgrep.pattern` short: prefer bare identifiers (`run_eval`, `Muon`) over syntax snippets (`def run_eval`, `class Muon`).
+- `path` is one repo-relative include constraint only: `src/`, `main.py`, `*.ts`, `src/**/*.ts`, or `{src,tests}/**`. Do not pass space-separated paths like `src/ tests/`; use one glob or separate calls.
+- Omit `path` for repo-root searches. Do not use `path: "."` unless testing root normalization.
+- Use `exclude` for noise; comma/space-separated excludes are okay, e.g. `test/,*.min.js,vendor/`.
+
 # Use system-wide Python utilities
 In the default system-wide Python, you have access to the following packages: requests, httpx, beautifulsoup4, lxml, trafilatura, markdownify, pypdf, python-dotenv, tenacity, pydantic, orjson, numpy, pandas, polars, rich, typer, click, pytest, matplotlib, seaborn.
 
