@@ -8,8 +8,7 @@ description: |
   - “summarize this page” / “extract the main content”
   - “search the web for …” / “find sources for …” / “give me a list of links about …”
   Don’t use when:
-  - The target is a GitHub repo/tree/blob (prefer the `gitingest` skill).
-  - The task requires interactive UI testing or clicking through web apps (use `browser-tools`).
+  - The target is a GitHub repo/tree/blob (prefer the `read-git-repo` skill).
   - Offline answers are sufficient and do not require verification against web sources.
   Outputs: runs Codex CLI with native web search and returns a cited answer or a concrete `/tmp/pi-work/codex-browse/...` artifact path when extraction/download output is requested.
 ---
