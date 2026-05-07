@@ -11,46 +11,63 @@ description: |
   - The target is a GitHub repo/tree/blob (prefer the `gitingest` skill).
   - The task requires interactive UI testing or clicking through web apps (use `browser-tools`).
   - Offline answers are sufficient and do not require verification against web sources.
+  Outputs: runs Codex CLI with native web search and returns a cited answer or a concrete `/tmp/pi-work/codex-browse/...` artifact path when extraction/download output is requested.
 ---
 
 # codex-browse
 
-Use Codex CLI as an internet/browsing helper.
+Use Codex CLI with native web search as an internet/browsing helper.
 
-Set `--timeout-seconds 300` by default on `codex-browser` commands. Override with a larger value when the task is likely to take longer, or use `--timeout-seconds 0` to disable the wrapper timer.
+Use a shell `timeout` of 300 seconds by default. Increase it for broad research tasks. Save long outputs under `/tmp/pi-work/codex-browse/` so the path is easy to report back.
 
 ## Commands
 
 ### Prompt mode (general)
 
 ```bash
-codex-browser "<prompt>"
+mkdir -p /tmp/pi-work/codex-browse
+timeout 300s codex --search exec --skip-git-repo-check \
+  --output-last-message /tmp/pi-work/codex-browse/last-response.md \
+  "<prompt>"
 ```
 
 Examples:
 - Get links only:
   ```bash
-  codex-browser "Find 5 high-quality sources about X. Return only a bullet list of URLs."
+  timeout 300s codex --search exec --skip-git-repo-check \
+    "Find 5 high-quality sources about X. Return only a bullet list of URLs."
   ```
 - Summarize a topic with citations:
   ```bash
-  codex-browser "Research X and summarize in 10 bullets. Include source URLs."
+  timeout 300s codex --search exec --skip-git-repo-check \
+    "Research X and summarize in 10 bullets. Include source URLs."
   ```
 - Ask it to save a long artifact:
   ```bash
-  codex-browser "Download the PDF at <url> and save it under /tmp. Reply with the path only."
+  mkdir -p /tmp/pi-work/codex-browse
+  timeout 300s codex --search exec --skip-git-repo-check \
+    --output-last-message /tmp/pi-work/codex-browse/research.md \
+    "Research X deeply. Return a structured Markdown report with source URLs."
   ```
 
 ### Content extraction mode (URL → markdown file)
 
 ```bash
-codex-browser --extract-content https://example.com/article
+mkdir -p /tmp/pi-work/codex-browse
+url="https://example.com/article"
+out="/tmp/pi-work/codex-browse/extracted-$(date +%Y%m%d-%H%M%S).md"
+timeout 300s codex --search exec --skip-git-repo-check \
+  --output-last-message "$out" \
+  "Open $url. Extract the main article content as Markdown. Include the title, canonical URL, publication date if visible, and source URL. Exclude navigation, ads, comments, and unrelated page chrome. If extraction fails, explain why."
+echo "$out"
 ```
-
-This uses a fixed prompt template to extract main content, format as markdown, and save under `/tmp`.
 
 ## Verification
 
 ```bash
-codex-browser --timeout-seconds 30 "Respond with exactly: hello"
+mkdir -p /tmp/pi-work/codex-browse
+timeout 60s codex --search exec --skip-git-repo-check \
+  --output-last-message /tmp/pi-work/codex-browse/verify.txt \
+  "Respond with exactly: hello"
+cat /tmp/pi-work/codex-browse/verify.txt
 ```
