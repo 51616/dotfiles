@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 from pathlib import Path
 
@@ -12,11 +14,15 @@ from latmd_support import (
     WIKI_RE,
     all_lattice_files,
     extract_refs,
+    find_repo_root,
     find_sections,
     flatten_sections,
     format_wiki_ref,
     full_end_line,
     is_source_target,
+    list_lattice_dirs,
+    load_all_sections,
+    load_context,
     parse_frontmatter,
     parse_sections,
     parse_source_query,
@@ -86,6 +92,79 @@ def cmd_check(ctx: Context, mode: str) -> int:
     }[mode]
     print(label)
     return 0
+
+
+def cmd_check_all(target_root: Path, verbose: bool) -> int:
+    if not target_root.is_dir():
+        raise LatError(f'Target root does not exist: {target_root}')
+    target_root = target_root.resolve()
+    repo_root = find_repo_root(target_root)
+    owner_roots = unique_owner_roots(list_lattice_dirs(target_root))
+    owner_roots.sort(key=lambda path: (path != target_root, rel_path(path, target_root)))
+    if not owner_roots:
+        print(f'No lat-md directories found under {rel_path(target_root, target_root)}')
+        return 1
+
+    all_sections = load_all_sections(repo_root)
+    print(f'[lat-check] repo root: {target_root}')
+    print('')
+
+    pass_count = 0
+    fail_count = 0
+    for owner_root in owner_roots:
+        rel_owner = rel_path(owner_root, target_root)
+        rel_lattice = 'lat-md/' if rel_owner == '.' else f'{rel_owner}/lat-md/'
+        print(f'[lat-check] {rel_owner} -> {rel_lattice}')
+
+        output_buffer = io.StringIO()
+        ctx = load_context(owner_root, repo_root=repo_root, all_sections=all_sections)
+        with contextlib.redirect_stdout(output_buffer):
+            rc = cmd_check(ctx, 'all')
+        output = output_buffer.getvalue()
+
+        if rc == 0:
+            print(f'[ok] {rel_owner}')
+            pass_count += 1
+            warnings = [line for line in output.splitlines() if line.startswith('Warning:')]
+            for line in warnings:
+                print(f'    ! {line}')
+            if verbose:
+                print_indented(output)
+        else:
+            print(f'[fail] {rel_owner}')
+            print_indented(output)
+            fail_count += 1
+        print('')
+
+    print(f'[lat-check] summary: {pass_count} passed, {fail_count} failed')
+    return 1 if fail_count else 0
+
+
+def unique_owner_roots(lattice_dirs: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    owner_roots: list[Path] = []
+    for lattice_dir in lattice_dirs:
+        owner_root = lattice_dir.parent.resolve()
+        if owner_root in seen:
+            continue
+        seen.add(owner_root)
+        owner_roots.append(owner_root)
+    return owner_roots
+
+
+def rel_path(path: Path, base: Path) -> str:
+    if path == base:
+        return '.'
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def print_indented(text: str) -> None:
+    for line in text.splitlines():
+        if line:
+            print(f'    {line}')
 
 
 def cmd_locate(ctx: Context, query: str) -> int:

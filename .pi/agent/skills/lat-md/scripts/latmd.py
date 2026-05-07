@@ -10,6 +10,7 @@ from pathlib import Path
 
 from latmd_ops import (
     cmd_check,
+    cmd_check_all,
     cmd_expand,
     cmd_gen,
     cmd_init,
@@ -71,6 +72,27 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
     check.add_argument('mode', nargs='?', choices=('all', 'md', 'code-refs', 'index', 'sections'), default='all', help='which validation pass to run')
     check.set_defaults(needs_context=True)
+
+    check_all = subparsers.add_parser(
+        'check-all',
+        formatter_class=formatter,
+        help='validate every lattice under a repo root',
+        description=(
+            'Discover every lat-md/ directory under a target root and validate each\n'
+            'owner root in one Python process. This avoids reparsing repo-wide\n'
+            'lattice state once per owner root.'
+        ),
+        epilog=(
+            'Examples:\n'
+            '  bash <check-all-lattices.sh>\n'
+            '  bash <run-lat.sh> check-all\n'
+            '  bash <run-lat.sh> check-all .\n'
+            '  bash <run-lat.sh> check-all --verbose .'
+        ),
+    )
+    check_all.add_argument('target_root', nargs='?', default='.', help='repo or subtree to search for lat-md/ directories; defaults to .')
+    check_all.add_argument('--verbose', action='store_true', help='print full check output for successful lattices too')
+    check_all.set_defaults(needs_context=False)
 
     locate = subparsers.add_parser(
         'locate',
@@ -211,6 +233,8 @@ def run(argv: list[str]) -> int:
         ctx = load_context(Path(args.owner_root).resolve()) if getattr(args, 'needs_context', True) else None
         if args.command == 'check':
             return cmd_check(ctx, args.mode)
+        if args.command == 'check-all':
+            return cmd_check_all(Path(args.target_root).resolve(), args.verbose)
         if args.command == 'locate':
             return cmd_locate(ctx, args.query)
         if args.command == 'section':

@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OWNER_ROOT='.'
+OWNER_ROOT_EXPLICIT=0
 
 usage() {
   cat <<'EOF'
@@ -36,6 +37,7 @@ Good starting points:
 
 Commands:
   check    validate a lattice
+  check-all validate every lattice under a repo root in one Python process
   locate   search for a section id or heading
   section  show one section in full, plus links and code refs
   refs     find markdown/code references to a section or source target
@@ -68,6 +70,7 @@ esac
 
 if [[ $# -gt 0 && ! "${1:-}" =~ ^- && -d "$1" ]]; then
   OWNER_ROOT="$1"
+  OWNER_ROOT_EXPLICIT=1
   shift
 fi
 
@@ -85,6 +88,12 @@ fi
 COMMAND="$1"
 shift
 if [[ "$COMMAND" == "gen" ]]; then
+  exec python3 "$SCRIPT_DIR/latmd.py" "$COMMAND" "$@"
+fi
+if [[ "$COMMAND" == "check-all" ]]; then
+  if [[ "$OWNER_ROOT_EXPLICIT" == "1" ]]; then
+    exec python3 "$SCRIPT_DIR/latmd.py" "$COMMAND" "$OWNER_ROOT" "$@"
+  fi
   exec python3 "$SCRIPT_DIR/latmd.py" "$COMMAND" "$@"
 fi
 exec python3 "$SCRIPT_DIR/latmd.py" "$COMMAND" "$OWNER_ROOT" "$@"

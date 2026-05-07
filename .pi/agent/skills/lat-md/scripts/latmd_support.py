@@ -144,26 +144,27 @@ def find_repo_root(start: Path) -> Path:
 
 
 def list_lattice_dirs(repo_root: Path) -> list[Path]:
+    repo_root = repo_root.resolve()
     results: list[Path] = []
     for current, dirs, _files in os.walk(repo_root):
-        rel_current = Path(current).resolve().relative_to(repo_root)
-        rel_text = '' if str(rel_current) == '.' else rel_current.as_posix()
-        pruned: list[str] = []
-        for name in list(dirs):
+        current_path = Path(current)
+        rel_path = current_path.relative_to(repo_root)
+        rel_text = '' if str(rel_path) == '.' else rel_path.as_posix()
+        kept_dirs: list[str] = []
+        for name in dirs:
             child_rel = f'{rel_text}/{name}'.strip('/')
-            child_path = Path(current) / name
+            child_path = current_path / name
             if child_rel in PRUNE_DIRS or name in PRUNE_DIRS:
-                pruned.append(name)
                 continue
             if child_path.is_symlink():
                 try:
                     child_path.resolve().relative_to(repo_root)
                 except ValueError:
-                    pruned.append(name)
-        for name in pruned:
-            dirs.remove(name)
+                    continue
+            kept_dirs.append(name)
+        dirs[:] = sorted(kept_dirs)
         if 'lat-md' in dirs:
-            results.append((Path(current) / 'lat-md').resolve())
+            results.append((current_path / 'lat-md').resolve())
     return sorted(results)
 
 
@@ -580,22 +581,26 @@ def source_ref_matches(query: str, target: str) -> bool:
 
 def scan_code_refs(root: Path, *, exclude_nested: bool = True) -> list[CodeRef]:
     root = root.resolve()
-    nested_owner_roots = {
-        lattice_dir.parent.resolve()
-        for lattice_dir in list_lattice_dirs(root)
-        if exclude_nested and lattice_dir.parent.resolve() != root
-    }
+    nested_owner_roots: set[Path] = set()
+    if exclude_nested:
+        nested_owner_roots = {
+            lattice_dir.parent
+            for lattice_dir in list_lattice_dirs(root)
+            if lattice_dir.parent != root
+        }
     refs: list[CodeRef] = []
     for current, dirs, files in os.walk(root):
-        current_path = Path(current).resolve()
+        current_path = Path(current)
         rel_current = '' if current_path == root else current_path.relative_to(root).as_posix()
         filtered_dirs: list[str] = []
-        for name in list(dirs):
+        for name in dirs:
             child = current_path / name
             child_rel = f'{rel_current}/{name}'.strip('/')
             if child_rel in PRUNE_DIRS or name in PRUNE_DIRS:
                 continue
-            if child.name == 'lat-md' or child.resolve() in nested_owner_roots:
+            if child.name == 'lat-md' or child in nested_owner_roots:
+                continue
+            if child.is_symlink() and child.resolve() in nested_owner_roots:
                 continue
             filtered_dirs.append(name)
         dirs[:] = sorted(filtered_dirs)
@@ -615,19 +620,21 @@ def scan_code_refs(root: Path, *, exclude_nested: bool = True) -> list[CodeRef]:
     return refs
 
 
-def load_context(owner_root: Path) -> Context:
+def load_context(owner_root: Path, *, repo_root: Path | None = None, all_sections: list[Section] | None = None) -> Context:
+    owner_root = owner_root.resolve()
     lattice_dir = owner_root / 'lat-md'
     if not lattice_dir.is_dir():
         raise LatError(f'Missing lattice directory: {lattice_dir}')
     index_path = lattice_dir / 'index.md'
     if not index_path.is_file():
         raise LatError(f'Missing lattice root document: {index_path}')
-    repo_root = find_repo_root(owner_root)
+    repo_root = repo_root.resolve() if repo_root is not None else find_repo_root(owner_root)
     local_files = list_lattice_files(lattice_dir)
     local_sections: list[Section] = []
     for file_path in local_files:
         local_sections.extend(parse_sections(repo_root, owner_root, lattice_dir, file_path))
-    all_sections = load_all_sections(repo_root)
+    if all_sections is None:
+        all_sections = load_all_sections(repo_root)
     flat = flatten_sections(all_sections)
     local_flat = flatten_sections(local_sections)
     return Context(

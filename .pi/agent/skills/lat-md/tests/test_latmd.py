@@ -136,3 +136,30 @@ def test_refs_rejects_ambiguous_heading_only_queries(tmp_path: Path) -> None:
     assert 'ambiguous' in result.stdout.lower()
     assert 'alpha#Alpha#Change guidance' in result.stdout
     assert 'beta#Beta#Change guidance' in result.stdout
+
+
+def test_check_all_validates_nested_lattices_in_one_command(tmp_path: Path) -> None:
+    owner_root = write_lattice(
+        tmp_path,
+        {
+            'lat-md/index.md': '''
+                # Index
+                This is the root lattice.
+
+                See [[tools/index#Tools]].
+            ''',
+            'tools/lat-md/index.md': '''
+                # Tools
+                This nested lattice owns tool docs.
+
+                See [[index#Index]].
+            ''',
+        },
+    )
+
+    result = run_latmd('check-all', str(owner_root))
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert '[lat-check] . -> lat-md/' in result.stdout
+    assert '[lat-check] tools -> tools/lat-md/' in result.stdout
+    assert '[lat-check] summary: 2 passed, 0 failed' in result.stdout
