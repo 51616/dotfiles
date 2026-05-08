@@ -5,6 +5,7 @@ import {
   buildDoNotStopBorderLabel,
   formatGoalStatusSummary,
   parseDoNotStopCommand,
+  validateDoNotStopObjective,
 } from "../do-not-stop/lib/do-not-stop.ts";
 import { parseAuditResult, isHighConfidenceComplete } from "../do-not-stop/lib/do-not-stop-audit.ts";
 import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "../do-not-stop/lib/do-not-stop-continuation.ts";
@@ -44,6 +45,14 @@ test("parseDoNotStopCommand handles goal command surface", () => {
     objective: "finish the lint cleanup",
     replace: false,
   });
+});
+
+test("validateDoNotStopObjective rejects vague non-verifiable objectives", () => {
+  assert.equal(validateDoNotStopObjective("goal").ok, false);
+  assert.match(validateDoNotStopObjective("goal").guidance ?? "", /concrete, verifiable objective/);
+  assert.equal(validateDoNotStopObjective("do it").ok, false);
+  assert.equal(validateDoNotStopObjective("fix the failing auth tests and commit the fix").ok, true);
+  assert.equal(validateDoNotStopObjective("go to work!").ok, true);
 });
 
 test("parseDoNotStopCommand rejects removed pause/resume/repeats controls", () => {

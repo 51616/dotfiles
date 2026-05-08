@@ -155,6 +155,18 @@ test("/do-not-stop creates an active unlimited goal and starts the first continu
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
+test("/do-not-stop rejects vague objectives without arming a goal", async () => {
+  const harness = createHarness();
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("do-not-stop").handler("goal", harness.ctx);
+  await flushTimers();
+
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.match(harness.notifications.at(-1).message, /concrete, verifiable objective/);
+});
+
 test("blank command during a running turn adopts the previous user message", async () => {
   const harness = createHarness({ isIdle: () => false });
   harness.handlers.get("session_start")({}, harness.ctx);
@@ -449,6 +461,20 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
   assert.equal(auditCalls, 1);
   assert.equal(harness.sentMessages.length, 1);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "budget_limited");
+});
+
+test("blank command rejects a vague previous user message", async () => {
+  const harness = createHarness({ isIdle: () => false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  harness.handlers.get("before_agent_start")(
+    { source: "user", prompt: "goal", triggerMessage: { role: "user" } },
+    harness.ctx,
+  );
+
+  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.match(harness.notifications.at(-1).message, /concrete, verifiable objective/);
 });
 
 test("replacement requires UI confirmation or explicit replace in non-UI contexts", async () => {

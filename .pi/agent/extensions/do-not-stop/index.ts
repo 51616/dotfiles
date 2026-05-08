@@ -18,6 +18,7 @@ import {
   formatGoalStatusSummary,
   parseDoNotStopCommand,
   usageText,
+  validateDoNotStopObjective,
   type DoNotStopGoalState,
 } from "./lib/do-not-stop.ts";
 import {
@@ -261,6 +262,12 @@ export default function doNotStop(pi: ExtensionAPI) {
     objective: string,
     options: { explicitReplace?: boolean; allowUiConfirm?: boolean } = {},
   ) => {
+    const validation = validateDoNotStopObjective(objective);
+    if (!validation.ok) {
+      notify(ctx, usageText(validation.guidance), "warning");
+      return;
+    }
+
     if (currentGoal && !options.explicitReplace) {
       if (ctx.hasUI && options.allowUiConfirm !== false) {
         const confirmed = await ctx.ui.confirm(

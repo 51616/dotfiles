@@ -29,6 +29,11 @@ export type DoNotStopAuditResult = {
   continuationMessage: string;
 };
 
+export type ObjectiveValidationResult = {
+  ok: boolean;
+  guidance?: string;
+};
+
 export type DoNotStopCommand =
   | { kind: "blank" }
   | { kind: "setObjective"; objective: string; replace: boolean }
@@ -40,6 +45,33 @@ export type DoNotStopCommand =
 
 export function brightRed(text: string): string {
   return `\x1b[91m${text}\x1b[0m`;
+}
+
+const VAGUE_OBJECTIVE_NORMALIZED = new Set([
+  "goal",
+  "task",
+  "work",
+  "continue",
+  "do it",
+  "finish",
+  "stuff",
+  "things",
+  "todo",
+  "something",
+]);
+
+export function validateDoNotStopObjective(objective: string): ObjectiveValidationResult {
+  const normalized = objective.trim().replace(/\s+/g, " ").replace(/[.!?]+$/g, "").toLowerCase();
+  if (!normalized) {
+    return { ok: false, guidance: "do-not-stop needs a concrete, verifiable objective." };
+  }
+  if (VAGUE_OBJECTIVE_NORMALIZED.has(normalized)) {
+    return {
+      ok: false,
+      guidance: `do-not-stop needs a concrete, verifiable objective, not "${objective.trim()}". Example: /do-not-stop fix the failing auth tests and commit the fix`,
+    };
+  }
+  return { ok: true };
 }
 
 export function parsePositiveInteger(value: unknown): number | null {

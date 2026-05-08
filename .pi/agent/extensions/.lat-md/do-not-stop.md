@@ -25,6 +25,8 @@ Absence of a goal is represented by `null`, not by a status. Valid statuses are 
 
 An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle.
 
+Goal creation rejects known vague, non-verifiable objectives such as `goal`, `task`, `work`, `continue`, `do it`, `finish`, `stuff`, and `things`. The extension reports a concrete-objective example instead of arming an audit loop that cannot honestly complete.
+
 Completion is runtime-owned and comes only from an external audit result with `decision: "complete"`, `confidence: "high"`, at least one evidence item, and at least one source path. The active agent does not receive a self-completion tool, and audit failures/timeouts never mark completion.
 
 When `pi-ssh` is active, the audit must be SSH-aware: before running the audit, the current local session JSONL is copied to `~/.cache/pi/do-not-stop/session-snapshots/<session-id>.jsonl` on the remote host; the audit prompt points at that remote snapshot and remote cwd; and the `pi -p` audit process is launched with the same remote host, port, and remote cwd. This prevents the audit from inspecting the local placeholder checkout while the active agent is editing a remote workspace.
