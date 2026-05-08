@@ -23,7 +23,7 @@ Evidence summary:
 - `do-not-stop/lib/do-not-stop-runtime.ts`: per-session goal snapshots plus session custom-entry reconstruction; legacy repeat snapshots resolve to no goal.
 - `do-not-stop/lib/do-not-stop-session.ts`: previous-user-message extraction is branch-aware, and audit prompts include session/checkpoint/conductor hints.
 - `test/do-not-stop*.test.mjs`: rewritten/expanded to cover command parsing, state transitions, audit parsing, runner command safety, session restore, blank command adoption, stale dispatch protection, budget limiting, completion ownership, and fallback continuation.
-- `lat-md/do-not-stop.md` and `lat-md/tests.md`: updated for goal semantics, audit-owned completion, hard-cut legacy commands, and test ownership.
+- `.lat-md/do-not-stop.md` and `.lat-md/tests.md`: updated for goal semantics, audit-owned completion, hard-cut legacy commands, and test ownership.
 - Review fixes applied after Codex review: completion requires evidence/source paths; audit-session parent dirs are created; old toggle commands are unsupported; audit parsing is strict JSON-only; previous-message memory is session-scoped; post-audit gates are rechecked; dispatch tokens prevent stale audits from clearing newer locks; same-goal updates no longer cancel in-flight dispatch locks.
 
 ## Evidence (optional, milestone-only)
@@ -268,8 +268,8 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 - [x] Task: Update lattice docs for changed ownership and tests.
   - Files likely touched:
-    - `lat-md/do-not-stop.md`
-    - `lat-md/tests.md`
+    - `.lat-md/do-not-stop.md`
+    - `.lat-md/tests.md`
   - Required content:
     - goal semantics replace repeat semantics
     - external audit owns completion decision
@@ -299,8 +299,8 @@ Only run the adjacent command if implementation changes or imports those surface
 cd /home/tan/.pi/agent/extensions && node --test test/runtime-extension-inventory.mjs
 ```
 
-- [x] Task: Run lattice checks after `lat-md/` edits. Shared helper expects `.lat-md/`; this repo uses legacy `lat-md/`, so the helper reports `Missing lattice directory`. Manual link/anchor verification was run instead.
-  - Discover the current repo-local command before running. Candidate from existing lattice note: `bash lat-local.sh .pi/extensions check`, but this path may need adjustment from `/home/tan/vault` or the extension root.
+- [x] Task: Run lattice checks after `.lat-md/` edits. During this track, the helper failed because the workspace had not yet moved to `.lat-md/`; that mismatch has since been removed.
+  - Current command: `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all`.
   - Record the exact command and result in `resume.md`.
 
 - [x] Task: Do a no-live-model audit command dry check. Covered by `test/do-not-stop-audit-runner.test.mjs`; no live `pi -p` audit was run.
@@ -325,7 +325,7 @@ cd /home/tan/.pi/agent/extensions && node --test test/runtime-extension-inventor
 ## Phase 9: Completion Sync
 
 - [x] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final behavior.
-- [x] Task: Sync `lat-md/do-not-stop.md` and `lat-md/tests.md` if implementation changed architecture/test reality.
+- [x] Task: Sync `.lat-md/do-not-stop.md` and `.lat-md/tests.md` if implementation changed architecture/test reality.
 - [x] Task: Commit implementation with a Conventional Commit message, likely `feat(do-not-stop): add goal continuation audits`.
 - [x] Task: Run `/reload` after committing extension changes.
 - [x] Task: Mark track complete in `conductor/tracks.md` only after implementation, verification, review, and completion sync pass.

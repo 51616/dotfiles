@@ -41,4 +41,4 @@
   - `*/index.ts` for extension entrypoints
   - `*/lib/*.ts` for internal modules
   - `*/test/*.mjs` and `test/*.mjs` for regression coverage
-  - `lat-md/*.md` for architecture/test lattice docs
+  - `.lat-md/*.md` for architecture/test lattice docs

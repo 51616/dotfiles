@@ -2,7 +2,7 @@
 
 This directory is the root router for the Pi extensions lattice and maps the high-level extension concepts exposed through this repo’s `.pi/extensions/` facade.
 
-Installable extension folders under `.pi/extensions/` are expected to be symlinks into `~/.pi/agent/extensions/`. Canonical lattice content lives in `lat-md/`, with `index.md` as the root document. Do not check in legacy `lat.md` aliases. Use `bash lat-local.sh .pi/extensions ...` or the shared skill helpers when the current [lat.md](https://www.npmjs.com/package/lat.md) CLI still expects them. It should stay in sync with implementation via `@lat:` references.
+Installable extension folders under `.pi/extensions/` are expected to be symlinks into `~/.pi/agent/extensions/`. Canonical lattice content lives in `.lat-md/`, with `index.md` as the root document. Do not check in legacy `lat.md` aliases. Use `bash lat-local.sh .pi/extensions ...` or the shared skill helpers when the current [lat.md](https://www.npmjs.com/package/lat.md) CLI still expects them. It should stay in sync with implementation via `@lat:` references.
 
 - [[index]] — canonical root router for this lattice
 - [[extensions]] — extension entrypoints and responsibilities

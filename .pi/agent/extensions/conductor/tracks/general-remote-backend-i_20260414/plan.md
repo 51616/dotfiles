@@ -235,7 +235,7 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 6: Completion sync
 - [x] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
-- [x] Task: Update `lat-md/pi-ssh.md`, `lat-md/tests.md`, and any other touched lattice docs to describe the new `pi-ssh` session interface
+- [x] Task: Update `.lat-md/pi-ssh.md`, `.lat-md/tests.md`, and any other touched lattice docs to describe the new `pi-ssh` session interface
 - [x] Task: Update `pi-ssh/README.md`, `pi-ssh/extension-spec.md`, `skill-uri/README.md`, and `self-checkpointing` docs where the shared contract changed
 - [x] Task: Best-effort sync project docs (`project.md`, `tech-stack.md`, `workflow.md`) if the completed track changed them materially
   - Result: no additional project-wide conductor docs needed updates; the completed track stayed within extension-local architecture and documentation.

@@ -110,7 +110,7 @@ Default (Option A): capture only key checkpoints:
 - [x] Task: Add a persistent text execution helper to the shared `PiSshSession` boundary and migrate diff-review remote git/text calls onto it
 - [x] Task: Add SSH staged editor support that opens a local temp file, performs optimistic-lock writeback, and reloads the diff
 - [x] Task: Write or extend regression tests only where they prove approved scenarios
-- [x] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
+- [x] Task (when `.lat-md/` exists): Update the relevant `.lat-md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
 - [x] Task: Update **Change evidence** (paths + snippets) for each completed behavior slice
 - [x] Task: Refactor while preserving the approved behavior and keeping tests green
 - [x] Task: Repeat for remaining behavior slices
@@ -118,7 +118,7 @@ Default (Option A): capture only key checkpoints:
 ## Phase 3: Verification
 - [x] Task: Run targeted automated verification for touched behavior slices
 - [x] Task: Run the smallest meaningful repo checks for touched areas
-- [x] Task (when `lat.md/` exists): Run `lat check`
+- [x] Task (when `.lat-md/` exists): Run `lat check`
 - [x] Task: Perform manual verification against a real SSH target for staged edit + lower-latency remote behavior
 
 ## Phase 4: Review
@@ -132,7 +132,7 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 5: Completion sync
 - [x] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
-- [x] Task (when `lat.md/` exists): Update `lat-md/tests.md` and any affected module docs for the new staged-editor and persistent-text boundary
+- [x] Task (when `.lat-md/` exists): Update `.lat-md/tests.md` and any affected module docs for the new staged-editor and persistent-text boundary
 - [x] Task: Best-effort sync extension docs/READMEs for the new SSH editor + latency behavior
 - [x] Task: Mark track complete in `conductor/tracks.md`
 - [x] Task: Reload pi because live extensions changed
@@ -148,4 +148,4 @@ Default (Option A): capture only key checkpoints:
   - `pi-diff-review-tui/lib/app-workflows.ts`
   - `pi-diff-review-tui/lib/external-editor.ts`
   - new SSH staged-editor helper module + focused tests
-  - docs in `pi-diff-review-tui/README.md`, `pi-ssh/README.md`, and relevant `lat-md/*`
+  - docs in `pi-diff-review-tui/README.md`, `pi-ssh/README.md`, and relevant `.lat-md/*`

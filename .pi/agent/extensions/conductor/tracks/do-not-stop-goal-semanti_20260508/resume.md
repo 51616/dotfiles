@@ -29,7 +29,7 @@ The intended change is to convert `do-not-stop` from repeat-toggle behavior into
 - Incorporated Tan decisions: audit uses current model + medium reasoning with a one-hour cap, retries by resuming an explicit audit session when possible, falls back to an unanchored template after cap exhaustion, hard-cuts `repeats`, keeps completed status visible until clear, requires explicit non-UI replacement, and lets blank `/do-not-stop` during a running turn adopt the previous user message as the goal.
 - Incorporated Tan decision: audit retries must use an explicit `--session <path|id>` selector and must not use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe.
 - Drafted `plan.md` with phases for API discovery, helper/data-model refactor, runtime persistence, audit runner, entrypoint integration, tests, lat-md sync, verification, review, and completion sync.
-- Implemented the plan in `do-not-stop/index.ts`, new focused helper modules under `do-not-stop/lib/`, rewritten `test/do-not-stop*.test.mjs`, and updated `lat-md/do-not-stop.md` / `lat-md/tests.md`.
+- Implemented the plan in `do-not-stop/index.ts`, new focused helper modules under `do-not-stop/lib/`, rewritten `test/do-not-stop*.test.mjs`, and updated `.lat-md/do-not-stop.md` / `.lat-md/tests.md`.
 - Addressed Codex review findings: high-confidence completion now requires evidence/source paths; audit-session parent dirs are created; scheduling gates are rechecked after audit; stale audit dispatches cannot clear newer locks; legacy `on/off/toggle/repeats` controls return guidance; previous-message adoption is scoped to the current session; audit parsing is strict JSON-only.
 
 ## Progress log
@@ -85,7 +85,7 @@ Approved spec scope currently includes:
 
 - No blockers remain for the scoped track.
 - Known unrelated verification noise: `node --test test/*.test.mjs` has seven `pi-instance-manager` failures that reproduce when only those pi-instance-manager files are run. They are outside this track and were not modified.
-- Lattice helper mismatch: the shared checker expects `.lat-md/`, while this workspace uses `lat-md/`; manual link/anchor verification passed.
+- Original lattice helper mismatch is now resolved: this workspace uses `.lat-md/`, matching the shared checker.
 
 ## Latest review outcome
 
@@ -135,8 +135,9 @@ cd /home/tan/.pi/agent/extensions && python3 <manual lat-md link/anchor check>
 # pass: do-not-stop.md, tests.md, and do-not-stop/index.ts anchor
 ```
 
-## lat-md drift checks
+## .lat-md drift checks
 
 - Shared helper run: `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all`
-- Result: failed with `Missing lattice directory: /home/tan/.pi/agent/extensions/.lat-md` because this workspace uses legacy `lat-md/`.
+- Historical result for this track: failed before the workspace lattice was moved to `.lat-md/`.
+- Current expectation: the shared helper should pass after the `.lat-md/` rename.
 - Manual link/anchor check passed for touched lattice files and the `do-not-stop/index.ts` `@lat:` anchor.

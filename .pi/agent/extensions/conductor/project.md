@@ -42,8 +42,8 @@ This workspace contains Tan’s live pi extensions. It adds behavior on top of `
 
 ## Notes / references
 - `package.json`
-- `lat-md/extensions.md`
-- `lat-md/tests.md`
+- `.lat-md/extensions.md`
+- `.lat-md/tests.md`
 - `pi-ssh/README.md`
 - `skill-uri/README.md`
 - `self-checkpointing/SPEC.md`

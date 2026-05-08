@@ -22,7 +22,7 @@ Track implementation, review, and verification are complete. The old `skill-uri/
 - Reran the targeted verification suite and `lat` checks after the review-fixup slice; all checks passed
 
 ## Progress log
-- 2026-04-14: Audited `package.json`, `lat-md/extensions.md`, `lat-md/tests.md`, `pi-ssh`, `skill-uri`, and `self-checkpointing` runtime/test files relevant to remote backend sharing
+- 2026-04-14: Audited `package.json`, `.lat-md/extensions.md`, `.lat-md/tests.md`, `pi-ssh`, `skill-uri`, and `self-checkpointing` runtime/test files relevant to remote backend sharing
 - 2026-04-14: Created Conductor track `general-remote-backend-i_20260414`
 - 2026-04-14: Drafted the initial spec and project-context docs from the extension workspace audit
 - 2026-04-14: Revised the spec to an SSH-only `pi-ssh` session interface, dropped multi-provider logic, and added planned helpers for repo-root resolution, path mapping, exact exec capture, and file exists/stat probing
@@ -91,4 +91,4 @@ Implemented and verified:
 - Last run: `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all` — passed
 - Commands (examples):
   - `bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all`
-- Notes: `lat-md/pi-ssh.md` and `lat-md/tests.md` now point at the shared `pi-ssh` session runtime and its proving tests
+- Notes: `.lat-md/pi-ssh.md` and `.lat-md/tests.md` now point at the shared `pi-ssh` session runtime and its proving tests

@@ -28,7 +28,7 @@ If session files move or change, refresh the tracked session file and re-sync fr
 
 ## Change guidance
 
-If you change queue, lock, or compaction behavior, inspect [[pi-slash]] and the manager-service docs in [`../../scripts/lat-md/instance-manager-service.md`](../../scripts/lat-md/instance-manager-service.md).
+If you change queue, lock, or compaction behavior, inspect [[pi-slash]] and the vault runtime lattice for the manager service at `.pi/scripts/.lat-md/instance-manager-service.md`.
 
 If you change footer or badge semantics, inspect the status/footer tests and the Discord-service badge logic under `lib/pi-instance-manager-discord-service.ts`.
 

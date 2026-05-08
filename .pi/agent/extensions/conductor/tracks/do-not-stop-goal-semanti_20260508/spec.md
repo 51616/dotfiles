@@ -334,7 +334,7 @@ Expected targeted verification command from repo root:
 node --test test/do-not-stop*.test.mjs
 ```
 
-If `lat-md` test specs are updated during implementation, also run the project’s local lattice check command from the extension root.
+If `.lat-md` test specs are updated during implementation, also run the project’s local lattice check command from the extension root.
 
 ## Constraints / assumptions
 

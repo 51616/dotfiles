@@ -4,7 +4,9 @@ This extension owns the `/do-not-stop` goal-continuation workflow for a single p
 
 ## Responsibilities
 
-`do-not-stop/index.ts` owns the extension wiring: slash command handling, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_end` scheduling for later audited continuations, UI refresh, and follow-up delivery through `pi.sendUserMessage(..., { deliverAs: "followUp" })`.
+`do-not-stop/index.ts` owns the extension wiring for goal state, scheduling gates, UI refresh, and follow-up delivery.
+
+It handles slash commands, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_end` scheduling for later audited continuations, and `pi.sendUserMessage(..., { deliverAs: "followUp" })` delivery.
 
 The helper modules under `do-not-stop/lib/` own the contracts that must stay testable without live model calls:
 
@@ -33,7 +35,9 @@ Old toggle/repeat commands and snapshots are hard-cut legacy state. `on`, `off`,
 
 ## Failure and recovery
 
-If the audit fails, times out, exits non-zero, or emits invalid JSON after retrying within the cap, the extension uses the fallback continuation template and leaves the goal active. This keeps progress moving without letting a failed audit claim completion.
+If audit cannot produce trusted completion, the extension uses the fallback continuation template and leaves the goal active.
+
+That covers audit failures, timeouts, non-zero exits, and invalid JSON after retrying within the cap. This keeps progress moving without letting a failed audit claim completion.
 
 Audit retries must use the same explicit audit session path through `--session`; never use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe.
 
@@ -54,7 +58,9 @@ Completed and budget-limited goals remain visible until `/do-not-stop clear` rem
 
 ## Change guidance
 
-Keep command parsing, state transitions, audit parsing, audit subprocess construction, and continuation message construction in small helper modules with focused tests. Do not reintroduce toggle/repeat semantics, pause/resume states, or self-assessed completion.
+Keep command parsing, state transitions, audit parsing, audit subprocess construction, and continuation message construction in focused helper modules.
+
+Those helpers should stay covered by focused tests. Do not reintroduce toggle/repeat semantics, pause/resume states, or self-assessed completion.
 
 When changing audit behavior, preserve the explicit-session retry invariant, the SSH target/session-snapshot invariant, and update `test/do-not-stop-audit-runner.test.mjs`, `test/do-not-stop-audit-target.test.mjs`, and the external audit contract here.
 
