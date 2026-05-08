@@ -4,7 +4,7 @@ This extension owns the `/do-not-stop` goal-continuation workflow for a single p
 
 ## Responsibilities
 
-`do-not-stop/index.ts` owns the extension wiring: slash command handling, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_end` scheduling for later continuations, UI refresh, and follow-up delivery through `pi.sendUserMessage(..., { deliverAs: "followUp" })`.
+`do-not-stop/index.ts` owns the extension wiring: slash command handling, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_end` scheduling for later audited continuations, UI refresh, and follow-up delivery through `pi.sendUserMessage(..., { deliverAs: "followUp" })`.
 
 The helper modules under `do-not-stop/lib/` own the contracts that must stay testable without live model calls:
 
@@ -20,7 +20,7 @@ The helper modules under `do-not-stop/lib/` own the contracts that must stay tes
 
 Absence of a goal is represented by `null`, not by a status. Valid statuses are only `active`, `budget_limited`, and `complete`.
 
-An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first audited continuation immediately; creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle.
+An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle.
 
 Completion is runtime-owned and comes only from an external audit result with `decision: "complete"`, `confidence: "high"`, at least one evidence item, and at least one source path. The active agent does not receive a self-completion tool, and audit failures/timeouts never mark completion.
 

@@ -11,7 +11,7 @@ import {
 } from "../tui-broker/lib/runtime.ts";
 import { isHighConfidenceComplete } from "./lib/do-not-stop-audit.ts";
 import { defaultAuditSessionPath, runDoNotStopAudit, type AuditRunnerOutcome } from "./lib/do-not-stop-audit-runner.ts";
-import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage } from "./lib/do-not-stop-continuation.ts";
+import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "./lib/do-not-stop-continuation.ts";
 import {
   brightRed,
   buildDoNotStopBorderLabel,
@@ -282,7 +282,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     const next = currentGoal ? replaceGoal(currentGoal, objective) : createGoal(objective);
     setCurrentGoal(ctx, next);
     notify(ctx, `do-not-stop goal active: ${next.objective}`, "info");
-    scheduleGoalContinuation(ctx);
+    scheduleGoalContinuation(ctx, { skipAudit: true });
   };
 
   const buildPromptForGoal = (goal: DoNotStopGoalState, ctx: ExtensionContext): string => {
@@ -298,7 +298,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     });
   };
 
-  const scheduleGoalContinuation = (ctx: ExtensionContext): void => {
+  const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
     if (shouldBudgetLimitGoal(currentGoal)) {
       currentGoal = markGoalBudgetLimited(currentGoal as DoNotStopGoalState);
       applyEditorOverride(ctx);
@@ -337,23 +337,34 @@ export default function doNotStop(pi: ExtensionAPI) {
           }
 
           const goalAtAuditStart = currentGoal;
-          let outcome: AuditRunnerOutcome;
-          try {
-            setStatus(ctx, "auditing goal…");
-            outcome = await runAudit(goalAtAuditStart, buildPromptForGoal(goalAtAuditStart, ctx), ctx);
-          } finally {
-            setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
+          let continuation: string;
+
+          if (options.skipAudit) {
+            continuation = buildInitialGoalMessage(goalAtAuditStart);
+          } else {
+            let outcome: AuditRunnerOutcome;
+            try {
+              setStatus(ctx, "auditing goal…");
+              outcome = await runAudit(goalAtAuditStart, buildPromptForGoal(goalAtAuditStart, ctx), ctx);
+            } finally {
+              setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
+            }
+
+            if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
+            if (activeDispatchToken !== scheduledDispatchToken) return;
+
+            if (outcome.ok && isHighConfidenceComplete(outcome.audit)) {
+              setCurrentGoal(ctx, markGoalCompleteFromAudit(currentGoal, outcome.audit));
+              notify(ctx, `do-not-stop goal complete: ${outcome.audit.summary}`, "info");
+              return;
+            }
+
+            continuation = outcome.ok
+              ? buildAnchoredContinuationMessage(currentGoal, outcome.audit)
+              : buildFallbackContinuationMessage(currentGoal, outcome.failureReason ?? "audit failed");
           }
 
           if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
-          if (activeDispatchToken !== scheduledDispatchToken) return;
-
-          if (outcome.ok && isHighConfidenceComplete(outcome.audit)) {
-            setCurrentGoal(ctx, markGoalCompleteFromAudit(currentGoal, outcome.audit));
-            notify(ctx, `do-not-stop goal complete: ${outcome.audit.summary}`, "info");
-            return;
-          }
-
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
             notify(ctx, "do-not-stop goal stopped: turn budget exhausted", "warning");
@@ -363,10 +374,6 @@ export default function doNotStop(pi: ExtensionAPI) {
           if (activeDispatchToken !== scheduledDispatchToken || currentGoal.status !== "active" || !ctx.isIdle() || getHasPendingMessages(ctx)) {
             return;
           }
-
-          const continuation = outcome.ok
-            ? buildAnchoredContinuationMessage(currentGoal, outcome.audit)
-            : buildFallbackContinuationMessage(currentGoal, outcome.failureReason ?? "audit failed");
 
           try {
             pi.sendUserMessage(continuation, { deliverAs: "followUp" });

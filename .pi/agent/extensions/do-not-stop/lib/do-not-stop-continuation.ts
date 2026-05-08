@@ -10,6 +10,24 @@ export function formatBudgetForPrompt(goal: DoNotStopGoalState): string {
   return `${goal.turnsUsed}/${formatBudget(goal.turnBudget)} continuation turns used`;
 }
 
+export function buildInitialGoalMessage(goal: DoNotStopGoalState): string {
+  return [
+    "Start working on the active /do-not-stop goal.",
+    "",
+    "Original objective:",
+    goal.objective,
+    "",
+    "Budget/progress:",
+    `- ${formatBudgetForPrompt(goal)}`,
+    "",
+    "Instructions:",
+    "- Inspect the current session and repo state before changing files.",
+    "- Make a concrete plan if the work is multi-step, then begin implementation immediately.",
+    "- Do not claim completion from this starter prompt; completion is checked by later external audits.",
+    "- Keep going until the objective is actually complete, budget-limited, or the user clears the goal.",
+  ].join("\n");
+}
+
 export function buildAnchoredContinuationMessage(goal: DoNotStopGoalState, audit: DoNotStopAuditResult): string {
   const auditContinuation = audit.continuationMessage.trim();
   const nextSteps = auditContinuation || audit.remainingItems.join("\n").trim() || "Inspect the current repo/session state and continue with the next concrete unfinished step.";

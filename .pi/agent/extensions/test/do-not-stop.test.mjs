@@ -7,7 +7,7 @@ import {
   parseDoNotStopCommand,
 } from "../do-not-stop/lib/do-not-stop.ts";
 import { parseAuditResult, isHighConfidenceComplete } from "../do-not-stop/lib/do-not-stop-audit.ts";
-import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage } from "../do-not-stop/lib/do-not-stop-continuation.ts";
+import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "../do-not-stop/lib/do-not-stop-continuation.ts";
 import {
   createGoal,
   incrementGoalTurnsUsed,
@@ -134,6 +134,10 @@ test("continuation messages include objective, budget, audit progress, and guard
     sourcePaths: ["test/do-not-stop-runtime.test.mjs"],
     continuationMessage: "Fix the runtime test next.",
   };
+
+  const initial = buildInitialGoalMessage(goal);
+  assert.match(initial, /Start working on the active \/do-not-stop goal/);
+  assert.match(initial, /completion is checked by later external audits/);
 
   const anchored = buildAnchoredContinuationMessage(goal, audit);
   assert.match(anchored, /Original objective:\nfinish the migration/);

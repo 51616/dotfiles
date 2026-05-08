@@ -18,6 +18,12 @@ function deferred() {
   return { promise, resolve };
 }
 
+async function createIdleGoalAndClearStarter(harness, objective) {
+  await harness.commands.get("do-not-stop").handler(objective, harness.ctx);
+  await flushTimers();
+  harness.sentMessages.length = 0;
+}
+
 function createHarness(options = {}) {
   __resetDoNotStopRuntimeStoreForTests();
 
@@ -117,24 +123,13 @@ function createHarness(options = {}) {
   };
 }
 
-test("/do-not-stop creates an active unlimited goal and starts the first continuation from idle", async () => {
+test("/do-not-stop creates an active unlimited goal and starts the first continuation from idle without audit", async () => {
+  let auditCalls = 0;
   const harness = createHarness({
-    auditRunner: async () => ({
-      ok: true,
-      attempts: 1,
-      auditSessionPath: "/tmp/audit.jsonl",
-      commands: [],
-      audit: {
-        decision: "continue",
-        confidence: "high",
-        summary: "needs work",
-        completedItems: [],
-        remainingItems: ["continue"],
-        evidence: [],
-        sourcePaths: [],
-        continuationMessage: "Continue implementation.",
-      },
-    }),
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("first goal start should not audit");
+    },
   });
 
   harness.handlers.get("session_start")({}, harness.ctx);
@@ -150,8 +145,10 @@ test("/do-not-stop creates an active unlimited goal and starts the first continu
   });
 
   await flushTimers();
+  assert.equal(auditCalls, 0);
   assert.equal(harness.sentMessages.length, 1);
-  assert.match(harness.sentMessages[0].text, /Continue implementation/);
+  assert.match(harness.sentMessages[0].text, /Start working on the active \/do-not-stop goal/);
+  assert.match(harness.sentMessages[0].text, /finish the migration/);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);
@@ -214,7 +211,7 @@ test("agent_end runs audit, sends anchored follow-up, and increments turns after
     },
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish the migration", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish the migration");
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
@@ -223,7 +220,7 @@ test("agent_end runs audit, sends anchored follow-up, and increments turns after
   assert.equal(harness.sentMessages[0].sendOptions.deliverAs, "followUp");
   assert.match(harness.sentMessages[0].text, /Original objective:\nfinish the migration/);
   assert.match(harness.sentMessages[0].text, /spec written/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("continuation gates are rechecked after audit before dispatch", async () => {
@@ -251,13 +248,13 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
     },
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "active");
 });
 
@@ -281,7 +278,7 @@ test("high-confidence complete audit marks complete and does not send follow-up"
     }),
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
@@ -318,7 +315,7 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
     },
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
@@ -333,7 +330,7 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
   assert.equal(harness.sentMessages.length, 1);
   const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
   assert.equal(snapshot.turnBudget, 5);
-  assert.equal(snapshot.turnsUsed, 1);
+  assert.equal(snapshot.turnsUsed, 2);
 });
 
 test("stale audit completion does not clear a newer dispatch lock", async () => {
@@ -362,12 +359,14 @@ test("stale audit completion does not clear a newer dispatch lock", async () => 
     },
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("first goal", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "first goal");
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
 
   await harness.commands.get("do-not-stop").handler("replace second goal", harness.ctx);
+  await flushTimers();
+  harness.sentMessages.length = 0;
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 2);
@@ -405,7 +404,7 @@ test("audit failure falls back to unanchored continuation and never completes", 
     }),
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
@@ -439,8 +438,8 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
     },
   });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
-  await harness.commands.get("do-not-stop").handler("budget 1", harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+  await harness.commands.get("do-not-stop").handler("budget 2", harness.ctx);
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
