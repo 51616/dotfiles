@@ -37,3 +37,8 @@ Example (kept uppercase here so simple status parsers do not count the example a
 
 - [x] **Track: pi diff review ssh editing and latency**
   *Link: [./tracks/pi-diff-review-ssh-editi_20260415/](./tracks/pi-diff-review-ssh-editi_20260415/)*
+
+---
+
+- [~] **Track: do not stop goal semantics**
+  *Link: [./tracks/do-not-stop-goal-semanti_20260508/](./tracks/do-not-stop-goal-semanti_20260508/)*
