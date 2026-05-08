@@ -43,7 +43,7 @@ Owned by:
 
 What this proves:
 - `/do-not-stop <objective>` creates an explicit active goal with unlimited budget by default, and starts the first non-audited starter continuation when issued from idle, instead of enabling a repeat toggle
-- when `tui-broker` owns the editor, an active `/do-not-stop` goal makes the user editor red and renders the top-border indicator with a `─ ` prefix
+- when `tui-broker` owns the editor, an active `/do-not-stop` goal makes the user editor red and renders the bold `─ GOAL CHASING!` top-border indicator without leading whitespace
 - blank `/do-not-stop` during a running turn can adopt the previous user message without injecting an immediate continuation
 - ordinary user input does not arm a repeat cycle
 - `pause`, `resume`, and old `repeats` controls are rejected with actionable guidance toward `clear` or `budget`

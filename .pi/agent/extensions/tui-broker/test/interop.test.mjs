@@ -175,7 +175,8 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
   await dnsCommand.handler("finish the migration", ctx);
 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.match(stripAnsi(activeEditorLines[0] ?? ""), /^ ─ goal active 0\/∞ /);
+  assert.match(stripAnsi(activeEditorLines[0] ?? ""), /^─ GOAL CHASING! /);
+  assert.match(activeEditorLines[0] ?? "", /\x1b\[1mGOAL CHASING!\x1b\[22m/);
   assert.ok((activeEditorLines[0] ?? "").includes(DO_NOT_STOP_BORDER_COLOR_OPEN));
   assert.ok((activeEditorLines[0] ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(activeEditorLines[0] ?? "", /━/);
@@ -185,7 +186,7 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
   await dnsCommand.handler("clear", ctx);
 
   const inactiveEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /goal active/);
+  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /GOAL CHASING!/);
   assert.ok((inactiveEditorLines[0] ?? "").includes(BORDER_COLOR_OPEN));
 });
 
@@ -397,6 +398,7 @@ test("tui-broker renders registered top-right editor statuses", async () => {
   const lines = createRenderedEditorLines(ctx, 50);
   assert.match(lines[0] ?? "", / main 2 \+10 -3/);
   assert.ok(stripAnsi(lines[0] ?? "").endsWith("  main 2 +10 -3 ─"));
+  assert.doesNotMatch(stripAnsi(lines[0] ?? ""), /^ /);
 
   const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
   assert.deepEqual(snapshot.editorTopRightStatusKeys, ["git-state"]);

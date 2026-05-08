@@ -52,6 +52,14 @@ function notify(ctx: ExtensionContext, message: string, level: "info" | "warning
   if (hasUiNotify(ctx)) ctx.ui.notify(message, level);
 }
 
+function bold(text: string): string {
+  return `\x1b[1m${text}\x1b[22m`;
+}
+
+function buildDoNotStopEditorIndicator(): string {
+  return `─ ${bold("GOAL CHASING!")}`;
+}
+
 function setStatus(ctx: ExtensionContext, text: string | undefined): void {
   const ui = ctx.ui as unknown as { setStatus?: (key: string, text: string | undefined) => void };
   if (ctx.hasUI && typeof ui.setStatus === "function") ui.setStatus("do-not-stop", text);
@@ -142,10 +150,10 @@ class DoNotStopEditor extends CustomEditor {
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
 
-    const labelBase = buildDoNotStopBorderLabel(this.getGoal());
+    const labelBase = buildDoNotStopEditorIndicator();
     const withScrollInfo = moreMatch ? `${labelBase} • ${moreMatch[0]}` : labelBase;
 
-    const rawLabel = `─ ${withScrollInfo} `;
+    const rawLabel = `${withScrollInfo} `;
     const label = truncateToWidth(rawLabel, Math.max(1, width), "");
     const fill = "─".repeat(Math.max(0, width - visibleWidth(label)));
 
@@ -166,7 +174,7 @@ export default function doNotStop(pi: ExtensionAPI) {
 
   registerTuiBrokerEditorBadgeProvider("do-not-stop", () => {
     if (!currentGoal) return null;
-    return { text: `─ ${buildDoNotStopBorderLabel(currentGoal)}`, priority: 200, borderColor: "#f38ba8" };
+    return { text: buildDoNotStopEditorIndicator(), priority: 200, borderColor: "#f38ba8" };
   });
 
   const refreshTuiBrokerEditor = () => {

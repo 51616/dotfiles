@@ -33,7 +33,7 @@ The context-meter label format is `12.2%/272k` or `?/272k` when the percentage i
 The top-right editor status slot is right-aligned on the top border and is intended for compact live state such as the `git-state` meter.
 
 Current contributors:
-- `do-not-stop` contributes the red `─ goal ...` badge while a goal is active
+- `do-not-stop` contributes the red bold `─ GOAL CHASING!` badge while a goal is active
 - `snippets` contributes the active snippet badge
 - `git-state` contributes the Git working-tree meter in the editor top-right border
 - `pi-ssh` contributes the footer path label while SSH is active

@@ -102,6 +102,6 @@ test("buildEditorTopBorderLine keeps a right label aligned on the border", () =>
       borderChar: "─",
       colorizeBorder: (text) => text,
     }),
-    " ↻ repeat 1/3 ───────  main 2 +10 -3 ─",
+    "↻ repeat 1/3 ────────  main 2 +10 -3 ─",
   );
 });

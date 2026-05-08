@@ -47,12 +47,9 @@ If session-tree state is missing, the runtime falls back to the per-session in-m
 
 ## UI contract
 
-The editor badge/border reflects goal state, not repeat state. When a goal is active, the user editor border is red and the top-border text indicator is prefixed with `─ `:
+The editor badge/border reflects active goal-chasing state, not repeat state.
 
-- `─ goal active <turnsUsed>/∞` for unlimited active goals
-- `─ goal active <turnsUsed>/<turnBudget>` for budgeted active goals
-- `─ goal budget-limited <turnsUsed>/<turnBudget>` after budget exhaustion
-- `─ goal complete <turnsUsed>/<budget-or-∞>` after high-confidence completion
+When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ GOAL CHASING!` with no leading whitespace. Detailed state remains available through status text and `/do-not-stop status`.
 
 Completed and budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 

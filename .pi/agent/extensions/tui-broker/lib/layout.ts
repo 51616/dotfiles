@@ -136,7 +136,7 @@ export function buildEditorTopBorderLine(args: {
   const rightText = sanitizeStatusText(String(args.rightText ?? ""));
   if (!leftText && !rightText) return undefined;
 
-  const leftLabel = leftText ? ` ${leftText} ` : "";
+  const leftLabel = leftText ? `${leftText} ` : "";
   const rightLabel = rightText ? ` ${rightText} ` : "";
   const rightWidth = visibleWidth(rightLabel);
   const trailingBorderWidth = rightWidth > 0 ? 1 : 0;
