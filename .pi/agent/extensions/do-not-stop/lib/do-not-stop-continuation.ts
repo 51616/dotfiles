@@ -15,6 +15,8 @@ export function buildInitialGoalMessage(goal: DoNotStopGoalState): string {
     "Objective:",
     goal.objective,
     "",
+    "Do not stop until everything is complete, test, and verified. Write your findings and progress down as you go.",
+    "",
     "Instructions:",
     "- Inspect the current session and repo state before changing files.",
     "- Make a concrete plan if the work is multi-step, then begin implementation immediately.",
