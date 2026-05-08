@@ -153,7 +153,7 @@ function buildGoalCompletionNotification(ctx: ExtensionContext, goal: DoNotStopG
 
 type LoaderCloser = () => void;
 
-function showAuditLoader(ctx: ExtensionContext, label = "do-not-stop: auditing goal completion…"): LoaderCloser | undefined {
+function showAuditLoader(ctx: ExtensionContext, label = "Auditing goal completion…"): LoaderCloser | undefined {
   if (!ctx.hasUI) return undefined;
 
   let visible = true;
