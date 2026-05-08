@@ -59,6 +59,24 @@ function createSnapshot(overrides = {}) {
 				completedAt: 600,
 			},
 			{
+				id: "tool-fffind",
+				name: "fffind",
+				summary: "files matching “activity block” in activity-block/ (excluding node_modules/; limit 20)",
+				state: "complete",
+				startedAt: 650,
+				updatedAt: 700,
+				completedAt: 700,
+			},
+			{
+				id: "tool-ffgrep",
+				name: "ffgrep",
+				summary: "text matching “fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
+				state: "complete",
+				startedAt: 720,
+				updatedAt: 760,
+				completedAt: 760,
+			},
+			{
 				id: "tool-run-skill-script",
 				name: "run_skill_script",
 				summary: "scripts/pi-ssh-setup.sh in pi-ssh via bash (timeout 30s, 2 args)",
@@ -68,9 +86,9 @@ function createSnapshot(overrides = {}) {
 				completedAt: 800,
 			},
 		],
-		totalTools: 4,
+		totalTools: 6,
 		activeTools: 0,
-		completedTools: 4,
+		completedTools: 6,
 		failedTools: 0,
 		latestActiveTool: undefined,
 		latestToolView: undefined,
@@ -87,12 +105,20 @@ function render(snapshotOverrides = {}) {
 		() => false,
 		() => 0,
 	);
-	return component.render(160).join("\n");
+	return component.render(260).join("\n");
 }
 
-test("summarizeTool formats grep, find, multi_grep, and run_skill_script arguments", () => {
+test("summarizeTool formats grep, find, fff, multi_grep, and run_skill_script arguments", () => {
 	assert.equal(summarizeTool("grep", { pattern: "needle", path: "src", glob: "*.ts" }), "/needle/ in src (*.ts)");
 	assert.equal(summarizeTool("find", { pattern: "*.test.mjs", path: "src", limit: 10 }), "*.test.mjs in src (limit 10)");
+	assert.equal(
+		summarizeTool("fffind", { pattern: "activity block", path: "activity-block/", exclude: ["node_modules/"], limit: 20 }),
+		"files matching “activity block” in activity-block/ (excluding node_modules/; limit 20)",
+	);
+	assert.equal(
+		summarizeTool("ffgrep", { pattern: "fff", exclude: "test/", caseSensitive: true, context: 2, limit: 20 }),
+		"text matching “fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
+	);
 	assert.equal(
 		summarizeTool("multi_grep", { patterns: ["alpha", "beta"], path: "src", glob: "*.ts" }),
 		"/alpha/ | /beta/ in src (*.ts)",
@@ -109,11 +135,13 @@ test("summarizeTool formats grep, find, multi_grep, and run_skill_script argumen
 	);
 });
 
-test("ActivityBlockMessageComponent color codes grep, find, multi_grep, and run_skill_script rows", () => {
+test("ActivityBlockMessageComponent color codes grep, find, fff, multi_grep, and run_skill_script rows", () => {
 	const rendered = render();
 
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>grep<\/b><\/toolTitle> <accent>\/needle\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>find<\/b><\/toolTitle> <accent>\*\.test\.mjs in src \(limit 10\)<\/accent>/);
+	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>grep<\/b><\/toolTitle> <accent>text matching “fff” in repo \(excluding test\/; case-sensitive; 2 context lines; limit 20\)<\/accent>/);
+	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>find<\/b><\/toolTitle> <accent>files matching “activity block” in activity-block\/ \(excluding node_modules\/; limit 20\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>multi_grep<\/b><\/toolTitle> <accent>\/alpha\/ \| \/beta\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(timeout 30s, 2 args\)<\/accent>/);
 });

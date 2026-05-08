@@ -675,6 +675,8 @@ function styleToolName(theme: Theme, toolName: string): string {
 		case "grep":
 		case "find":
 		case "multi_grep":
+		case "ffgrep":
+		case "fffind":
 		case "run_skill_script":
 			return theme.fg("toolTitle", theme.bold(getToolDisplayName(toolName)));
 		default:
@@ -684,6 +686,8 @@ function styleToolName(theme: Theme, toolName: string): string {
 
 function getToolDisplayName(toolName: string): string {
 	if (toolName === "run_skill_script") return "run-skill";
+	if (toolName === "ffgrep") return "grep";
+	if (toolName === "fffind") return "find";
 	return toolName;
 }
 
@@ -699,6 +703,8 @@ function styleToolSummary(theme: Theme, toolName: string, summary: string): stri
 		case "grep":
 		case "find":
 		case "multi_grep":
+		case "ffgrep":
+		case "fffind":
 		case "run_skill_script":
 			return theme.fg("accent", summary);
 		default:

@@ -6,6 +6,7 @@ import type {
 	ToolExecutionUpdateEvent,
 	TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
+import { summarizeFffindTool, summarizeFfgrepTool } from "./search-tool-summary.ts";
 
 const MAX_FINAL_THINKING_SUMMARIES = 4;
 const MAX_TOOL_DETAIL_LENGTH = 2400;
@@ -468,6 +469,12 @@ export function summarizeTool(toolName: string, args: unknown): string {
 		].filter((value): value is string => Boolean(value));
 		if (modifiers.length > 0) summary += ` (${modifiers.join(", ")})`;
 		return normalizeExcerpt(summary, 72);
+	}
+	if (toolName === "fffind") {
+		return summarizeFffindTool(args);
+	}
+	if (toolName === "ffgrep") {
+		return summarizeFfgrepTool(args);
 	}
 	if (toolName === "find") {
 		const pattern = getStringProperty(args, ["pattern"]);

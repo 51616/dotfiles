@@ -18,7 +18,7 @@ const theme = {
 
 const resetBoldTheme = {
   bold: (text) => `\x1b[1m${text}\x1b[0m`,
-  fg: (_name, text) => text,
+  fg: (name, text) => name === "border" ? `\x1b[38;2;245;194;231m${text}\x1b[39m` : text,
   bg: (_name, text) => text,
   italic: (text) => text,
   underline: (text) => text,
