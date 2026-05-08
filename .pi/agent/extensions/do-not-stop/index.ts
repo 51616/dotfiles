@@ -15,6 +15,7 @@ import {
   brightRed,
   buildDoNotStopBorderLabel,
   DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE,
+  formatGoalCompletionStats,
   formatGoalStatusSummary,
   parseDoNotStopCommand,
   usageText,
@@ -81,6 +82,73 @@ function getBranchEntries(ctx: ExtensionContext): unknown[] {
       ? (ctx as unknown as { sessionManager: { getBranch: () => unknown } }).sessionManager.getBranch()
       : [];
   return Array.isArray(branch) ? branch : [];
+}
+
+type UsageLike = {
+  totalTokens?: unknown;
+  input?: unknown;
+  output?: unknown;
+  cacheRead?: unknown;
+  cacheWrite?: unknown;
+};
+
+type MessageEntryLike = {
+  type?: unknown;
+  timestamp?: unknown;
+  message?: {
+    role?: unknown;
+    timestamp?: unknown;
+    usage?: UsageLike;
+  };
+};
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timestampMs(value: unknown): number | null {
+  const direct = finiteNumber(value);
+  if (direct !== null) return direct;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function assistantUsageTokens(usage: UsageLike | undefined): number | null {
+  if (!usage) return null;
+  const direct = finiteNumber(usage.totalTokens);
+  if (direct !== null) return Math.max(0, direct);
+
+  const parts = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite]
+    .map(finiteNumber)
+    .filter((value): value is number => value !== null);
+  return parts.length > 0 ? Math.max(0, parts.reduce((sum, value) => sum + value, 0)) : null;
+}
+
+function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): number | null {
+  let total = 0;
+  let counted = 0;
+
+  for (const rawEntry of getBranchEntries(ctx)) {
+    const entry = rawEntry as MessageEntryLike;
+    if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+
+    const entryTimestampMs = timestampMs(entry.message.timestamp) ?? timestampMs(entry.timestamp);
+    if (entryTimestampMs !== null && entryTimestampMs < goal.startedAtMs) continue;
+
+    const tokens = assistantUsageTokens(entry.message.usage);
+    if (tokens === null) continue;
+
+    total += tokens;
+    counted += 1;
+  }
+
+  return counted > 0 ? total : null;
+}
+
+function buildGoalCompletionNotification(ctx: ExtensionContext, goal: DoNotStopGoalState): string {
+  const stats = formatGoalCompletionStats(goal, { totalTokens: totalGoalTokensUsed(ctx, goal) });
+  return `${bold("Goal complete:")} ${goal.completionSummary ?? "completed"} — ${stats}`;
 }
 
 function getHasPendingMessages(ctx: ExtensionContext): boolean {
@@ -384,8 +452,10 @@ export default function doNotStop(pi: ExtensionAPI) {
             if (activeDispatchToken !== scheduledDispatchToken) return;
 
             if (outcome.ok && isHighConfidenceComplete(outcome.audit)) {
-              setCurrentGoal(ctx, markGoalCompleteFromAudit(currentGoal, outcome.audit));
-              notify(ctx, `do-not-stop goal complete: ${outcome.audit.summary}`, "info");
+              const completedGoal = markGoalCompleteFromAudit(currentGoal, outcome.audit);
+              setCurrentGoal(ctx, completedGoal);
+              notify(ctx, buildGoalCompletionNotification(ctx, completedGoal), "info");
+              setCurrentGoal(ctx, null);
               return;
             }
 

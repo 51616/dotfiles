@@ -27,7 +27,7 @@ An active goal may schedule a continuation only when pi is idle, there are no qu
 
 Goal creation rejects known vague, non-verifiable objectives such as `goal`, `task`, `work`, `continue`, `do it`, `finish`, `stuff`, and `things`. The extension reports a concrete-objective example instead of arming an audit loop that cannot honestly complete. Restoring an already-persisted vague goal clears it and writes a null goal entry.
 
-Completion is runtime-owned and comes only from an external audit result with `decision: "complete"`, `confidence: "high"`, at least one evidence item, and at least one source path. The active agent does not receive a self-completion tool, and audit failures/timeouts never mark completion.
+Completion is runtime-owned and comes only from an external audit result with `decision: "complete"`, `confidence: "high"`, at least one evidence item, and at least one source path. The active agent does not receive a self-completion tool, and audit failures/timeouts never mark completion. A trusted completion is persisted for audit history, announced once, then immediately auto-cleared so the editor/status badge is disarmed without a manual `/do-not-stop clear`.
 
 When `pi-ssh` is active, the audit must be SSH-aware: before running the audit, the current local session JSONL is copied to `~/.cache/pi/do-not-stop/session-snapshots/<session-id>.jsonl` on the remote host; the audit prompt points at that remote snapshot and remote cwd; and the `pi -p` audit process is launched with the same remote host, port, and remote cwd. This prevents the audit from inspecting the local placeholder checkout while the active agent is editing a remote workspace.
 
@@ -53,7 +53,7 @@ The editor badge/border reflects active goal-chasing state, not repeat state.
 
 When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ GOAL CHASING!` with no leading whitespace. Detailed state remains available through status text and `/do-not-stop status`.
 
-Completed and budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
+Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 
 ## Change guidance
 

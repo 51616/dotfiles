@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   brightRed,
   buildDoNotStopBorderLabel,
+  formatDurationMs,
+  formatGoalCompletionStats,
   formatGoalStatusSummary,
+  formatTokenCount,
   parseDoNotStopCommand,
   validateDoNotStopObjective,
 } from "../do-not-stop/lib/do-not-stop.ts";
@@ -22,6 +25,28 @@ import { buildAuditPrompt, findPreviousUserMessageForGoal } from "../do-not-stop
 
 test("brightRed wraps text with ANSI bright-red sequence", () => {
   assert.equal(brightRed("abc"), "\x1b[91mabc\x1b[0m");
+});
+
+test("goal completion stats format turns, elapsed time, and tokens", () => {
+  const goal = createGoal("finish stats", { goalId: "stats", nowMs: 1_000 });
+  const completed = markGoalCompleteFromAudit(
+    incrementGoalTurnsUsed(incrementGoalTurnsUsed(goal, 20_000), 40_000),
+    {
+      decision: "complete",
+      confidence: "high",
+      summary: "done",
+      completedItems: [],
+      remainingItems: [],
+      evidence: ["test"],
+      sourcePaths: ["test"],
+      continuationMessage: "",
+    },
+    66_000,
+  );
+
+  assert.equal(formatDurationMs(65_000), "1m 5s");
+  assert.equal(formatTokenCount(12345), "12,345");
+  assert.equal(formatGoalCompletionStats(completed, { totalTokens: 12345 }), "2 turns, 1m 5s total time used, 12,345 total tokens used");
 });
 
 test("parseDoNotStopCommand handles goal command surface", () => {

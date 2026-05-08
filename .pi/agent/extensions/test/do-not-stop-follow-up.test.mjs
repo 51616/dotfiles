@@ -10,6 +10,10 @@ function flushTimers() {
   return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+function stripAnsi(text) {
+  return String(text).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
 function deferred() {
   let resolve;
   const promise = new Promise((innerResolve) => {
@@ -292,8 +296,17 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "active");
 });
 
-test("high-confidence complete audit marks complete and does not send follow-up", async () => {
+test("high-confidence complete audit auto-clears the goal after a styled stats notification", async () => {
   const harness = createHarness({
+    branchEntries: [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          usage: { input: 100, output: 50, cacheRead: 25, cacheWrite: 0, totalTokens: 150 },
+        },
+      },
+    ],
     auditRunner: async () => ({
       ok: true,
       attempts: 1,
@@ -318,9 +331,17 @@ test("high-confidence complete audit marks complete and does not send follow-up"
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
-  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
-  assert.equal(snapshot.status, "complete");
-  assert.equal(snapshot.completionSummary, "all tests passed");
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+
+  const notification = harness.notifications.at(-1);
+  assert.equal(notification.level, "info");
+  assert.match(notification.message, /^\x1b\[1mGoal complete:\x1b\[22m/);
+  assert.match(stripAnsi(notification.message), /^Goal complete: all tests passed/);
+  assert.match(stripAnsi(notification.message), /1 turn, .* total time used, 150 total tokens used$/);
+
+  const completedEntry = harness.appendedEntries.find((entry) => entry.data?.goal?.status === "complete");
+  assert.equal(completedEntry.data.goal.completionSummary, "all tests passed");
+  assert.equal(harness.appendedEntries.at(-1).data.goal, null);
 });
 
 test("same-goal updates do not cancel or duplicate an in-flight dispatch", async () => {

@@ -153,12 +153,36 @@ export function buildDoNotStopBorderLabel(goal: DoNotStopGoalState | null): stri
   return `goal ${goal.status.replace("_", "-")} ${Math.max(0, goal.turnsUsed)}/${formatBudget(goal.turnBudget)}`;
 }
 
+export function formatDurationMs(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (totalSeconds === 0) return "<1s";
+
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const hours = Math.floor(totalMinutes / 60);
+
+  if (hours > 0) return seconds > 0 ? `${hours}h ${minutes}m ${seconds}s` : `${hours}h ${minutes}m`;
+  if (minutes > 0) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return `${seconds}s`;
+}
+
 export function formatElapsedMs(nowMs: number, startedAtMs: number): string {
-  const elapsedMs = Math.max(0, nowMs - startedAtMs);
-  const minutes = Math.floor(elapsedMs / 60000);
-  const hours = Math.floor(minutes / 60);
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  return `${minutes}m`;
+  return formatDurationMs(Math.max(0, nowMs - startedAtMs));
+}
+
+export function formatTokenCount(tokens: number | null | undefined): string {
+  if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return "unknown";
+  return Math.round(tokens).toLocaleString("en-US");
+}
+
+export function formatGoalCompletionStats(
+  goal: DoNotStopGoalState,
+  options: { nowMs?: number; totalTokens?: number | null } = {},
+): string {
+  const completedOrNowMs = options.nowMs ?? goal.completedAtMs ?? Date.now();
+  const turnLabel = goal.turnsUsed === 1 ? "turn" : "turns";
+  return `${goal.turnsUsed} ${turnLabel}, ${formatElapsedMs(completedOrNowMs, goal.startedAtMs)} total time used, ${formatTokenCount(options.totalTokens)} total tokens used`;
 }
 
 export function formatGoalStatusSummary(goal: DoNotStopGoalState | null, nowMs = Date.now()): string {
