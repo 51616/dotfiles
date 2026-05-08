@@ -53,6 +53,8 @@ The editor badge/border reflects active goal-chasing state, not repeat state.
 
 When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ GOAL CHASING!` with no leading whitespace. Detailed state remains available through status text and `/do-not-stop status`.
 
+During external completion audits, the extension shows a `BorderedLoader` spinner labeled `do-not-stop: auditing goal completion…` when the interactive UI is available. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
+
 Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 
 ## Change guidance

@@ -1,6 +1,6 @@
 // @lat: [[do-not-stop#Do not stop]]
 
-import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { BorderedLoader, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
   isTuiBrokerInstalled,
@@ -149,6 +149,44 @@ function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): n
 function buildGoalCompletionNotification(ctx: ExtensionContext, goal: DoNotStopGoalState): string {
   const stats = formatGoalCompletionStats(goal, { totalTokens: totalGoalTokensUsed(ctx, goal) });
   return `${bold("Goal complete:")} ${goal.completionSummary ?? "completed"} — ${stats}`;
+}
+
+type LoaderCloser = () => void;
+
+function showAuditLoader(ctx: ExtensionContext, label = "do-not-stop: auditing goal completion…"): LoaderCloser | undefined {
+  if (!ctx.hasUI) return undefined;
+
+  let visible = true;
+  let closeFromLoader: LoaderCloser | undefined;
+  const close = () => {
+    if (!visible) return;
+    visible = false;
+    closeFromLoader?.();
+  };
+
+  const ui = ctx.ui as unknown as {
+    custom?: (
+      factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: null) => void) => unknown,
+    ) => unknown;
+  };
+
+  if (typeof ui.custom !== "function") return undefined;
+
+  try {
+    void ui.custom((tui, theme, _keybindings, done) => {
+      closeFromLoader = () => done(null);
+      const loader = new BorderedLoader(tui as never, theme as never, label);
+      loader.onAbort = () => {
+        close();
+        ctx.abort();
+      };
+      return loader;
+    });
+    return close;
+  } catch {
+    visible = false;
+    return undefined;
+  }
 }
 
 function getHasPendingMessages(ctx: ExtensionContext): boolean {
@@ -430,6 +468,7 @@ export default function doNotStop(pi: ExtensionAPI) {
             continuation = buildInitialGoalMessage(goalAtAuditStart);
           } else {
             let outcome: AuditRunnerOutcome;
+            const closeAuditLoader = showAuditLoader(ctx);
             try {
               setStatus(ctx, "auditing goal…");
               const auditInput = await buildPromptForGoal(goalAtAuditStart, ctx);
@@ -445,6 +484,7 @@ export default function doNotStop(pi: ExtensionAPI) {
                 commands: [],
               };
             } finally {
+              closeAuditLoader?.();
               setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
             }
 
