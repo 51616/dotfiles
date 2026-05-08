@@ -12,19 +12,13 @@ export function formatBudgetForPrompt(goal: DoNotStopGoalState): string {
 
 export function buildInitialGoalMessage(goal: DoNotStopGoalState): string {
   return [
-    "Start working on the active /do-not-stop goal.",
-    "",
-    "Original objective:",
+    "Objective:",
     goal.objective,
-    "",
-    "Budget/progress:",
-    `- ${formatBudgetForPrompt(goal)}`,
     "",
     "Instructions:",
     "- Inspect the current session and repo state before changing files.",
     "- Make a concrete plan if the work is multi-step, then begin implementation immediately.",
-    "- Do not claim completion from this starter prompt; completion is checked by later external audits.",
-    "- Keep going until the objective is actually complete, budget-limited, or the user clears the goal.",
+    "- Keep going until the objective is actually complete.",
   ].join("\n");
 }
 

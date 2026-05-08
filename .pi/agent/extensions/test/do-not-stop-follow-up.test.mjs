@@ -147,8 +147,8 @@ test("/do-not-stop creates an active unlimited goal and starts the first continu
   await flushTimers();
   assert.equal(auditCalls, 0);
   assert.equal(harness.sentMessages.length, 1);
-  assert.match(harness.sentMessages[0].text, /Start working on the active \/do-not-stop goal/);
-  assert.match(harness.sentMessages[0].text, /finish the migration/);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish the migration/m);
+  assert.doesNotMatch(harness.sentMessages[0].text, /Budget\/progress/);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);

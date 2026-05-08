@@ -136,8 +136,10 @@ test("continuation messages include objective, budget, audit progress, and guard
   };
 
   const initial = buildInitialGoalMessage(goal);
-  assert.match(initial, /Start working on the active \/do-not-stop goal/);
-  assert.match(initial, /completion is checked by later external audits/);
+  assert.match(initial, /^Objective:\nfinish the migration/m);
+  assert.doesNotMatch(initial, /Budget\/progress/);
+  assert.doesNotMatch(initial, /completion is checked by later external audits/);
+  assert.doesNotMatch(initial, /budget-limited, or the user clears the goal/);
 
   const anchored = buildAnchoredContinuationMessage(goal, audit);
   assert.match(anchored, /Original objective:\nfinish the migration/);
