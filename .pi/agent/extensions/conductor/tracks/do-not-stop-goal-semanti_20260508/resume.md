@@ -13,7 +13,7 @@ Track id: `do-not-stop-goal-semanti_20260508`
 
 Spec drafted and awaiting Tan approval/revision. No implementation has started. The generated `plan.md` still contains the conductor template and must be replaced only after the spec is approved.
 
-The intended change is to convert `do-not-stop` from repeat-toggle behavior into explicit goal semantics: active goals auto-continue when idle, a configured turn budget can produce `budget_limited`, completion is model-triggered through a restricted tool, and pause/resume are intentionally unsupported.
+The intended change is to convert `do-not-stop` from repeat-toggle behavior into explicit goal semantics: active goals auto-continue when idle, a configured turn budget can produce `budget_limited`, completion is determined by a separate `pi -p` progress/completion audit, and pause/resume are intentionally unsupported.
 
 ## Active phase / task
 
@@ -24,7 +24,8 @@ The intended change is to convert `do-not-stop` from repeat-toggle behavior into
 
 - Created conductor track `do-not-stop-goal-semanti_20260508`.
 - Audited current `do-not-stop` implementation and existing conductor project docs.
-- Drafted `spec.md` with known decisions: no pause/resume, unlimited budget by default, explicit goal creation, completion via restricted tool, and continuation-message design left open.
+- Drafted `spec.md` with known decisions: no pause/resume, unlimited budget by default, explicit goal creation, and goal-style continuation behavior.
+- Revised `spec.md` to make external `pi -p` auditing the canonical continuation/completion mechanism: the audit inspects session progress, self-checkpoints, conductor tracks, and progress notes when available; high-confidence complete audits mark the goal complete; continuation prompts are grounded in remaining work.
 
 ## Progress log
 
@@ -40,7 +41,8 @@ Pending approval. Draft scope currently includes:
 - Active goals continue only when idle, no pending messages exist, no dispatch is scheduled, and budget permits.
 - `turnBudget = null` means unlimited continuation turns.
 - Runtime sets `budget_limited` only when a configured turn budget is exhausted.
-- Model can only set `complete` through a restricted completion tool.
+- Completion is set only by a high-confidence external `pi -p` audit result, not by the active agent.
+- Continuation messages should include original objective, completed items not to repeat, and finer-grained remaining work from conductor/checkpoint/progress artifacts when available.
 - Old repeat snapshots must not accidentally auto-arm a new goal.
 
 ## Decisions / non-goals
@@ -49,7 +51,8 @@ Pending approval. Draft scope currently includes:
 - Durable decision: budget is unlimited by default when not set.
 - Durable decision: do not infer goals automatically from ordinary user prompts.
 - Durable decision: no pi core changes; implement inside `~/.pi/agent/extensions/`.
-- Deferred decision: exact continuation message and injection mechanism.
+- Durable decision: continuation/completion should be checked by a separate `pi -p` process before dispatch.
+- Deferred decision: exact `pi -p` command flags, timeout, checkpoint discovery paths, and continuation-message delivery mechanism.
 
 ## Deviations from approved spec/plan
 
@@ -57,7 +60,8 @@ Pending approval. Draft scope currently includes:
 
 ## Blockers / risks
 
-- Tan wants a different continuation-message design; the exact message content/API must be decided before plan approval.
+- Need discover exact installed pi CLI behavior for `pi -p`, including reliable JSON output extraction and timeout behavior.
+- Need identify self-checkpoint artifact/session-entry format so audits can prefer checkpoint progress when available.
 - Need decide whether non-UI replacement requires explicit clear first.
 - Need decide whether old `repeats` terminology remains as a deprecated alias.
 - Need decide whether completed goals stay visible until cleared.

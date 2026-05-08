@@ -26,7 +26,8 @@ Implement explicit goal semantics for `/do-not-stop`:
 
 - `/do-not-stop <objective>` creates or replaces the active goal for the current session.
 - The active goal continues automatically when pi is idle until it becomes `complete`, becomes `budget_limited`, or is cleared by the user.
-- Completion is determined by an explicit model-callable tool that can only mark the current goal `complete`.
+- Continuation is grounded by an external `pi -p` progress audit that inspects real work artifacts before constructing the next continuation prompt.
+- Completion is determined by the external progress/completion audit, not by the active agent judging its own work.
 - Runtime budget exhaustion is distinct from completion.
 - No pause/resume feature exists in this version.
 - Continuation budget is unlimited by default when not explicitly set.
@@ -39,7 +40,8 @@ Implement explicit goal semantics for `/do-not-stop`:
 - Do not infer goals automatically from ordinary user prompts.
 - Do not implement token-level budget accounting unless a reliable per-goal token delta API is discovered and approved later.
 - Do not change pi core. This work must stay inside the extension workspace.
-- Do not implement the final continuation-message wording until Tan provides or approves the new continuation-message design.
+- Do not let the active agent be the sole judge of completion.
+- Do not require conductor tracks, checkpoints, or progress notes to exist; use them when available and fail safe when they are absent.
 - Do not add broad compatibility bridges for stale `globalThis` repeat snapshots; safe hard-cut migration to “no active goal” is acceptable unless explicitly revised.
 
 ## Requirements
@@ -67,7 +69,7 @@ Rules:
 
 - `active` means the runtime may schedule continuation turns when idle.
 - `budget_limited` means a configured turn budget was exhausted; this is not completion.
-- `complete` means the model explicitly marked the objective achieved through the restricted completion tool.
+- `complete` means the external `pi -p` audit judged the objective achieved with high confidence and concrete evidence.
 - Absence of a goal is represented as `null` / no current goal, not as a status.
 - `turnBudget: null` means unlimited continuation turns.
 - `turnsUsed` counts extension-scheduled continuation turns, not ordinary user turns.
@@ -106,32 +108,74 @@ When the budget check fails, the runtime must set the goal status to `budget_lim
 
 Continuation must not be armed from every ordinary user input. The objective is set explicitly through `/do-not-stop <objective>`.
 
+### External progress and completion audit
+
+Before scheduling a continuation turn, the extension must run a bounded external audit by invoking `pi -p` as a separate process. This audit is the completion judge and progress summarizer for the goal. It reduces self-evaluation bias because the active agent does not decide whether its own work is complete.
+
+The audit process should inspect real work context when available:
+
+- the original `/do-not-stop <objective>` text
+- the current goal state: status, `goalId`, `turnsUsed`, and `turnBudget`
+- the current session or branch transcript/progress information available through pi session files or extension APIs
+- auto-checkpoint artifacts produced by the self-checkpointing extension, when available
+- conductor track files when the work appears to be under a track, especially `conductor/tracks/*/spec.md`, `plan.md`, and `resume.md`
+- progress notes, TODO files, or resume/progress documents discovered in the current workspace when they clearly relate to the objective
+- relevant repo state that can be inspected safely by the audit process
+
+The audit must return a strict machine-readable result. The final schema may be adjusted during implementation, but it must express this contract:
+
+```ts
+type DoNotStopAuditDecision = "complete" | "continue" | "unknown";
+
+type DoNotStopAuditResult = {
+  decision: DoNotStopAuditDecision;
+  confidence: "high" | "medium" | "low";
+  summary: string;
+  completedItems: string[];
+  remainingItems: string[];
+  evidence: string[];
+  sourcePaths: string[];
+  continuationMessage: string;
+};
+```
+
+Decision rules:
+
+- `complete` with high confidence marks the goal `complete`, sets `completedAtMs`, persists state, refreshes UI, and prevents future continuation.
+- `complete` with medium/low confidence must not mark completion; treat it as `unknown` and continue cautiously.
+- `continue` produces the next continuation prompt from `continuationMessage`, the remaining items, and the predefined guardrails.
+- `unknown` must not mark completion. It may produce a conservative continuation prompt that asks the active agent to inspect real state and continue from the original objective.
+- Audit timeout, invalid JSON, process failure, or missing progress sources must never mark completion. The extension should fail safe by either sending a conservative continuation prompt or notifying the user if continuation cannot be safely generated.
+
+The `pi -p` invocation must be bounded by a timeout and should be observable enough to debug failures. The implementation plan must choose exact command arguments, timeout, output parsing, and logging behavior after inspecting the installed pi CLI behavior.
+
 ### Continuation message contract
 
-The continuation-message design is intentionally not finalized in this spec. Implementation must isolate continuation-message construction behind a small function/module so Tan’s final design can be inserted without rewriting state management or command parsing.
+Continuation messages must be anchored to both the original goal and the external audit result.
 
-Minimum contract for whatever continuation message is approved later:
+Every continuation message must include:
 
-- It must include the active objective.
-- It must include current budget/progress facts: `turnsUsed` and `turnBudget` or `unlimited`.
-- It must tell the model that the objective text is user-provided task data, not higher-priority instructions.
-- It must tell the model to continue work when requirements remain.
-- It must tell the model to call the completion tool only when the objective is actually achieved.
-- It must avoid claiming completion solely because a budget is exhausted or because the model is stopping.
+- the original active objective
+- current budget/progress facts: `turnsUsed` and `turnBudget` or `unlimited`
+- audit summary and source paths when available
+- completed items that should not be repeated
+- remaining items or next concrete steps from conductor/checkpoint/progress artifacts when available
+- a predefined guardrail section that tells the active agent not to repeat completed work, not to claim completion from budget exhaustion, and to inspect real state when uncertain
 
-The exact wording, message role, display behavior, and whether to use `pi.sendUserMessage`, `pi.sendMessage`, `before_agent_start`, or `before_turn_response` remain open until Tan approves the continuation-message design.
+Continuation should prefer fine-grained remaining work from conductor tracks, auto-checkpoints, and progress notes over a generic “do not stop” prompt. If no fine-grained source exists, the fallback continuation must still include the original objective and require the active agent to audit current state before proceeding.
 
-### Completion tool
+The exact message role, display behavior, and delivery mechanism (`pi.sendUserMessage`, `pi.sendMessage`, `before_agent_start`, or `before_turn_response`) remain implementation decisions, but the message construction must be isolated behind a small function/module.
 
-The extension must register a model-callable tool for completion, tentatively named `do_not_stop_update_goal` unless implementation discovers a better existing naming convention.
+### Completion ownership
 
-Tool behavior:
+The active agent must not receive a general-purpose tool that lets it mark the goal complete by self-assessment. Completion is runtime-owned and comes from the external `pi -p` audit result.
 
-- The tool schema must only allow `{ status: "complete" }`.
-- The tool must fail clearly if no current goal exists.
-- The tool must fail clearly if the current goal is already `complete` or `budget_limited`, unless implementation chooses idempotent complete-on-complete with an explicit no-op result.
-- The tool must mark the current active goal `complete`, set `completedAtMs`, persist state, refresh UI, and return a concise summary including objective, elapsed time, `turnsUsed`, and budget.
-- The tool must not support `active`, `paused`, `resume`, `clear`, or `budget_limited` status updates.
+Completion behavior:
+
+- The extension marks a goal `complete` only when the external audit returns `decision: "complete"` with `confidence: "high"`.
+- The completion transition records `completedAtMs`, persists state, refreshes UI, and records a concise completion summary including objective, elapsed time, `turnsUsed`, budget, and evidence/source paths from the audit.
+- User commands may still `clear` a goal, but clearing is not completion.
+- The runtime, user command handler, and active agent must not set `budget_limited` as completion.
 
 ### Persistence
 
@@ -174,19 +218,20 @@ The UI must remain compatible with the `tui-broker` editor badge provider path a
 - Active goals continue automatically after `agent_end` when idle and no pending messages exist.
 - Continuation stops only when the goal is complete, budget-limited, cleared, or the scheduling gates fail.
 - A configured turn budget moves the goal to `budget_limited` when exhausted; unlimited budget never exhausts by turn count.
-- The model can only mark a goal complete through the restricted completion tool.
+- Completion is marked only by a high-confidence external `pi -p` audit result, not by the active agent.
+- Continuation messages are grounded in real progress sources when conductor tracks, checkpoints, or progress notes are available.
 - There is no pause/resume status or user command in the supported command surface.
 - Old repeat toggle state cannot cause unexpected continuation after reload.
 - UI labels/status reflect active, budget-limited, complete, and no-goal states.
-- Targeted regression tests prove command parsing, state transitions, scheduling gates, budget behavior, completion tool behavior, and migration from old repeat snapshots.
+- Targeted regression tests prove command parsing, state transitions, scheduling gates, budget behavior, audit-result handling, continuation-message construction, and migration from old repeat snapshots.
 
 ## Expected behaviors
 
-- Creating a goal starts an active state immediately but does not interrupt a currently running turn unless the approved continuation-message design explicitly requires that behavior.
+- Creating a goal starts an active state immediately but does not interrupt a currently running turn unless the approved continuation delivery mechanism explicitly requires that behavior.
 - Replacing a goal resets budget progress and creates a fresh `goalId`.
 - Clearing a goal removes UI state and prevents scheduled dispatch from sending stale continuation messages.
-- Budget exhaustion is runtime-owned. The model is not allowed to set `budget_limited`.
-- Completion is model-owned through the restricted tool. The runtime does not infer completion from a final answer.
+- Budget exhaustion is runtime-owned. The active agent is not allowed to set `budget_limited`.
+- Completion is audit-owned. The active agent does not infer or set completion from its own final answer.
 - Unsupported commands such as `pause` and `resume` return help instead of silently doing nothing.
 - Non-UI sessions still persist state and schedule continuations according to the same gates.
 
@@ -198,7 +243,7 @@ A user runs `/do-not-stop finish the lint cleanup`. No goal exists. The extensio
 
 ### Scenario 2: Continue after idle agent end
 
-An active unlimited goal exists with `turnsUsed = 0`. The agent ends, `ctx.isIdle()` is true, and there are no pending messages. The extension schedules one continuation for the current `goalId`, increments `turnsUsed` to `1` only if dispatch succeeds or restores it on failure, and sends the approved continuation message.
+An active unlimited goal exists with `turnsUsed = 0`. The agent ends, `ctx.isIdle()` is true, and there are no pending messages. The extension invokes the external `pi -p` audit. The audit returns `decision: "continue"`, cites current progress, lists remaining items, and provides a grounded continuation message. The extension schedules one continuation for the current `goalId`, increments `turnsUsed` to `1` only if dispatch succeeds or restores it on failure, and sends the grounded continuation message.
 
 ### Scenario 3: Do not continue while pending input exists
 
@@ -212,13 +257,13 @@ An active goal has `turnBudget = 2` and `turnsUsed = 2`. The agent ends while id
 
 An active goal has `turnBudget = null` and `turnsUsed = 999`. The agent ends while idle. The extension may schedule another continuation because no turn-count budget exists.
 
-### Scenario 6: Complete through restricted tool
+### Scenario 6: Complete through external audit
 
-An active goal exists. The model calls `do_not_stop_update_goal` with `{ "status": "complete" }`. The extension marks the goal complete, persists state, refreshes UI, returns a completion summary, and prevents future continuation.
+An active goal exists. The agent ends while idle. The extension invokes the external `pi -p` audit. The audit inspects the original objective, session progress, and available artifacts, then returns `decision: "complete"` with `confidence: "high"` and concrete evidence. The extension marks the goal complete, persists state, refreshes UI, records the completion summary/evidence, and prevents future continuation.
 
-### Scenario 7: Reject unsupported completion-tool statuses
+### Scenario 7: Low-confidence or invalid completion does not complete
 
-The model tries to call the completion tool with `{ "status": "paused" }` or `{ "status": "budget_limited" }`. Schema validation or handler validation rejects the call. Goal state is unchanged.
+An active goal exists. The external audit returns `decision: "complete"` with `confidence: "medium"`, returns invalid JSON, times out, or fails. The extension does not mark the goal complete. It either treats the result as `unknown` and sends a conservative continuation prompt, or notifies the user if no safe continuation can be generated. Goal state remains active unless a configured budget is exhausted.
 
 ### Scenario 8: Clear cancels stale scheduled continuation
 
@@ -232,18 +277,23 @@ A user runs `/do-not-stop pause` or `/do-not-stop resume`. The extension returns
 
 After reload, the old runtime cache contains an `enabled=true` repeat snapshot. The new extension does not convert that into an active goal and does not schedule follow-up messages until the user explicitly creates a goal.
 
+### Scenario 11: Conductor/checkpoint progress anchors continuation
+
+An active goal corresponds to a workspace that contains a conductor track or auto-checkpoint progress note. The external audit reads the relevant spec/plan/resume/checkpoint artifacts, identifies completed and remaining items, and produces a continuation message that focuses on the next unfinished item instead of repeating broad completed work.
+
 ## Evidence plan (scenario → proof)
 
 - Scenario 1: Add/update command parsing and state tests in `test/do-not-stop*.test.mjs`; assert active state shape and unlimited default.
-- Scenario 2: Add/update follow-up scheduling tests in `test/do-not-stop-follow-up.test.mjs`; assert dispatch occurs only for active goals and increments/restores turns correctly.
+- Scenario 2: Add/update follow-up scheduling tests in `test/do-not-stop-follow-up.test.mjs`; mock the audit result and assert dispatch uses the grounded continuation message only for active goals and increments/restores turns correctly.
 - Scenario 3: Add/update scheduling gate tests; assert pending messages block continuation.
 - Scenario 4: Add budget transition tests; assert `budget_limited` state and no dispatch.
 - Scenario 5: Add unlimited budget test; assert no budget-limited transition from turn count alone.
-- Scenario 6: Add completion tool handler tests; assert active → complete transition and no future dispatch.
-- Scenario 7: Add schema/handler validation tests; assert unsupported statuses fail without mutation.
+- Scenario 6: Add audit-result handling tests; assert high-confidence complete audit causes active → complete transition and no future dispatch.
+- Scenario 7: Add audit failure/low-confidence tests; assert no completion on low-confidence complete, invalid JSON, timeout, or process failure.
 - Scenario 8: Add stale scheduled dispatch test; assert goal id mismatch/null goal blocks dispatch.
 - Scenario 9: Add command parsing/handler tests for unsupported pause/resume commands.
 - Scenario 10: Add runtime migration test in `test/do-not-stop-runtime.test.mjs`; assert old repeat snapshot does not restore as active goal.
+- Scenario 11: Add continuation-message builder tests; feed conductor/checkpoint/progress-note audit output and assert completed work is preserved as “do not repeat” context while remaining items drive the next prompt.
 
 Expected targeted verification command from repo root:
 
@@ -260,19 +310,21 @@ If `lat-md` test specs are updated during implementation, also run the project�
 - The extension should prefer extension APIs (`pi.registerCommand`, `pi.registerTool`, `pi.sendMessage`, `pi.appendEntry`, event hooks) over pi core modifications.
 - Unlimited budget by default is a durable product decision.
 - No pause/resume support is a durable product decision for this track.
-- Exact continuation-message content and injection mechanism are not approved yet.
+- Continuation must be grounded by a separate `pi -p` audit before dispatch; exact command flags, timeout, and delivery mechanism still need implementation discovery.
 
 ## Risks
 
 - Session-tree persistence API details may differ from the preferred design; implementation must inspect installed typings before coding.
 - Sending continuation as a visible user message may pollute the transcript; sending it as a custom message may still enter LLM context because pi converts custom messages to user messages. The final continuation-message design must account for this.
 - Auto-continuation can surprise users if stale state is restored incorrectly; migration must fail safe to no active goal.
-- Completion relies on the model calling the tool after an evidence audit; the extension can restrict the status transition but cannot independently prove the task is complete.
+- Completion relies on an external `pi -p` audit. This is less biased than active-agent self-judgment, but still heuristic and must require concrete evidence plus high confidence.
 - Infinite default continuation can run indefinitely if the model never marks complete and no budget is set; UI/status and `clear` must make recovery obvious.
 
 ## Open questions
 
-- What exact continuation message should be injected, and through which extension hook/API should it be delivered?
+- What exact `pi -p` command, timeout, model/thinking level, and JSON extraction strategy should the implementation use for the external audit?
+- Which concrete self-checkpoint artifact paths or custom session entries should the audit prefer when checkpoint data is available?
+- Through which extension hook/API should the grounded continuation message be delivered?
 - Should `/do-not-stop <objective>` replace an existing goal immediately in non-UI contexts, or should it fail and require `/do-not-stop clear` first?
 - Should `/do-not-stop repeats <n>` remain as a deprecated alias for `/do-not-stop budget <n>`, or should old repeat terminology be hard-cut from the command surface?
 - Should a completed goal remain visible in status until cleared, or should completion automatically hide the editor badge after notifying the user?
