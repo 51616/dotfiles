@@ -11,14 +11,14 @@ Track id: `do-not-stop-goal-semanti_20260508`
 
 ## Current state
 
-Spec drafted and awaiting Tan approval/revision. No implementation has started. The generated `plan.md` still contains the conductor template and must be replaced only after the spec is approved.
+Spec approved by Tan and implementation plan drafted. No implementation has started. `plan.md` now contains an executable behavior-driven implementation plan and is awaiting final approval before coding begins.
 
 The intended change is to convert `do-not-stop` from repeat-toggle behavior into explicit goal semantics: active goals auto-continue when idle, a configured turn budget can produce `budget_limited`, completion is determined by a separate `pi -p` progress/completion audit, and pause/resume are intentionally unsupported.
 
 ## Active phase / task
 
-- Phase: Spec approval
-- Task: Review `spec.md` open questions and revise the behavior contract before implementation planning.
+- Phase: Plan approval
+- Task: Review `plan.md` and approve or revise before implementation begins.
 
 ## Last completed step
 
@@ -28,15 +28,17 @@ The intended change is to convert `do-not-stop` from repeat-toggle behavior into
 - Revised `spec.md` to make external `pi -p` auditing the canonical continuation/completion mechanism: the audit inspects session progress, self-checkpoints, conductor tracks, and progress notes when available; high-confidence complete audits mark the goal complete; continuation prompts are grounded in remaining work.
 - Incorporated Tan decisions: audit uses current model + medium reasoning with a one-hour cap, retries by resuming an explicit audit session when possible, falls back to an unanchored template after cap exhaustion, hard-cuts `repeats`, keeps completed status visible until clear, requires explicit non-UI replacement, and lets blank `/do-not-stop` during a running turn adopt the previous user message as the goal.
 - Incorporated Tan decision: audit retries must use an explicit `--session <path|id>` selector and must not use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe.
+- Drafted `plan.md` with phases for API discovery, helper/data-model refactor, runtime persistence, audit runner, entrypoint integration, tests, lat-md sync, verification, review, and completion sync.
 
 ## Progress log
 
 - 2026-05-08 JST: Drafted behavior spec for goal-style `do-not-stop`; no code changed.
 - 2026-05-08 JST: Added audit retry/resume policy, one-hour audit cap, replacement/repeats/completed-visibility decisions, and blank-command adoption behavior.
+- 2026-05-08 JST: Drafted implementation plan. Interrupted by auto-checkpoint before committing the plan.
 
 ## Accepted behaviors currently in scope
 
-Pending approval. Draft scope currently includes:
+Approved spec scope currently includes:
 
 - `/do-not-stop <objective>` creates/replaces an active goal.
 - `/do-not-stop clear/status/budget/help` are supported controls.
@@ -68,7 +70,7 @@ Pending approval. Draft scope currently includes:
 
 ## Deviations from approved spec/plan
 
-- None. Spec is not yet approved.
+- None. Spec is approved; plan is drafted and awaiting Tan approval before implementation.
 
 ## Blockers / risks
 
@@ -90,9 +92,9 @@ Pending approval. Draft scope currently includes:
 
 ## Where to pick up (next steps)
 
-1. Review `conductor/tracks/do-not-stop-goal-semanti_20260508/spec.md` with Tan and resolve the open questions.
-2. After spec approval, replace `plan.md` with a concrete implementation plan that names exact touched files and verification commands.
-3. Only after plan approval, implement behavior slices with tests mapped to approved scenarios.
+1. Review `conductor/tracks/do-not-stop-goal-semanti_20260508/plan.md` with Tan and revise if needed.
+2. After plan approval, start Phase 1 discovery exactly as written in `plan.md`.
+3. Implement behavior slices with tests mapped to approved scenarios; do not start coding before plan approval.
 
 ## Verification commands
 
