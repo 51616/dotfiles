@@ -110,13 +110,15 @@ If future work resumes here, start from that commit and the verification notes b
 
 Post-completion fix: Tan reported `/do-not-stop <goal>` did not appear to work. Root cause: explicit goal creation while pi was already idle created/persisted the goal, but the first continuation was only scheduled from the next `agent_end`; no next `agent_end` exists after a slash command that does not trigger the agent. Fix: creating/replacing an explicit goal now schedules an immediate non-audited starter turn when idle, while blank command during a running turn still waits for idle. Later continuations still run the external audit first.
 
+Post-completion SSH audit fix: Tan pointed out that `pi-ssh` sessions need audit agents to inspect the same remote view as the active agent. Fix: later external audits now resolve the active shared `pi-ssh` session, sync the current local session JSONL to `~/.cache/pi/do-not-stop/session-snapshots/<session-id>.jsonl` on the remote host, point the audit prompt at remote cwd/session/checkpoint/conductor paths, and launch `pi -p` with matching `--ssh <remote>:<remoteCwd>` and `--ssh-port <port>` flags. Local sessions keep the previous local audit behavior.
+
 ## Verification commands
 
 Verification run for this track:
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop*.test.mjs test/runtime-extension-inventory.mjs
-# pass: 28 tests after post-completion idle-start fix
+# pass: 30 tests after post-completion idle-start, no-first-audit, and SSH-audit-target fixes
 ```
 
 Additional workspace signal:

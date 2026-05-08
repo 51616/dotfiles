@@ -38,6 +38,7 @@ Owned by:
 - `.pi/extensions/test/do-not-stop-follow-up.test.mjs`
 - `.pi/extensions/test/do-not-stop-runtime.test.mjs`
 - `.pi/extensions/test/do-not-stop-audit-runner.test.mjs`
+- `.pi/extensions/test/do-not-stop-audit-target.test.mjs`
 
 What this proves:
 - `/do-not-stop <objective>` creates an explicit active goal with unlimited budget by default, and starts the first non-audited starter continuation when issued from idle, instead of enabling a repeat toggle
@@ -49,6 +50,7 @@ What this proves:
 - high-confidence external audit completion marks `complete` and suppresses follow-up dispatch only when concrete evidence and source paths are present
 - audit failures/timeouts and low-confidence results fall back to continuation and never mark completion
 - audit subprocess construction creates the explicit audit-session parent directory, uses `pi -p`, the current model, medium thinking, and explicit `--session <path>` retries without `-c` or `--continue`
+- `pi-ssh` audit context syncs the current session JSONL to the remote host, points audit prompts at the remote session snapshot and remote cwd, and adds matching `--ssh <remote>:<remoteCwd>` / `--ssh-port <port>` flags to the external audit process
 - session custom entries reconstruct goal state, clear/null entries remove it, and legacy repeat snapshots never restore an active goal
 
 ## Diff-review tracker artifacts include canonical observed paths and advisory agent reports

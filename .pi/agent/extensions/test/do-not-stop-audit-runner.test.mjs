@@ -26,6 +26,29 @@ test("buildAuditCommandArgs uses print mode, current model, medium thinking, and
   assert.equal(args.includes("--continue"), false);
 });
 
+test("buildAuditCommandArgs carries pi-ssh target without using continue", () => {
+  const args = buildAuditCommandArgs({
+    prompt: "audit prompt",
+    auditSessionPath: "/tmp/audit-session.jsonl",
+    ssh: { remote: "gpu-box", port: 2222, remoteCwd: "/remote/worktree" },
+  });
+
+  assert.deepEqual(args, [
+    "-p",
+    "--ssh",
+    "gpu-box:/remote/worktree",
+    "--ssh-port",
+    "2222",
+    "--thinking",
+    "medium",
+    "--session",
+    "/tmp/audit-session.jsonl",
+    "audit prompt",
+  ]);
+  assert.equal(args.includes("-c"), false);
+  assert.equal(args.includes("--continue"), false);
+});
+
 test("runDoNotStopAudit retries with the same explicit session and parses JSON", async () => {
   const calls = [];
   let now = 0;

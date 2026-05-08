@@ -16,11 +16,18 @@ export type AuditExec = (
   options: { cwd?: string; timeout?: number; signal?: AbortSignal },
 ) => Promise<AuditExecResult>;
 
+export type AuditSshTarget = {
+  remote: string;
+  port: number;
+  remoteCwd: string;
+};
+
 export type AuditRunnerOptions = {
   exec: AuditExec;
   prompt: string;
   cwd: string;
   model?: { provider?: string; id?: string };
+  ssh?: AuditSshTarget;
   signal?: AbortSignal;
   nowMs?: () => number;
   auditSessionPath?: string;
@@ -63,8 +70,13 @@ export function buildAuditCommandArgs(options: {
   prompt: string;
   model?: { provider?: string; id?: string };
   auditSessionPath: string;
+  ssh?: AuditSshTarget;
 }): string[] {
   const args = ["-p"];
+  const ssh = options.ssh;
+  if (ssh) {
+    args.push("--ssh", `${ssh.remote}:${ssh.remoteCwd}`, "--ssh-port", String(ssh.port));
+  }
   const provider = options.model?.provider?.trim();
   const id = options.model?.id?.trim();
   if (provider && id) {
@@ -101,7 +113,7 @@ export async function runDoNotStopAudit(options: AuditRunnerOptions): Promise<Au
   while (nowMs() - startedAtMs < maxTotalMs) {
     const remainingMs = Math.max(1, maxTotalMs - (nowMs() - startedAtMs));
     const timeout = Math.max(1, Math.min(perAttemptMaxMs, remainingMs));
-    const args = buildAuditCommandArgs({ prompt: options.prompt, model: options.model, auditSessionPath });
+    const args = buildAuditCommandArgs({ prompt: options.prompt, model: options.model, auditSessionPath, ssh: options.ssh });
     commands.push(args);
     attempts += 1;
 

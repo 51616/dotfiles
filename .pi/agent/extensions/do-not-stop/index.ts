@@ -1,7 +1,5 @@
 // @lat: [[do-not-stop#Do not stop]]
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
@@ -9,8 +7,9 @@ import {
   registerTuiBrokerEditorBadgeProvider,
   requestTuiBrokerEditorReinstall,
 } from "../tui-broker/lib/runtime.ts";
-import { isHighConfidenceComplete } from "./lib/do-not-stop-audit.ts";
-import { defaultAuditSessionPath, runDoNotStopAudit, type AuditRunnerOutcome } from "./lib/do-not-stop-audit-runner.ts";
+import { fallbackAuditResult, isHighConfidenceComplete } from "./lib/do-not-stop-audit.ts";
+import { defaultAuditSessionPath, runDoNotStopAudit, type AuditRunnerOutcome, type AuditSshTarget } from "./lib/do-not-stop-audit-runner.ts";
+import { resolveDoNotStopAuditTarget } from "./lib/do-not-stop-audit-target.ts";
 import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "./lib/do-not-stop-continuation.ts";
 import {
   brightRed,
@@ -39,7 +38,7 @@ import {
 import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/do-not-stop-session.ts";
 
 type BorderColorFn = (str: string) => string;
-type AuditRunner = (goal: DoNotStopGoalState, prompt: string, ctx: ExtensionContext) => Promise<AuditRunnerOutcome>;
+type AuditRunner = (goal: DoNotStopGoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
 
 function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -65,16 +64,6 @@ function getSessionId(ctx: ExtensionContext): string {
       ? (ctx as unknown as { sessionManager: { getSessionId: () => unknown } }).sessionManager.getSessionId()
       : "";
   return String(raw ?? "").trim();
-}
-
-function getSessionFile(ctx: ExtensionContext): string | undefined {
-  const raw =
-    typeof (ctx as unknown as { sessionManager?: { getSessionFile?: () => unknown } }).sessionManager?.getSessionFile ===
-    "function"
-      ? (ctx as unknown as { sessionManager: { getSessionFile: () => unknown } }).sessionManager.getSessionFile()
-      : undefined;
-  const value = String(raw ?? "").trim();
-  return value || undefined;
 }
 
 function getBranchEntries(ctx: ExtensionContext): unknown[] {
@@ -103,7 +92,7 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
   const injected = (pi as unknown as { __doNotStopAuditRunner?: unknown }).__doNotStopAuditRunner;
   if (typeof injected === "function") return injected as AuditRunner;
 
-  return (goal, prompt, ctx) =>
+  return (goal, prompt, ctx, ssh) =>
     runDoNotStopAudit({
       exec: (command, args, options) => pi.exec(command, args, options),
       prompt,
@@ -111,6 +100,7 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
       signal: ctx.signal,
       auditSessionPath: defaultAuditSessionPath(goal.goalId),
+      ssh,
     });
 }
 
@@ -285,17 +275,19 @@ export default function doNotStop(pi: ExtensionAPI) {
     scheduleGoalContinuation(ctx, { skipAudit: true });
   };
 
-  const buildPromptForGoal = (goal: DoNotStopGoalState, ctx: ExtensionContext): string => {
-    const checkpointDir = "/tmp/pi-work/checkpoints";
-    const conductorDir = join(ctx.cwd, "conductor", "tracks");
-    return buildAuditPrompt({
-      goal,
-      cwd: ctx.cwd,
-      sessionFile: getSessionFile(ctx),
-      checkpointDir: existsSync(checkpointDir) ? checkpointDir : undefined,
-      conductorDir: existsSync(conductorDir) ? conductorDir : undefined,
-      progressHints: ["Also inspect relevant README, TODO, progress, resume, and git status information when available."],
-    });
+  const buildPromptForGoal = async (goal: DoNotStopGoalState, ctx: ExtensionContext): Promise<{ prompt: string; ssh?: { remote: string; port: number; remoteCwd: string } }> => {
+    const target = await resolveDoNotStopAuditTarget(ctx);
+    return {
+      prompt: buildAuditPrompt({
+        goal,
+        cwd: target.promptCwd,
+        sessionFile: target.promptSessionFile,
+        checkpointDir: target.promptCheckpointDir,
+        conductorDir: target.promptConductorDir,
+        progressHints: ["Also inspect relevant README, TODO, progress, resume, and git status information when available."],
+      }),
+      ssh: target.ssh,
+    };
   };
 
   const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
@@ -345,7 +337,18 @@ export default function doNotStop(pi: ExtensionAPI) {
             let outcome: AuditRunnerOutcome;
             try {
               setStatus(ctx, "auditing goal…");
-              outcome = await runAudit(goalAtAuditStart, buildPromptForGoal(goalAtAuditStart, ctx), ctx);
+              const auditInput = await buildPromptForGoal(goalAtAuditStart, ctx);
+              outcome = await runAudit(goalAtAuditStart, auditInput.prompt, ctx, auditInput.ssh);
+            } catch (error) {
+              const failureReason = error instanceof Error ? error.message : String(error);
+              outcome = {
+                ok: false,
+                audit: fallbackAuditResult(failureReason),
+                failureReason,
+                attempts: 0,
+                auditSessionPath: defaultAuditSessionPath(goalAtAuditStart.goalId),
+                commands: [],
+              };
             } finally {
               setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
             }
