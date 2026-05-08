@@ -80,9 +80,10 @@ Rules:
 `/do-not-stop` must behave as a goal command:
 
 - `/do-not-stop` with no arguments shows the current goal summary when a goal exists.
-- `/do-not-stop` with no arguments shows usage/help when no goal exists.
+- `/do-not-stop` with no arguments creates an active goal from the previous user message when no goal exists and a turn is currently running.
+- `/do-not-stop` with no arguments shows usage/help when no goal exists and no turn is running.
 - `/do-not-stop <objective>` creates a new active goal when no goal exists.
-- `/do-not-stop <objective>` replaces the existing goal. If interactive UI confirmation is feasible, ask before replacing; in non-UI contexts, replacement may proceed with clear status output.
+- `/do-not-stop <objective>` replaces the existing goal only after interactive confirmation when UI is available; in non-UI contexts it fails with a clear “clear first or pass replace” style message unless an explicit replacement flag/command is implemented.
 - `/do-not-stop status` shows goal state, objective, turns used, turn budget, and elapsed time.
 - `/do-not-stop clear` removes the current goal and stops future continuation.
 - `/do-not-stop budget <n>` sets a positive turn budget on the current goal, preserving `turnsUsed`.
@@ -90,7 +91,7 @@ Rules:
 - `/do-not-stop help` shows the supported command surface.
 - `/do-not-stop pause` and `/do-not-stop resume` are unsupported and must return a clear error/help message.
 
-Compatibility aliases are allowed only when they do not reintroduce the old toggle model. For example, `/do-not-stop repeats <n>` may be accepted as a deprecated alias for `/do-not-stop budget <n>` if tests and help text make the new meaning clear.
+Old repeat terminology is hard-cut from the command surface. `/do-not-stop repeats <n>` must return help that points users to `/do-not-stop budget <n>` instead of acting as an alias.
 
 ### Continuation scheduling
 
@@ -145,9 +146,18 @@ Decision rules:
 - `complete` with medium/low confidence must not mark completion; treat it as `unknown` and continue cautiously.
 - `continue` produces the next continuation prompt from `continuationMessage`, the remaining items, and the predefined guardrails.
 - `unknown` must not mark completion. It may produce a conservative continuation prompt that asks the active agent to inspect real state and continue from the original objective.
-- Audit timeout, invalid JSON, process failure, or missing progress sources must never mark completion. The extension should fail safe by either sending a conservative continuation prompt or notifying the user if continuation cannot be safely generated.
+- Audit timeout, invalid JSON, process failure, or missing progress sources must never mark completion.
 
-The `pi -p` invocation must be bounded by a timeout and should be observable enough to debug failures. The implementation plan must choose exact command arguments, timeout, output parsing, and logging behavior after inspecting the installed pi CLI behavior.
+Audit subprocess policy:
+
+- Invoke the audit through `pi -p` using the current model and `--thinking medium`.
+- Cap total audit wall-clock time at 60 minutes.
+- When the initial audit attempt fails or times out, retry by resuming the same audit session when possible. Installed pi supports `--session <path|id>`, `--continue`, and print mode `-p`; implementation must choose the safest concrete command after probing CLI behavior.
+- Retry attempts must reuse the audit session context if a session id/path was created, so the second process can continue from partial audit progress rather than starting from zero.
+- If the audit still fails or times out after the one-hour cap, do not mark completion. Send the predefined fallback continuation template without anchored audit details.
+- Missing conductor/checkpoint/progress sources are not audit failure by themselves; the audit may still return `continue` or `unknown` from the original objective and session state.
+
+The implementation plan must choose exact command arguments, retry schedule, session-id/path capture, output parsing, timeout enforcement, and logging behavior after inspecting the installed pi CLI behavior.
 
 ### Continuation message contract
 
@@ -215,14 +225,16 @@ The UI must remain compatible with the `tui-broker` editor badge provider path a
 ## Acceptance criteria
 
 - `/do-not-stop <objective>` creates an active goal with unlimited budget by default.
+- Blank `/do-not-stop` during a running turn creates an active goal from the previous user message when no goal exists.
 - Active goals continue automatically after `agent_end` when idle and no pending messages exist.
 - Continuation stops only when the goal is complete, budget-limited, cleared, or the scheduling gates fail.
 - A configured turn budget moves the goal to `budget_limited` when exhausted; unlimited budget never exhausts by turn count.
 - Completion is marked only by a high-confidence external `pi -p` audit result, not by the active agent.
 - Continuation messages are grounded in real progress sources when conductor tracks, checkpoints, or progress notes are available.
+- Audit failures/timeouts are retried within a one-hour cap and fall back to an unanchored continuation template if still unsuccessful.
 - There is no pause/resume status or user command in the supported command surface.
 - Old repeat toggle state cannot cause unexpected continuation after reload.
-- UI labels/status reflect active, budget-limited, complete, and no-goal states.
+- UI labels/status reflect active, budget-limited, complete, and no-goal states; completed goals remain visible until the user clears them.
 - Targeted regression tests prove command parsing, state transitions, scheduling gates, budget behavior, audit-result handling, continuation-message construction, and migration from old repeat snapshots.
 
 ## Expected behaviors
@@ -240,6 +252,10 @@ The UI must remain compatible with the `tui-broker` editor badge provider path a
 ### Scenario 1: Create an unlimited active goal
 
 A user runs `/do-not-stop finish the lint cleanup`. No goal exists. The extension stores a new active goal with objective `finish the lint cleanup`, `turnBudget = null`, and `turnsUsed = 0`. The UI shows an active goal label with unlimited budget.
+
+### Scenario 1b: Blank command during running turn adopts previous user message
+
+No goal exists and a turn is currently running for the user message `fix the failing auth tests`. The user runs blank `/do-not-stop`. The extension creates an active goal using `fix the failing auth tests` as the objective, with `turnBudget = null` and `turnsUsed = 0`. The command does not inject an immediate continuation into the running turn; continuation waits for the normal idle scheduling gate.
 
 ### Scenario 2: Continue after idle agent end
 
@@ -263,7 +279,7 @@ An active goal exists. The agent ends while idle. The extension invokes the exte
 
 ### Scenario 7: Low-confidence or invalid completion does not complete
 
-An active goal exists. The external audit returns `decision: "complete"` with `confidence: "medium"`, returns invalid JSON, times out, or fails. The extension does not mark the goal complete. It either treats the result as `unknown` and sends a conservative continuation prompt, or notifies the user if no safe continuation can be generated. Goal state remains active unless a configured budget is exhausted.
+An active goal exists. The external audit returns `decision: "complete"` with `confidence: "medium"`, returns invalid JSON, times out, or fails. The extension does not mark the goal complete. It retries within the one-hour audit cap, resuming the audit session when possible. If the audit remains unsuccessful after the cap, it sends the predefined fallback continuation template without anchored audit details. Goal state remains active unless a configured budget is exhausted.
 
 ### Scenario 8: Clear cancels stale scheduled continuation
 
@@ -281,19 +297,35 @@ After reload, the old runtime cache contains an `enabled=true` repeat snapshot. 
 
 An active goal corresponds to a workspace that contains a conductor track or auto-checkpoint progress note. The external audit reads the relevant spec/plan/resume/checkpoint artifacts, identifies completed and remaining items, and produces a continuation message that focuses on the next unfinished item instead of repeating broad completed work.
 
+### Scenario 12: Completed goal remains visible until cleared
+
+The external audit marks a goal complete with high confidence. The UI shows a complete goal status after the transition. Blank `/do-not-stop` shows the completed goal summary. No continuation is scheduled. The status remains visible until the user runs `/do-not-stop clear`.
+
+### Scenario 13: Existing goal replacement requires confirmation or explicit replace
+
+A goal already exists. In an interactive UI session, `/do-not-stop new objective` asks for confirmation before replacing the current goal. In a non-UI context, the same command fails with a clear message unless the implementation provides and receives an explicit replacement flag/command.
+
+### Scenario 14: Repeat terminology is hard-cut
+
+A user runs `/do-not-stop repeats 3`. The extension does not change budget or goal state. It returns help that directs the user to `/do-not-stop budget 3`.
+
 ## Evidence plan (scenario → proof)
 
 - Scenario 1: Add/update command parsing and state tests in `test/do-not-stop*.test.mjs`; assert active state shape and unlimited default.
+- Scenario 1b: Add command handler tests with a mocked running-turn/previous-user-message source; assert blank `/do-not-stop` adopts the previous user message only when no goal exists and a turn is running.
 - Scenario 2: Add/update follow-up scheduling tests in `test/do-not-stop-follow-up.test.mjs`; mock the audit result and assert dispatch uses the grounded continuation message only for active goals and increments/restores turns correctly.
 - Scenario 3: Add/update scheduling gate tests; assert pending messages block continuation.
 - Scenario 4: Add budget transition tests; assert `budget_limited` state and no dispatch.
 - Scenario 5: Add unlimited budget test; assert no budget-limited transition from turn count alone.
 - Scenario 6: Add audit-result handling tests; assert high-confidence complete audit causes active → complete transition and no future dispatch.
-- Scenario 7: Add audit failure/low-confidence tests; assert no completion on low-confidence complete, invalid JSON, timeout, or process failure.
+- Scenario 7: Add audit failure/low-confidence tests; assert no completion on low-confidence complete, invalid JSON, timeout, or process failure, and assert fallback continuation after retry cap.
 - Scenario 8: Add stale scheduled dispatch test; assert goal id mismatch/null goal blocks dispatch.
 - Scenario 9: Add command parsing/handler tests for unsupported pause/resume commands.
 - Scenario 10: Add runtime migration test in `test/do-not-stop-runtime.test.mjs`; assert old repeat snapshot does not restore as active goal.
 - Scenario 11: Add continuation-message builder tests; feed conductor/checkpoint/progress-note audit output and assert completed work is preserved as “do not repeat” context while remaining items drive the next prompt.
+- Scenario 12: Add UI/status state tests where feasible; assert complete state stays visible until clear and blocks continuation.
+- Scenario 13: Add command handler tests for replacement confirmation/non-UI explicit replacement behavior.
+- Scenario 14: Add command parsing/handler tests asserting `repeats` is rejected with budget guidance.
 
 Expected targeted verification command from repo root:
 
@@ -310,7 +342,9 @@ If `lat-md` test specs are updated during implementation, also run the project�
 - The extension should prefer extension APIs (`pi.registerCommand`, `pi.registerTool`, `pi.sendMessage`, `pi.appendEntry`, event hooks) over pi core modifications.
 - Unlimited budget by default is a durable product decision.
 - No pause/resume support is a durable product decision for this track.
-- Continuation must be grounded by a separate `pi -p` audit before dispatch; exact command flags, timeout, and delivery mechanism still need implementation discovery.
+- Continuation must be grounded by a separate `pi -p` audit before dispatch when the audit succeeds.
+- Audit subprocess defaults are current model, medium reasoning, and a one-hour total timeout cap.
+- If audit retry still fails or times out after the cap, use the predefined fallback continuation template without anchored audit details.
 
 ## Risks
 
@@ -322,9 +356,7 @@ If `lat-md` test specs are updated during implementation, also run the project�
 
 ## Open questions
 
-- What exact `pi -p` command, timeout, model/thinking level, and JSON extraction strategy should the implementation use for the external audit?
+- What exact `pi -p` command, retry schedule, session resume flags, and JSON extraction strategy should the implementation use for the external audit?
 - Which concrete self-checkpoint artifact paths or custom session entries should the audit prefer when checkpoint data is available?
 - Through which extension hook/API should the grounded continuation message be delivered?
-- Should `/do-not-stop <objective>` replace an existing goal immediately in non-UI contexts, or should it fail and require `/do-not-stop clear` first?
-- Should `/do-not-stop repeats <n>` remain as a deprecated alias for `/do-not-stop budget <n>`, or should old repeat terminology be hard-cut from the command surface?
-- Should a completed goal remain visible in status until cleared, or should completion automatically hide the editor badge after notifying the user?
+- What exact API/source should provide “previous user message” for blank `/do-not-stop` during a running turn?

@@ -26,10 +26,12 @@ The intended change is to convert `do-not-stop` from repeat-toggle behavior into
 - Audited current `do-not-stop` implementation and existing conductor project docs.
 - Drafted `spec.md` with known decisions: no pause/resume, unlimited budget by default, explicit goal creation, and goal-style continuation behavior.
 - Revised `spec.md` to make external `pi -p` auditing the canonical continuation/completion mechanism: the audit inspects session progress, self-checkpoints, conductor tracks, and progress notes when available; high-confidence complete audits mark the goal complete; continuation prompts are grounded in remaining work.
+- Incorporated Tan decisions: audit uses current model + medium reasoning with a one-hour cap, retries by resuming the audit session when possible, falls back to an unanchored template after cap exhaustion, hard-cuts `repeats`, keeps completed status visible until clear, requires explicit non-UI replacement, and lets blank `/do-not-stop` during a running turn adopt the previous user message as the goal.
 
 ## Progress log
 
 - 2026-05-08 JST: Drafted behavior spec for goal-style `do-not-stop`; no code changed.
+- 2026-05-08 JST: Added audit retry/resume policy, one-hour audit cap, replacement/repeats/completed-visibility decisions, and blank-command adoption behavior.
 
 ## Accepted behaviors currently in scope
 
@@ -43,6 +45,9 @@ Pending approval. Draft scope currently includes:
 - Runtime sets `budget_limited` only when a configured turn budget is exhausted.
 - Completion is set only by a high-confidence external `pi -p` audit result, not by the active agent.
 - Continuation messages should include original objective, completed items not to repeat, and finer-grained remaining work from conductor/checkpoint/progress artifacts when available.
+- Audit failures/timeouts are retried within one hour by resuming audit context when possible; after that, continuation falls back to a predefined unanchored template.
+- Completed status remains visible until clear.
+- Blank `/do-not-stop` can adopt the previous user message during a running turn.
 - Old repeat snapshots must not accidentally auto-arm a new goal.
 
 ## Decisions / non-goals
@@ -51,8 +56,14 @@ Pending approval. Draft scope currently includes:
 - Durable decision: budget is unlimited by default when not set.
 - Durable decision: do not infer goals automatically from ordinary user prompts.
 - Durable decision: no pi core changes; implement inside `~/.pi/agent/extensions/`.
-- Durable decision: continuation/completion should be checked by a separate `pi -p` process before dispatch.
-- Deferred decision: exact `pi -p` command flags, timeout, checkpoint discovery paths, and continuation-message delivery mechanism.
+- Durable decision: continuation/completion should be checked by a separate `pi -p` process before dispatch when possible.
+- Durable decision: audit uses current model, medium reasoning, and a one-hour total timeout cap.
+- Durable decision: audit failures/timeouts should be retried by resuming the audit session when possible; after the cap, use the fallback continuation template without anchored audit details.
+- Durable decision: non-UI replacement should fail unless an explicit replacement flag/command is implemented.
+- Durable decision: old `repeats` terminology is hard-cut; use `budget`.
+- Durable decision: completed goals remain visible until `/do-not-stop clear`.
+- Durable decision: blank `/do-not-stop` during a running turn can create a goal from the previous user message when no goal exists.
+- Deferred decision: exact `pi -p` command flags, retry schedule, checkpoint discovery paths, previous-message source, and continuation-message delivery mechanism.
 
 ## Deviations from approved spec/plan
 
@@ -60,11 +71,9 @@ Pending approval. Draft scope currently includes:
 
 ## Blockers / risks
 
-- Need discover exact installed pi CLI behavior for `pi -p`, including reliable JSON output extraction and timeout behavior.
+- Need discover exact installed pi CLI behavior for `pi -p`, including reliable JSON output extraction, session id/path capture, and resume/continue behavior for retries.
 - Need identify self-checkpoint artifact/session-entry format so audits can prefer checkpoint progress when available.
-- Need decide whether non-UI replacement requires explicit clear first.
-- Need decide whether old `repeats` terminology remains as a deprecated alias.
-- Need decide whether completed goals stay visible until cleared.
+- Need identify the exact extension API/session entry source for “previous user message” so blank `/do-not-stop` can adopt it during a running turn.
 
 ## Latest review outcome
 
