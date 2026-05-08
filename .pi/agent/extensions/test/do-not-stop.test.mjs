@@ -144,14 +144,20 @@ test("continuation messages include objective, budget, audit progress, and guard
 
   const anchored = buildAnchoredContinuationMessage(goal, audit);
   assert.match(anchored, /Original objective:\nfinish the migration/);
-  assert.match(anchored, /0\/∞ continuation turns used/);
   assert.match(anchored, /updated parser/);
   assert.match(anchored, /Fix the runtime test next/);
   assert.match(anchored, /Do not repeat completed work/);
+  assert.doesNotMatch(anchored, /Continue the active \/do-not-stop goal/);
+  assert.doesNotMatch(anchored, /Budget\/progress/);
+  assert.doesNotMatch(anchored, /Audit source paths/);
+  assert.doesNotMatch(anchored, /turn budget is exhausted/);
+  assert.doesNotMatch(anchored, /budget-limited, or the user clears the goal/);
 
   const fallback = buildFallbackContinuationMessage(goal, "audit timed out");
   assert.match(fallback, /audit timed out/);
   assert.match(fallback, /Inspect the current session\/repo state/);
+  assert.doesNotMatch(fallback, /Continue the active \/do-not-stop goal/);
+  assert.doesNotMatch(fallback, /Budget\/progress/);
 });
 
 test("session helpers find previous user messages and build audit prompts", () => {
