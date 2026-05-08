@@ -152,8 +152,9 @@ Audit subprocess policy:
 
 - Invoke the audit through `pi -p` using the current model and `--thinking medium`.
 - Cap total audit wall-clock time at 60 minutes.
-- When the initial audit attempt fails or times out, retry by resuming the same audit session when possible. Installed pi supports `--session <path|id>`, `--continue`, and print mode `-p`; implementation must choose the safest concrete command after probing CLI behavior.
-- Retry attempts must reuse the audit session context if a session id/path was created, so the second process can continue from partial audit progress rather than starting from zero.
+- When the initial audit attempt fails or times out, retry by resuming the same audit session when possible using `--session <path|id>`.
+- Retry attempts must reuse an explicit audit session path/id if one was created, so the second process can continue from partial audit progress rather than starting from zero.
+- Do not use `-c` or `--continue` for audit retries. Multiple pi instances may run concurrently, so “most recent session” is not a safe audit-session selector.
 - If the audit still fails or times out after the one-hour cap, do not mark completion. Send the predefined fallback continuation template without anchored audit details.
 - Missing conductor/checkpoint/progress sources are not audit failure by themselves; the audit may still return `continue` or `unknown` from the original objective and session state.
 
@@ -356,7 +357,7 @@ If `lat-md` test specs are updated during implementation, also run the project�
 
 ## Open questions
 
-- What exact `pi -p` command, retry schedule, session resume flags, and JSON extraction strategy should the implementation use for the external audit?
+- What exact `pi -p` command, retry schedule, explicit `--session <path|id>` audit session capture, and JSON extraction strategy should the implementation use for the external audit?
 - Which concrete self-checkpoint artifact paths or custom session entries should the audit prefer when checkpoint data is available?
 - Through which extension hook/API should the grounded continuation message be delivered?
 - What exact API/source should provide “previous user message” for blank `/do-not-stop` during a running turn?
