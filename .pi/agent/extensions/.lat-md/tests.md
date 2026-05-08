@@ -43,7 +43,7 @@ Owned by:
 
 What this proves:
 - `/do-not-stop <objective>` creates an explicit active goal with unlimited budget by default, and starts the first non-audited starter continuation when issued from idle, instead of enabling a repeat toggle
-- vague non-verifiable objectives like `goal` are rejected with concrete-objective guidance and do not arm a goal
+- vague non-verifiable objectives like `goal` are rejected with concrete-objective guidance, do not arm a goal, and are cleared if restored from old persisted state
 - when `tui-broker` owns the editor, an active `/do-not-stop` goal makes the user editor red and renders the bold `─ GOAL CHASING!` top-border indicator without leading whitespace
 - blank `/do-not-stop` during a running turn can adopt the previous user message without injecting an immediate continuation
 - ordinary user input does not arm a repeat cycle

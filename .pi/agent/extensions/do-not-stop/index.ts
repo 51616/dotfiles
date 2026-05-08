@@ -252,6 +252,18 @@ export default function doNotStop(pi: ExtensionAPI) {
       currentGoal = getDoNotStopGoalSnapshotForSession(activeSessionId);
     }
     dispatchScheduled = false;
+
+    if (currentGoal && !validateDoNotStopObjective(currentGoal.objective).ok) {
+      const invalidObjective = currentGoal.objective;
+      currentGoal = null;
+      setStatus(ctx, undefined);
+      applyEditorOverride(ctx);
+      refreshTuiBrokerEditor();
+      persistGoal(ctx);
+      notify(ctx, `do-not-stop cleared invalid restored goal: ${invalidObjective}`, "warning");
+      return;
+    }
+
     setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
     applyEditorOverride(ctx);
     refreshTuiBrokerEditor();

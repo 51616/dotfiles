@@ -167,6 +167,28 @@ test("/do-not-stop rejects vague objectives without arming a goal", async () => 
   assert.match(harness.notifications.at(-1).message, /concrete, verifiable objective/);
 });
 
+test("session restore clears an existing vague goal", () => {
+  const vagueGoal = {
+    goalId: "goal-vague",
+    objective: "goal",
+    status: "active",
+    turnBudget: null,
+    turnsUsed: 3,
+    startedAtMs: 1000,
+    updatedAtMs: 2000,
+  };
+  const harness = createHarness({
+    branchEntries: [{ type: "custom", customType: "do-not-stop-goal-state", data: { goal: vagueGoal } }],
+  });
+
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.equal(harness.appendedEntries.at(-1).customType, "do-not-stop-goal-state");
+  assert.deepEqual(harness.appendedEntries.at(-1).data.goal, null);
+  assert.match(harness.notifications.at(-1).message, /cleared invalid restored goal: goal/);
+});
+
 test("blank command during a running turn adopts the previous user message", async () => {
   const harness = createHarness({ isIdle: () => false });
   harness.handlers.get("session_start")({}, harness.ctx);
