@@ -114,19 +114,41 @@ function timestampMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function assistantUsageTokens(usage: UsageLike | undefined): number | null {
-  if (!usage) return null;
-  const direct = finiteNumber(usage.totalTokens);
-  if (direct !== null) return Math.max(0, direct);
+type GoalTokenUsage = {
+  totalTokens: number;
+  cacheReadTokens: number;
+};
 
-  const parts = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite]
-    .map(finiteNumber)
-    .filter((value): value is number => value !== null);
-  return parts.length > 0 ? Math.max(0, parts.reduce((sum, value) => sum + value, 0)) : null;
+function nonNegativeNumber(value: unknown): number | null {
+  const numberValue = finiteNumber(value);
+  return numberValue === null ? null : Math.max(0, numberValue);
 }
 
-function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): number | null {
-  let total = 0;
+function assistantUsageTokens(usage: UsageLike | undefined): GoalTokenUsage | null {
+  if (!usage) return null;
+
+  const input = nonNegativeNumber(usage.input);
+  const output = nonNegativeNumber(usage.output);
+  const cacheWrite = nonNegativeNumber(usage.cacheWrite);
+  const cacheRead = nonNegativeNumber(usage.cacheRead);
+  const hasComponents = input !== null || output !== null || cacheWrite !== null || cacheRead !== null;
+
+  if (hasComponents) {
+    return {
+      // Subtle but important: usage.totalTokens can include large cached-context reads.
+      // Reporting it as "tokens used" made short no-op goals look like 100k+ token jobs.
+      totalTokens: (input ?? 0) + (output ?? 0) + (cacheWrite ?? 0),
+      cacheReadTokens: cacheRead ?? 0,
+    };
+  }
+
+  const direct = nonNegativeNumber(usage.totalTokens);
+  return direct === null ? null : { totalTokens: direct, cacheReadTokens: 0 };
+}
+
+function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): GoalTokenUsage | null {
+  let totalTokens = 0;
+  let cacheReadTokens = 0;
   let counted = 0;
 
   for (const rawEntry of getBranchEntries(ctx)) {
@@ -139,15 +161,20 @@ function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): n
     const tokens = assistantUsageTokens(entry.message.usage);
     if (tokens === null) continue;
 
-    total += tokens;
+    totalTokens += tokens.totalTokens;
+    cacheReadTokens += tokens.cacheReadTokens;
     counted += 1;
   }
 
-  return counted > 0 ? total : null;
+  return counted > 0 ? { totalTokens, cacheReadTokens } : null;
 }
 
 function buildGoalCompletionNotification(ctx: ExtensionContext, goal: DoNotStopGoalState): string {
-  const stats = formatGoalCompletionStats(goal, { totalTokens: totalGoalTokensUsed(ctx, goal) });
+  const tokens = totalGoalTokensUsed(ctx, goal);
+  const stats = formatGoalCompletionStats(goal, {
+    totalTokens: tokens?.totalTokens ?? null,
+    cacheReadTokens: tokens?.cacheReadTokens ?? null,
+  });
   return `${bold("Goal complete:")} ${goal.completionSummary ?? "completed"} — ${stats}`;
 }
 

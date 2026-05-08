@@ -46,7 +46,10 @@ test("goal completion stats format turns, elapsed time, and tokens", () => {
 
   assert.equal(formatDurationMs(65_000), "1m 5s");
   assert.equal(formatTokenCount(12345), "12,345");
-  assert.equal(formatGoalCompletionStats(completed, { totalTokens: 12345 }), "2 turns, 1m 5s total time used, 12,345 total tokens used");
+  assert.equal(
+    formatGoalCompletionStats(completed, { totalTokens: 12345, cacheReadTokens: 67890 }),
+    "2 turns, 1m 5s total time used, 12,345 total tokens used (+67,890 cache read)",
+  );
 });
 
 test("parseDoNotStopCommand handles goal command surface", () => {

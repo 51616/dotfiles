@@ -178,11 +178,15 @@ export function formatTokenCount(tokens: number | null | undefined): string {
 
 export function formatGoalCompletionStats(
   goal: DoNotStopGoalState,
-  options: { nowMs?: number; totalTokens?: number | null } = {},
+  options: { nowMs?: number; totalTokens?: number | null; cacheReadTokens?: number | null } = {},
 ): string {
   const completedOrNowMs = options.nowMs ?? goal.completedAtMs ?? Date.now();
   const turnLabel = goal.turnsUsed === 1 ? "turn" : "turns";
-  return `${goal.turnsUsed} ${turnLabel}, ${formatElapsedMs(completedOrNowMs, goal.startedAtMs)} total time used, ${formatTokenCount(options.totalTokens)} total tokens used`;
+  const cacheReadSuffix =
+    typeof options.cacheReadTokens === "number" && Number.isFinite(options.cacheReadTokens) && options.cacheReadTokens > 0
+      ? ` (+${formatTokenCount(options.cacheReadTokens)} cache read)`
+      : "";
+  return `${goal.turnsUsed} ${turnLabel}, ${formatElapsedMs(completedOrNowMs, goal.startedAtMs)} total time used, ${formatTokenCount(options.totalTokens)} total tokens used${cacheReadSuffix}`;
 }
 
 export function formatGoalStatusSummary(goal: DoNotStopGoalState | null, nowMs = Date.now()): string {

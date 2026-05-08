@@ -337,7 +337,7 @@ test("high-confidence complete audit auto-clears the goal after a styled stats n
   assert.equal(notification.level, "info");
   assert.match(notification.message, /^\x1b\[1mGoal complete:\x1b\[22m/);
   assert.match(stripAnsi(notification.message), /^Goal complete: all tests passed/);
-  assert.match(stripAnsi(notification.message), /1 turn, .* total time used, 150 total tokens used$/);
+  assert.match(stripAnsi(notification.message), /1 turn, .* total time used, 150 total tokens used \(\+25 cache read\)$/);
 
   const completedEntry = harness.appendedEntries.find((entry) => entry.data?.goal?.status === "complete");
   assert.equal(completedEntry.data.goal.completionSummary, "all tests passed");
