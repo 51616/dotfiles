@@ -108,13 +108,15 @@ The scoped track is complete. Final implementation commit: `4edbee8 feat(do-not-
 
 If future work resumes here, start from that commit and the verification notes below. `/reload` was scheduled after committing because live extension code changed.
 
+Post-completion fix: Tan reported `/do-not-stop <goal>` did not appear to work. Root cause: explicit goal creation while pi was already idle created/persisted the goal, but the first continuation was only scheduled from the next `agent_end`; no next `agent_end` exists after a slash command that does not trigger the agent. Fix: creating/replacing an explicit goal now calls the same audited continuation scheduler immediately when idle, while blank command during a running turn still waits for idle.
+
 ## Verification commands
 
 Verification run for this track:
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop*.test.mjs test/runtime-extension-inventory.mjs
-# pass: 28 tests
+# pass: 28 tests after post-completion idle-start fix
 ```
 
 Additional workspace signal:

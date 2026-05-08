@@ -282,6 +282,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     const next = currentGoal ? replaceGoal(currentGoal, objective) : createGoal(objective);
     setCurrentGoal(ctx, next);
     notify(ctx, `do-not-stop goal active: ${next.objective}`, "info");
+    scheduleGoalContinuation(ctx);
   };
 
   const buildPromptForGoal = (goal: DoNotStopGoalState, ctx: ExtensionContext): string => {
@@ -297,90 +298,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     });
   };
 
-  pi.registerCommand("do-not-stop", {
-    description: "Set an auto-continuation goal (/do-not-stop <objective>|status|clear|budget <n>|replace <objective>)",
-    handler: async (args, ctx) => {
-      const parsed = parseDoNotStopCommand(args ?? "");
-
-      if (parsed.kind === "blank") {
-        if (currentGoal) {
-          notify(ctx, formatGoalStatusSummary(currentGoal), "info");
-          return;
-        }
-        if (!ctx.isIdle()) {
-          const objective = getRememberedUserMessage(ctx) ?? findPreviousUserMessageForGoal(getBranchEntries(ctx));
-          if (objective) {
-            await createOrReplaceGoal(ctx, objective, { explicitReplace: false, allowUiConfirm: false });
-            return;
-          }
-          notify(ctx, "do-not-stop could not find a previous user message to use as the goal.", "warning");
-          return;
-        }
-        notify(ctx, usageText(), "info");
-        return;
-      }
-
-      if (parsed.kind === "setObjective") {
-        await createOrReplaceGoal(ctx, parsed.objective, { explicitReplace: parsed.replace });
-        return;
-      }
-
-      if (parsed.kind === "status") {
-        notify(ctx, formatGoalStatusSummary(currentGoal), "info");
-        return;
-      }
-
-      if (parsed.kind === "clear") {
-        if (!currentGoal) {
-          notify(ctx, "do-not-stop: no goal is set", "info");
-          return;
-        }
-        setCurrentGoal(ctx, null);
-        notify(ctx, "do-not-stop goal cleared", "info");
-        return;
-      }
-
-      if (parsed.kind === "setBudget") {
-        if (!currentGoal) {
-          notify(ctx, "do-not-stop budget requires an active goal", "warning");
-          return;
-        }
-        setCurrentGoal(ctx, setGoalBudget(currentGoal, parsed.turnBudget));
-        notify(ctx, `do-not-stop budget set to ${parsed.turnBudget === null ? "unlimited" : parsed.turnBudget}`, "info");
-        return;
-      }
-
-      if (parsed.kind === "unsupported") {
-        notify(ctx, usageText(parsed.guidance), "warning");
-        return;
-      }
-
-      notify(ctx, usageText(parsed.invalid ? `Unknown /do-not-stop arguments: ${parsed.invalid}` : undefined), parsed.invalid ? "warning" : "info");
-    },
-  });
-
-  pi.on("session_start", (_event, ctx) => {
-    restoreGoalForSession(ctx);
-  });
-
-  pi.on("session_shutdown", (_event, ctx) => {
-    persistGoal(ctx);
-    setStatus(ctx, undefined);
-  });
-
-  pi.on("input", (event, ctx) => {
-    if (isInteractiveUserText(event.text, (event as { source?: unknown }).source)) {
-      rememberUserMessage(ctx, String(event.text));
-    }
-  });
-
-  pi.on("before_agent_start", (event, ctx) => {
-    if (event.source === "user" && isInteractiveUserText(event.prompt, "user")) {
-      rememberUserMessage(ctx, event.prompt);
-    }
-  });
-
-  pi.on("agent_end", (_event, ctx) => {
+  const scheduleGoalContinuation = (ctx: ExtensionContext): void => {
     if (shouldBudgetLimitGoal(currentGoal)) {
       currentGoal = markGoalBudgetLimited(currentGoal as DoNotStopGoalState);
       applyEditorOverride(ctx);
@@ -468,5 +386,92 @@ export default function doNotStop(pi: ExtensionAPI) {
         }
       })();
     }, 0);
+  };
+
+  pi.registerCommand("do-not-stop", {
+    description: "Set an auto-continuation goal (/do-not-stop <objective>|status|clear|budget <n>|replace <objective>)",
+    handler: async (args, ctx) => {
+      const parsed = parseDoNotStopCommand(args ?? "");
+
+      if (parsed.kind === "blank") {
+        if (currentGoal) {
+          notify(ctx, formatGoalStatusSummary(currentGoal), "info");
+          return;
+        }
+        if (!ctx.isIdle()) {
+          const objective = getRememberedUserMessage(ctx) ?? findPreviousUserMessageForGoal(getBranchEntries(ctx));
+          if (objective) {
+            await createOrReplaceGoal(ctx, objective, { explicitReplace: false, allowUiConfirm: false });
+            return;
+          }
+          notify(ctx, "do-not-stop could not find a previous user message to use as the goal.", "warning");
+          return;
+        }
+        notify(ctx, usageText(), "info");
+        return;
+      }
+
+      if (parsed.kind === "setObjective") {
+        await createOrReplaceGoal(ctx, parsed.objective, { explicitReplace: parsed.replace });
+        return;
+      }
+
+      if (parsed.kind === "status") {
+        notify(ctx, formatGoalStatusSummary(currentGoal), "info");
+        return;
+      }
+
+      if (parsed.kind === "clear") {
+        if (!currentGoal) {
+          notify(ctx, "do-not-stop: no goal is set", "info");
+          return;
+        }
+        setCurrentGoal(ctx, null);
+        notify(ctx, "do-not-stop goal cleared", "info");
+        return;
+      }
+
+      if (parsed.kind === "setBudget") {
+        if (!currentGoal) {
+          notify(ctx, "do-not-stop budget requires an active goal", "warning");
+          return;
+        }
+        setCurrentGoal(ctx, setGoalBudget(currentGoal, parsed.turnBudget));
+        notify(ctx, `do-not-stop budget set to ${parsed.turnBudget === null ? "unlimited" : parsed.turnBudget}`, "info");
+        return;
+      }
+
+      if (parsed.kind === "unsupported") {
+        notify(ctx, usageText(parsed.guidance), "warning");
+        return;
+      }
+
+      notify(ctx, usageText(parsed.invalid ? `Unknown /do-not-stop arguments: ${parsed.invalid}` : undefined), parsed.invalid ? "warning" : "info");
+    },
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    restoreGoalForSession(ctx);
+  });
+
+  pi.on("session_shutdown", (_event, ctx) => {
+    persistGoal(ctx);
+    setStatus(ctx, undefined);
+  });
+
+  pi.on("input", (event, ctx) => {
+    if (isInteractiveUserText(event.text, (event as { source?: unknown }).source)) {
+      rememberUserMessage(ctx, String(event.text));
+    }
+  });
+
+  pi.on("before_agent_start", (event, ctx) => {
+    if (event.source === "user" && isInteractiveUserText(event.prompt, "user")) {
+      rememberUserMessage(ctx, event.prompt);
+    }
+  });
+
+  pi.on("agent_end", (_event, ctx) => {
+    scheduleGoalContinuation(ctx);
   });
 }

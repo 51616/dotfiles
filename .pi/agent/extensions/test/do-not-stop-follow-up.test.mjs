@@ -32,7 +32,24 @@ function createHarness(options = {}) {
   const branchEntries = options.branchEntries ?? [];
 
   const pi = {
-    __doNotStopAuditRunner: options.auditRunner,
+    __doNotStopAuditRunner:
+      options.auditRunner ??
+      (async () => ({
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "unknown",
+          confidence: "low",
+          summary: "test default audit",
+          completedItems: [],
+          remainingItems: ["continue"],
+          evidence: ["test"],
+          sourcePaths: ["test"],
+          continuationMessage: "Continue from the test default audit.",
+        },
+      })),
     on(name, handler) {
       handlers.set(String(name), handler);
     },
@@ -100,7 +117,7 @@ function createHarness(options = {}) {
   };
 }
 
-test("/do-not-stop creates an active unlimited goal and does not arm from ordinary input", async () => {
+test("/do-not-stop creates an active unlimited goal and starts the first continuation from idle", async () => {
   const harness = createHarness({
     auditRunner: async () => ({
       ok: true,
@@ -132,8 +149,13 @@ test("/do-not-stop creates an active unlimited goal and does not arm from ordina
     updatedAtMs: getDoNotStopGoalSnapshotForSession("session-1").updatedAtMs,
   });
 
+  await flushTimers();
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Continue implementation/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+
   harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
 test("blank command during a running turn adopts the previous user message", async () => {
