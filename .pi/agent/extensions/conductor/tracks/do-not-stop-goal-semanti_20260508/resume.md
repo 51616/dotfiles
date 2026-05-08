@@ -104,9 +104,9 @@ Approved spec scope currently includes:
 
 ## Where to pick up (next steps)
 
-1. Commit the completed implementation/docs.
-2. Run `/reload` after commit because live extension code changed.
-3. If future work resumes here, start from the final commit and the verification notes below.
+The scoped track is complete. Final implementation commit: `4edbee8 feat(do-not-stop): add audited goal continuation`.
+
+If future work resumes here, start from that commit and the verification notes below. `/reload` was scheduled after committing because live extension code changed.
 
 ## Verification commands
 
@@ -114,7 +114,7 @@ Verification run for this track:
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop*.test.mjs test/runtime-extension-inventory.mjs
-# pass: 27 tests
+# pass: 28 tests
 ```
 
 Additional workspace signal:
