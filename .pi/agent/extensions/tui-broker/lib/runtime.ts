@@ -13,6 +13,7 @@ export type TuiBrokerAutocompleteProviderWrapper = (provider: AutocompleteProvid
 export type TuiBrokerEditorBadge = {
   text: string;
   priority?: number;
+  borderColor?: string;
 };
 export type TuiBrokerEditorTopRightStatus = {
   text: string;
@@ -127,6 +128,10 @@ export function getTuiBrokerEditorBadges(): Array<ContributionWithKey<TuiBrokerE
   return collectContributions(getMap<TuiBrokerEditorBadgeProvider>(EDITOR_BADGES_KEY).entries());
 }
 
+export function getTuiBrokerEditorBorderColor(defaultColor: string): string {
+  return getTuiBrokerEditorBadges().find((entry) => typeof entry.borderColor === "string" && entry.borderColor.trim())?.borderColor ?? defaultColor;
+}
+
 export function registerTuiBrokerEditorTopRightStatusProvider(
   key: string,
   provider: TuiBrokerEditorTopRightStatusProvider,
@@ -220,7 +225,7 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
   autocompleteWrappers: string[];
   editorBadgeKeys: string[];
   editorBadges: string[];
-  editorBorderColor: "#fab387";
+  editorBorderColor: string;
   editorTopRightStatusKeys: string[];
   editorTopRightStatuses: string[];
   footerPathProviderKeys: string[];
@@ -235,7 +240,7 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
     autocompleteWrappers: Array.from(getMap<TuiBrokerAutocompleteProviderWrapper>(AUTOCOMPLETE_WRAPPERS_KEY).keys()).sort(),
     editorBadgeKeys: badges.map((entry) => entry.key),
     editorBadges: badges.map((entry) => entry.text),
-    editorBorderColor: "#fab387",
+    editorBorderColor: getTuiBrokerEditorBorderColor("#fab387"),
     editorTopRightStatusKeys: topRightStatuses.map((entry) => entry.key),
     editorTopRightStatuses: topRightStatuses.map((entry) => entry.text),
     footerPathProviderKeys: Array.from(getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).keys()).sort(),

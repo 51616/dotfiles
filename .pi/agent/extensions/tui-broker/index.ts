@@ -17,6 +17,7 @@ import {
 import {
   getTuiBrokerAutocompleteProviderWrappers,
   getTuiBrokerEditorBadges,
+  getTuiBrokerEditorBorderColor,
   getTuiBrokerEditorTopRightStatuses,
   getTuiBrokerFooterPath,
   getTuiBrokerRuntimeSnapshot,
@@ -29,6 +30,11 @@ import {
 type BrokerTheme = {
   fg: (color: "dim" | "mdCode" | "text", text: string) => string;
   bold: (text: string) => string;
+};
+
+type EditorBadgeForRender = {
+  text: string;
+  borderColor?: string;
 };
 
 const EDITOR_BORDER_HEX = "#fab387";
@@ -65,14 +71,14 @@ function isBottomBorderLine(text: string): boolean {
   return /^[─━]+$/.test(plain) || /^[─━]+ ↓ \d+ more [─━]*$/.test(plain);
 }
 
-function colorizeEditorBorder(theme: BrokerTheme, text: string): string {
-  const border = ansiTrueColor(text, EDITOR_BORDER_HEX);
+function colorizeEditorBorder(theme: BrokerTheme, text: string, hex = EDITOR_BORDER_HEX): string {
+  const border = ansiTrueColor(text, hex);
   return border === text ? theme.fg("text", text) : border;
 }
 
 class ContextUsageEditor extends CustomEditor {
   private readonly getContextUsageLabelFn: () => { label: string; tokens: number | null } | null;
-  private readonly getEditorBadgesFn: () => string[];
+  private readonly getEditorBadgesFn: () => EditorBadgeForRender[];
   private readonly getEditorTopRightStatusesFn: () => string[];
   private readonly getThemeFn: () => BrokerTheme;
   private readonly getAutocompleteProviderWrappersFn: () => Array<
@@ -85,7 +91,7 @@ class ContextUsageEditor extends CustomEditor {
     keybindings: ConstructorParameters<typeof CustomEditor>[2],
     getTheme: () => BrokerTheme,
     getContextUsageLabel: () => { label: string; tokens: number | null } | null,
-    getEditorBadges: () => string[],
+    getEditorBadges: () => EditorBadgeForRender[],
     getEditorTopRightStatuses: () => string[],
     getAutocompleteProviderWrappers: () => Array<(provider: AutocompleteProvider) => AutocompleteProvider>,
   ) {
@@ -99,7 +105,7 @@ class ContextUsageEditor extends CustomEditor {
     Object.defineProperty(this, "borderColor", {
       configurable: true,
       enumerable: true,
-      get: () => (text: string) => colorizeEditorBorder(this.getThemeFn(), text),
+      get: () => (text: string) => colorizeEditorBorder(this.getThemeFn(), text, getTuiBrokerEditorBorderColor(EDITOR_BORDER_HEX)),
       set: (_next: unknown) => {
         // Core still assigns thinking-level colors to custom editors. The broker
         // intentionally ignores those assignments so the user editor border stays
@@ -129,7 +135,8 @@ class ContextUsageEditor extends CustomEditor {
 
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
-    const labelText = buildEditorBorderBadgeText(this.getEditorBadgesFn(), moreMatch?.[0]);
+    const editorBadges = this.getEditorBadgesFn();
+    const labelText = buildEditorBorderBadgeText(editorBadges.map((entry) => entry.text), moreMatch?.[0]);
     const topRightText = this.getEditorTopRightStatusesFn().join(" • ");
     const topBorderLine = buildEditorTopBorderLine({
       leftText: labelText,
@@ -361,7 +368,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
             const label = buildContextUsageLabel({ percent, contextWindow });
             return label ? { label, tokens } : null;
           },
-          () => getTuiBrokerEditorBadges().map((entry) => entry.text),
+          () => getTuiBrokerEditorBadges().map((entry) => ({ text: entry.text, borderColor: entry.borderColor })),
           () => getTuiBrokerEditorTopRightStatuses().map((entry) => entry.text),
           () => getTuiBrokerAutocompleteProviderWrappers(),
         );

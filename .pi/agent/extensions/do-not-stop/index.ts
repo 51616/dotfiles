@@ -145,7 +145,7 @@ class DoNotStopEditor extends CustomEditor {
     const labelBase = buildDoNotStopBorderLabel(this.getGoal());
     const withScrollInfo = moreMatch ? `${labelBase} • ${moreMatch[0]}` : labelBase;
 
-    const rawLabel = ` ${withScrollInfo} `;
+    const rawLabel = `─ ${withScrollInfo} `;
     const label = truncateToWidth(rawLabel, Math.max(1, width), "");
     const fill = "─".repeat(Math.max(0, width - visibleWidth(label)));
 
@@ -166,7 +166,7 @@ export default function doNotStop(pi: ExtensionAPI) {
 
   registerTuiBrokerEditorBadgeProvider("do-not-stop", () => {
     if (!currentGoal) return null;
-    return { text: buildDoNotStopBorderLabel(currentGoal), priority: 200 };
+    return { text: `─ ${buildDoNotStopBorderLabel(currentGoal)}`, priority: 200, borderColor: "#f38ba8" };
   });
 
   const refreshTuiBrokerEditor = () => {

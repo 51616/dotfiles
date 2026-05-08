@@ -20,6 +20,7 @@ import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-n
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
 
 const BORDER_COLOR_OPEN = "\x1b[38;2;250;179;135m";
+const DO_NOT_STOP_BORDER_COLOR_OPEN = "\x1b[38;2;243;139;168m";
 const ANSI_RESET = "\x1b[0m";
 const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const NORMAL_BORDER = "─";
@@ -171,20 +172,21 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
 
   const dnsCommand = pi.commands.get("do-not-stop");
   assert.ok(dnsCommand);
-  await dnsCommand.handler("toggle", ctx);
+  await dnsCommand.handler("finish the migration", ctx);
 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.match(activeEditorLines[0] ?? "", /↻ repeat 0\/1/);
-  assert.ok((activeEditorLines[0] ?? "").includes(BORDER_COLOR_OPEN));
+  assert.match(stripAnsi(activeEditorLines[0] ?? ""), /^ ─ goal active 0\/∞ /);
+  assert.ok((activeEditorLines[0] ?? "").includes(DO_NOT_STOP_BORDER_COLOR_OPEN));
   assert.ok((activeEditorLines[0] ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(activeEditorLines[0] ?? "", /━/);
   assert.doesNotMatch(activeEditorLines[0] ?? "", /\x1b\[91m/);
   assert.match(activeEditorLines.at(-1) ?? "", /12\.2%\/272k/);
 
-  await dnsCommand.handler("toggle", ctx);
+  await dnsCommand.handler("clear", ctx);
 
   const inactiveEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /↻ repeat/);
+  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /goal active/);
+  assert.ok((inactiveEditorLines[0] ?? "").includes(BORDER_COLOR_OPEN));
 });
 
 test("tui-broker registers fresh handlers for later runtimes even when runtime state is already active", async () => {
