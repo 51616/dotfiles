@@ -11,7 +11,7 @@ export function summarizeFffindTool(args: unknown): string {
 		limit !== undefined ? `limit ${limit}` : undefined,
 		cursor ? "next page" : undefined,
 	].filter((value): value is string => Boolean(value));
-	let summary = `files matching ${pattern} in ${path}`;
+	let summary = `${pattern} in ${path}`;
 	if (modifiers.length > 0) summary += ` (${modifiers.join("; ")})`;
 	return normalizeSearchExcerpt(summary);
 }
@@ -31,7 +31,7 @@ export function summarizeFfgrepTool(args: unknown): string {
 		limit !== undefined ? `limit ${limit}` : undefined,
 		cursor ? "next page" : undefined,
 	].filter((value): value is string => Boolean(value));
-	let summary = `text matching ${pattern} in ${path}`;
+	let summary = `${pattern} in ${path}`;
 	if (modifiers.length > 0) summary += ` (${modifiers.join("; ")})`;
 	return normalizeSearchExcerpt(summary);
 }

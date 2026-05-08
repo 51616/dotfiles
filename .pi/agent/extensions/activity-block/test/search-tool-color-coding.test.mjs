@@ -61,7 +61,7 @@ function createSnapshot(overrides = {}) {
 			{
 				id: "tool-fffind",
 				name: "fffind",
-				summary: "files matching “activity block” in activity-block/ (excluding node_modules/; limit 20)",
+				summary: "“activity block” in activity-block/ (excluding node_modules/; limit 20)",
 				state: "complete",
 				startedAt: 650,
 				updatedAt: 700,
@@ -70,7 +70,7 @@ function createSnapshot(overrides = {}) {
 			{
 				id: "tool-ffgrep",
 				name: "ffgrep",
-				summary: "text matching “fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
+				summary: "“fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
 				state: "complete",
 				startedAt: 720,
 				updatedAt: 760,
@@ -113,11 +113,11 @@ test("summarizeTool formats grep, find, fff, multi_grep, and run_skill_script ar
 	assert.equal(summarizeTool("find", { pattern: "*.test.mjs", path: "src", limit: 10 }), "*.test.mjs in src (limit 10)");
 	assert.equal(
 		summarizeTool("fffind", { pattern: "activity block", path: "activity-block/", exclude: ["node_modules/"], limit: 20 }),
-		"files matching “activity block” in activity-block/ (excluding node_modules/; limit 20)",
+		"“activity block” in activity-block/ (excluding node_modules/; limit 20)",
 	);
 	assert.equal(
 		summarizeTool("ffgrep", { pattern: "fff", exclude: "test/", caseSensitive: true, context: 2, limit: 20 }),
-		"text matching “fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
+		"“fff” in repo (excluding test/; case-sensitive; 2 context lines; limit 20)",
 	);
 	assert.equal(
 		summarizeTool("multi_grep", { patterns: ["alpha", "beta"], path: "src", glob: "*.ts" }),
@@ -140,8 +140,8 @@ test("ActivityBlockMessageComponent color codes grep, find, fff, multi_grep, and
 
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>grep<\/b><\/toolTitle> <accent>\/needle\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>find<\/b><\/toolTitle> <accent>\*\.test\.mjs in src \(limit 10\)<\/accent>/);
-	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>grep<\/b><\/toolTitle> <accent>text matching “fff” in repo \(excluding test\/; case-sensitive; 2 context lines; limit 20\)<\/accent>/);
-	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>find<\/b><\/toolTitle> <accent>files matching “activity block” in activity-block\/ \(excluding node_modules\/; limit 20\)<\/accent>/);
+	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>ffgrep<\/b><\/toolTitle> <accent>“fff” in repo \(excluding test\/; case-sensitive; 2 context lines; limit 20\)<\/accent>/);
+	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>fffind<\/b><\/toolTitle> <accent>“activity block” in activity-block\/ \(excluding node_modules\/; limit 20\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>multi_grep<\/b><\/toolTitle> <accent>\/alpha\/ \| \/beta\/ in src \(\*\.ts\)<\/accent>/);
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(timeout 30s, 2 args\)<\/accent>/);
 });

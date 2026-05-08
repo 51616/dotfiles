@@ -686,8 +686,6 @@ function styleToolName(theme: Theme, toolName: string): string {
 
 function getToolDisplayName(toolName: string): string {
 	if (toolName === "run_skill_script") return "run-skill";
-	if (toolName === "ffgrep") return "grep";
-	if (toolName === "fffind") return "find";
 	return toolName;
 }
 
