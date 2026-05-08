@@ -1,33 +1,70 @@
 # Do not stop
 
-This extension owns the optional follow-up loop that keeps the agent moving for a bounded number of extra steps after it would otherwise stop.
+This extension owns the `/do-not-stop` goal-continuation workflow for a single pi session. It replaces the old repeat-toggle loop with explicit goal state, audit-owned completion, budget-limited stopping, and a visible editor/status cue.
 
 ## Responsibilities
 
-It tracks the enabled state, repeat target, pending repeats, completed repeats, and session snapshots for the do-not-stop workflow.
+`do-not-stop/index.ts` owns the extension wiring: slash command handling, session start/shutdown restore, previous-user-message capture, idle `agent_end` scheduling, UI refresh, and follow-up delivery through `pi.sendUserMessage(..., { deliverAs: "followUp" })`.
 
-It also owns the editor border/status affordance so an interactive user can see when the loop is active and how far through the repeat budget it is.
+The helper modules under `do-not-stop/lib/` own the contracts that must stay testable without live model calls:
+
+- `do-not-stop.ts` defines command parsing, public goal/audit types, usage text, status summaries, and badge labels.
+- `do-not-stop-state.ts` defines goal creation, replacement, budget, completion, and scheduling-gate transitions.
+- `do-not-stop-runtime.ts` stores per-session goal snapshots and reconstructs state from `pi.appendEntry("do-not-stop-goal-state", ...)` custom session entries.
+- `do-not-stop-audit.ts` validates strict audit JSON and only allows high-confidence `complete` to stop continuation.
+- `do-not-stop-audit-runner.ts` invokes external `pi -p` audits with the current model, medium thinking, a one-hour total cap, and an explicit `--session <path>` for every attempt.
+- `do-not-stop-continuation.ts` builds anchored and fallback continuation messages.
+- `do-not-stop-session.ts` extracts previous user goals and builds the audit prompt from session/checkpoint/conductor hints.
 
 ## Invariants
 
-The enabled state and repeat counters should survive session switches through the saved snapshot model instead of drifting between UI state and runtime state.
+Absence of a goal is represented by `null`, not by a status. Valid statuses are only `active`, `budget_limited`, and `complete`.
 
-A follow-up should only dispatch when the gating rules say it should; do not trigger extra prompts just because the last turn ended.
+An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, and the turn budget is not exhausted. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle.
 
-The editor override should appear only while the mode is active and should be removed cleanly when the mode is disabled.
+Completion is runtime-owned and comes only from an external audit result with `decision: "complete"`, `confidence: "high"`, at least one evidence item, and at least one source path. The active agent does not receive a self-completion tool, and audit failures/timeouts never mark completion.
+
+Budget exhaustion is separate from completion. When `turnBudget !== null` and `turnsUsed >= turnBudget`, the runtime marks `budget_limited`, persists the state, refreshes UI, and stops scheduling.
+
+Old toggle/repeat commands and snapshots are hard-cut legacy state. `on`, `off`, `toggle`, and `repeats` return guidance instead of becoming goals or aliases; stale snapshots may be detected and ignored, but they must never restore an active goal or dispatch a continuation.
 
 ## Failure and recovery
 
-If snapshot state is missing or stale, the extension should fall back to normalized defaults rather than carrying forward invalid counters.
+If the audit fails, times out, exits non-zero, or emits invalid JSON after retrying within the cap, the extension uses the fallback continuation template and leaves the goal active. This keeps progress moving without letting a failed audit claim completion.
 
-If the session changes, restore the per-session snapshot before trusting the old in-memory state.
+Audit retries must use the same explicit audit session path through `--session`; never use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe.
+
+If follow-up dispatch throws, the extension does not increment `turnsUsed`; the user sees a warning when UI is available.
+
+If session-tree state is missing, the runtime falls back to the per-session in-memory snapshot. If both are missing, no goal is restored.
+
+## UI contract
+
+The editor badge/border reflects goal state, not repeat state:
+
+- `goal active <turnsUsed>/∞` for unlimited active goals
+- `goal active <turnsUsed>/<turnBudget>` for budgeted active goals
+- `goal budget-limited <turnsUsed>/<turnBudget>` after budget exhaustion
+- `goal complete <turnsUsed>/<budget-or-∞>` after high-confidence completion
+
+Completed and budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 
 ## Change guidance
 
-If you change repeat gating or dispatch behavior, keep the saved snapshot contract and the UI status/border cues aligned as one workflow.
+Keep command parsing, state transitions, audit parsing, audit subprocess construction, and continuation message construction in small helper modules with focused tests. Do not reintroduce toggle/repeat semantics, pause/resume states, or self-assessed completion.
 
-Changes here affect autonomous continuation behavior directly, so prefer explicit state transitions over hidden heuristics.
+When changing audit behavior, preserve the explicit-session retry invariant and update both `test/do-not-stop-audit-runner.test.mjs` and the external audit contract here.
 
 ## Verification
 
-Run `bash lat-local.sh .pi/extensions check` after editing this lattice.
+Run the targeted suite after changing this extension:
+
+```bash
+cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop*.test.mjs
+```
+
+Run the lat-md check after editing this lattice:
+
+```bash
+bash /home/tan/vault/.pi/skills/lat-md/scripts/run-lat.sh /home/tan/.pi/agent/extensions check all
+```

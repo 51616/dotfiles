@@ -40,5 +40,5 @@ Example (kept uppercase here so simple status parsers do not count the example a
 
 ---
 
-- [~] **Track: do not stop goal semantics**
+- [x] **Track: do not stop goal semantics**
   *Link: [./tracks/do-not-stop-goal-semanti_20260508/](./tracks/do-not-stop-goal-semanti_20260508/)*

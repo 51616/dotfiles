@@ -31,6 +31,26 @@ What this proves:
 - narrow terminals stay width-safe and the widget remains height-bounded
 
 
+## Do-not-stop goal continuation is explicit, audited, and budget-safe
+
+Owned by:
+- `.pi/extensions/test/do-not-stop.test.mjs`
+- `.pi/extensions/test/do-not-stop-follow-up.test.mjs`
+- `.pi/extensions/test/do-not-stop-runtime.test.mjs`
+- `.pi/extensions/test/do-not-stop-audit-runner.test.mjs`
+
+What this proves:
+- `/do-not-stop <objective>` creates an explicit active goal with unlimited budget by default instead of enabling a repeat toggle
+- blank `/do-not-stop` during a running turn can adopt the previous user message without injecting an immediate continuation
+- ordinary user input does not arm a repeat cycle
+- `pause`, `resume`, and old `repeats` controls are rejected with actionable guidance toward `clear` or `budget`
+- active goals continue only after idle scheduling gates pass and `turnsUsed` increments only after follow-up dispatch succeeds
+- configured turn budgets transition to `budget_limited` instead of pretending the goal is complete
+- high-confidence external audit completion marks `complete` and suppresses follow-up dispatch only when concrete evidence and source paths are present
+- audit failures/timeouts and low-confidence results fall back to continuation and never mark completion
+- audit subprocess construction creates the explicit audit-session parent directory, uses `pi -p`, the current model, medium thinking, and explicit `--session <path>` retries without `-c` or `--continue`
+- session custom entries reconstruct goal state, clear/null entries remove it, and legacy repeat snapshots never restore an active goal
+
 ## Diff-review tracker artifacts include canonical observed paths and advisory agent reports
 
 Owned by:

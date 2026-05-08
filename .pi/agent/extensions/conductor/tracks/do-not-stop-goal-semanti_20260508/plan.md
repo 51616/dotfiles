@@ -10,7 +10,21 @@
 
 Append implementation evidence here as tasks are completed. Keep snippets small and map each one to a spec scenario.
 
-Current state: no implementation has started.
+Implementation completed and verified for the scoped `/do-not-stop` track.
+
+Evidence summary:
+
+- `do-not-stop/index.ts`: refactored from repeat-toggle state to `DoNotStopGoalState | null`; commands now create/replace/status/clear/budget goals; ordinary input only records previous-message context; `agent_end` runs external audit before follow-up dispatch; stale audit dispatches are guarded by goal id and dispatch token.
+- `do-not-stop/lib/do-not-stop.ts`: command parsing now hard-cuts `pause`, `resume`, `on`, `off`, `toggle`, and `repeats`; status labels use `goal active|budget-limited|complete`.
+- `do-not-stop/lib/do-not-stop-state.ts`: goal creation, replacement, budget, completion, turn increment, and scheduling gates are pure/tested.
+- `do-not-stop/lib/do-not-stop-audit.ts`: strict JSON-only audit parsing; high-confidence completion requires evidence and source paths.
+- `do-not-stop/lib/do-not-stop-audit-runner.ts`: external `pi -p` runner uses current model, `--thinking medium`, explicit `--session <path>` on every attempt, creates the audit-session parent directory, and never uses `-c`/`--continue`.
+- `do-not-stop/lib/do-not-stop-continuation.ts`: anchored and fallback continuation templates include objective, budget/progress, audit context, completed/remaining work, and guardrails.
+- `do-not-stop/lib/do-not-stop-runtime.ts`: per-session goal snapshots plus session custom-entry reconstruction; legacy repeat snapshots resolve to no goal.
+- `do-not-stop/lib/do-not-stop-session.ts`: previous-user-message extraction is branch-aware, and audit prompts include session/checkpoint/conductor hints.
+- `test/do-not-stop*.test.mjs`: rewritten/expanded to cover command parsing, state transitions, audit parsing, runner command safety, session restore, blank command adoption, stale dispatch protection, budget limiting, completion ownership, and fallback continuation.
+- `lat-md/do-not-stop.md` and `lat-md/tests.md`: updated for goal semantics, audit-owned completion, hard-cut legacy commands, and test ownership.
+- Review fixes applied after Codex review: completion requires evidence/source paths; audit-session parent dirs are created; old toggle commands are unsupported; audit parsing is strict JSON-only; previous-message memory is session-scoped; post-audit gates are rechecked; dispatch tokens prevent stale audits from clearing newer locks; same-goal updates no longer cancel in-flight dispatch locks.
 
 ## Evidence (optional, milestone-only)
 
@@ -18,7 +32,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 1: API and Runtime Discovery
 
-- [ ] Task: Inspect the installed pi CLI/session implementation to determine the exact audit subprocess command contract.
+- [x] Task: Inspect the installed pi CLI/session implementation to determine the exact audit subprocess command contract.
   - Source paths to inspect:
     - `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@mariozechner/pi-coding-agent/README.md`
     - `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli/**`
@@ -32,7 +46,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - `timeout 10s pi --help`
     - inspect local installed source; avoid live model calls during discovery unless absolutely necessary
 
-- [ ] Task: Inspect extension APIs and current context shape for previous-user-message discovery.
+- [x] Task: Inspect extension APIs and current context shape for previous-user-message discovery.
   - Source paths:
     - installed typings: `dist/core/extensions/types.d.ts`, `dist/core/session-manager.d.ts`
     - current `do-not-stop/index.ts`
@@ -41,7 +55,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - exact helper for blank `/do-not-stop` during a running turn to get the previous user message from `ctx.sessionManager.getBranch()` / `getLeafEntry()` / recent input tracking
     - fallback behavior if the previous user message cannot be found
 
-- [ ] Task: Inspect self-checkpointing artifact surfaces for audit inputs.
+- [x] Task: Inspect self-checkpointing artifact surfaces for audit inputs.
   - Source paths:
     - `self-checkpointing/index.ts`
     - `self-checkpointing/lib/self-checkpointing-checkpoint-probe.ts`
@@ -51,7 +65,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - which local paths are worth passing to the audit prompt, likely `/tmp/pi-work/checkpoints` and pending-resume/checkpoint paths under `~/.pi/agent/state/pi-self-checkpointing`
     - whether the implementation should only mention these sources to `pi -p` or pre-scan/read selected files directly
 
-- [ ] Task: Inspect current `do-not-stop` tests and classify which are replaced vs retained.
+- [x] Task: Inspect current `do-not-stop` tests and classify which are replaced vs retained.
   - Current tests:
     - `test/do-not-stop.test.mjs`
     - `test/do-not-stop-follow-up.test.mjs`
@@ -63,7 +77,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 2: Data Model, Parsing, and Pure Helpers
 
-- [ ] Task: Replace repeat-centric helper API in `do-not-stop/lib/do-not-stop.ts` with goal-centric contracts.
+- [x] Task: Replace repeat-centric helper API in `do-not-stop/lib/do-not-stop.ts` with goal-centric contracts.
   - Add/export types or JS-doc-compatible constants for:
     - `DoNotStopGoalStatus = "active" | "budget_limited" | "complete"`
     - `DoNotStopGoalState`
@@ -77,7 +91,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - repeat-based `shouldDispatchDoNotStopFollowUp`
   - Keep `brightRed` if still used by the editor.
 
-- [ ] Task: Implement and test command parsing for goal semantics.
+- [x] Task: Implement and test command parsing for goal semantics.
   - Target tests: `test/do-not-stop.test.mjs`
   - Required scenario coverage:
     - Scenario 1: `/do-not-stop <objective>` creates active unlimited goal
@@ -90,7 +104,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
   - Red phase command:
     - `cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop.test.mjs`
 
-- [ ] Task: Implement and test state transition helpers.
+- [x] Task: Implement and test state transition helpers.
   - Suggested new file: `do-not-stop/lib/do-not-stop-state.ts`
   - Helpers to define:
     - `createGoal(objective, options)`
@@ -106,7 +120,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
   - Required scenario coverage:
     - Scenario 1, 4, 5, 6, 12
 
-- [ ] Task: Implement and test audit result validation/parsing.
+- [x] Task: Implement and test audit result validation/parsing.
   - Suggested new file: `do-not-stop/lib/do-not-stop-audit.ts`
   - Helpers to define:
     - `parseAuditResult(text)` extracts strict JSON from audit stdout; fail closed on ambiguity
@@ -117,7 +131,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - Scenario 6: high-confidence complete accepted
     - Scenario 7: medium/low confidence complete, invalid JSON, timeout/failure do not complete
 
-- [ ] Task: Implement and test continuation message construction.
+- [x] Task: Implement and test continuation message construction.
   - Suggested new file: `do-not-stop/lib/do-not-stop-continuation.ts`
   - Helpers to define:
     - `buildAnchoredContinuationMessage(goal, auditResult)`
@@ -135,7 +149,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 3: Runtime Persistence and Session State
 
-- [ ] Task: Replace repeat snapshot store in `do-not-stop/lib/do-not-stop-runtime.ts` with goal-state persistence/cache helpers.
+- [x] Task: Replace repeat snapshot store in `do-not-stop/lib/do-not-stop-runtime.ts` with goal-state persistence/cache helpers.
   - Preserve a test-only reset helper.
   - New helper candidates:
     - `getLastDoNotStopGoalSnapshot()`
@@ -147,14 +161,14 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - Scenario 10: old repeat snapshot does not restore as active goal
     - session-specific goal snapshots stay isolated
 
-- [ ] Task: Add session-tree append/reconstruction if feasible with current extension API.
+- [x] Task: Add session-tree append/reconstruction if feasible with current extension API.
   - Use `pi.appendEntry("do-not-stop-goal-state", data)` for state transitions if available from the current code path.
   - Reconstruct latest state on `session_start` by scanning `ctx.sessionManager.getBranch()` for custom entries with `customType === "do-not-stop-goal-state"`.
   - If `appendEntry` is not available in the needed path, document why in `resume.md` and keep the global store as cache with a follow-up debt item.
   - Tests:
     - add branch-entry reconstruction tests in `test/do-not-stop-runtime.test.mjs` using mocked session entries.
 
-- [ ] Task: Implement previous-user-message extraction helper for blank `/do-not-stop` during a running turn.
+- [x] Task: Implement previous-user-message extraction helper for blank `/do-not-stop` during a running turn.
   - Suggested helper: `findPreviousUserMessageForGoal(ctx)` or pure helper taking session branch entries.
   - Must avoid treating extension/custom continuation messages as the original user goal.
   - Required scenario coverage:
@@ -162,7 +176,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 4: Audit Subprocess Runner
 
-- [ ] Task: Implement an audit runner module that is separately testable and has injectable process execution.
+- [x] Task: Implement an audit runner module that is separately testable and has injectable process execution.
   - Suggested new file: `do-not-stop/lib/do-not-stop-audit-runner.ts`
   - Dependencies should be injectable for tests:
     - `exec(command, args, options)` or `pi.exec`
@@ -179,7 +193,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - strict JSON parsed by `parseAuditResult`
     - failure reasons classified as timeout, process error, invalid output, or unavailable source
 
-- [ ] Task: Test audit retry/session behavior without live model calls.
+- [x] Task: Test audit retry/session behavior without live model calls.
   - Target tests: new `test/do-not-stop-audit-runner.test.mjs` or fold into `test/do-not-stop-follow-up.test.mjs` if smaller.
   - Required assertions:
     - first attempt uses `pi -p` with current model and `--thinking medium`
@@ -188,14 +202,14 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
     - total timeout cap stops retries
     - final failure returns fallback/no-complete result
 
-- [ ] Task: Build audit prompt inputs.
+- [x] Task: Build audit prompt inputs.
   - Suggested helper: `buildAuditPrompt({ goal, sessionInfo, checkpointHints, conductorHints, progressHints })`
   - The prompt must request the strict JSON schema from the spec.
   - Include source hints rather than dumping large files by default; let `pi -p` inspect files with tools unless a small file read is clearly safer.
 
 ## Phase 5: Extension Entrypoint Integration
 
-- [ ] Task: Refactor `do-not-stop/index.ts` from repeat loop to goal lifecycle.
+- [x] Task: Refactor `do-not-stop/index.ts` from repeat loop to goal lifecycle.
   - Replace state variables:
     - remove `enabled`, `repeatTarget`, `pendingRepeats`, `completedRepeats`
     - add `currentGoal: DoNotStopGoalState | null`
@@ -203,7 +217,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
   - Remove arming on ordinary `input` events.
   - Keep a small recent-user-message tracker only if needed for Scenario 1b.
 
-- [ ] Task: Update `/do-not-stop` command handler.
+- [x] Task: Update `/do-not-stop` command handler.
   - Implement:
     - blank command summary/help/adopt-previous-message behavior
     - explicit objective creation
@@ -214,7 +228,7 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
   - Tests:
     - update harness in `test/do-not-stop-follow-up.test.mjs` to assert notifications, persisted state, and sent messages.
 
-- [ ] Task: Update continuation scheduling on `agent_end`.
+- [x] Task: Update continuation scheduling on `agent_end`.
   - Gate with `shouldScheduleGoalContinuation`.
   - If budget exhausted before audit, mark `budget_limited`, persist, refresh UI, notify if possible, and stop.
   - Run audit before dispatch.
@@ -223,12 +237,12 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
   - Increment `turnsUsed` only if dispatch succeeds; restore state on dispatch failure.
   - Check `goalId` before dispatch to cancel stale scheduled continuations.
 
-- [ ] Task: Choose and implement continuation delivery mechanism.
+- [x] Task: Choose and implement continuation delivery mechanism.
   - Preferred default pending discovery: `pi.sendUserMessage(message, { deliverAs: "followUp" })` for simplicity and parity with current tests.
   - If `pi.sendMessage` with `display: false` and `triggerTurn: true` gives a cleaner transcript contract, use it and document the reason in `resume.md`.
   - Tests should assert only the extension-visible send call shape, not live LLM behavior.
 
-- [ ] Task: Update UI badge/editor label behavior.
+- [x] Task: Update UI badge/editor label behavior.
   - Active unlimited: `goal active <turnsUsed>/∞`
   - Active budgeted: `goal active <turnsUsed>/<turnBudget>`
   - Budget-limited: `goal budget-limited <turnsUsed>/<turnBudget>`
@@ -238,21 +252,21 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 6: Tests and Lat-MD Sync
 
-- [ ] Task: Rewrite `test/do-not-stop.test.mjs` for pure helpers.
+- [x] Task: Rewrite `test/do-not-stop.test.mjs` for pure helpers.
   - Covers scenarios: 1, 1b helper representation, 4, 5, 6, 7, 9, 11, 12, 14.
 
-- [ ] Task: Rewrite `test/do-not-stop-follow-up.test.mjs` for extension entrypoint behavior.
+- [x] Task: Rewrite `test/do-not-stop-follow-up.test.mjs` for extension entrypoint behavior.
   - Covers scenarios: 2, 3, 4, 6, 7, 8, 12, 13.
   - Mock audit runner and message sender; do not run live `pi -p`.
 
-- [ ] Task: Rewrite `test/do-not-stop-runtime.test.mjs` for goal persistence and legacy repeat migration.
+- [x] Task: Rewrite `test/do-not-stop-runtime.test.mjs` for goal persistence and legacy repeat migration.
   - Covers scenarios: 10 and session isolation.
 
-- [ ] Task: Add audit-runner tests if the runner is complex enough to deserve a separate file.
+- [x] Task: Add audit-runner tests if the runner is complex enough to deserve a separate file.
   - Suggested file: `test/do-not-stop-audit-runner.test.mjs`
   - Covers command construction, retry policy, no `-c/--continue`, timeout cap, and fallback.
 
-- [ ] Task: Update lattice docs for changed ownership and tests.
+- [x] Task: Update lattice docs for changed ownership and tests.
   - Files likely touched:
     - `lat-md/do-not-stop.md`
     - `lat-md/tests.md`
@@ -265,13 +279,13 @@ Use `./evidence/` only if implementation produces useful reproducible proof arti
 
 ## Phase 7: Verification
 
-- [ ] Task: Run targeted do-not-stop tests.
+- [x] Task: Run targeted do-not-stop tests.
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/do-not-stop*.test.mjs
 ```
 
-- [ ] Task: Run targeted adjacent tests if self-checkpointing artifact discovery or checkpoint probe code is imported/reused.
+- [x] Task: Run targeted adjacent tests if self-checkpointing artifact discovery or checkpoint probe code is imported/reused. Not applicable: implementation only passes checkpoint/conductor paths as audit prompt hints and does not import or modify self-checkpointing code.
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/autockpt*.test.mjs self-checkpointing/test/checkpoint-probe.test.mjs self-checkpointing/test/pending-resume.test.mjs
@@ -279,26 +293,26 @@ cd /home/tan/.pi/agent/extensions && node --test test/autockpt*.test.mjs self-ch
 
 Only run the adjacent command if implementation changes or imports those surfaces.
 
-- [ ] Task: Run a broader extension inventory smoke test if entrypoint wiring changes significantly.
+- [x] Task: Run a broader extension inventory smoke test if entrypoint wiring changes significantly.
 
 ```bash
 cd /home/tan/.pi/agent/extensions && node --test test/runtime-extension-inventory.mjs
 ```
 
-- [ ] Task: Run lattice checks after `lat-md/` edits.
+- [x] Task: Run lattice checks after `lat-md/` edits. Shared helper expects `.lat-md/`; this repo uses legacy `lat-md/`, so the helper reports `Missing lattice directory`. Manual link/anchor verification was run instead.
   - Discover the current repo-local command before running. Candidate from existing lattice note: `bash lat-local.sh .pi/extensions check`, but this path may need adjustment from `/home/tan/vault` or the extension root.
   - Record the exact command and result in `resume.md`.
 
-- [ ] Task: Do a no-live-model audit command dry check.
+- [x] Task: Do a no-live-model audit command dry check. Covered by `test/do-not-stop-audit-runner.test.mjs`; no live `pi -p` audit was run.
   - Verify command construction in tests.
   - Do not run a live one-hour `pi -p` audit during normal verification.
   - If a live smoke test is needed, use a tiny `timeout 60s` audit prompt and an explicit temporary `--session` path, then record the command and cleanup.
 
 ## Phase 8: Review
 
-- [ ] Task: Update this `plan.md` Change evidence with touched paths and scenario mappings.
-- [ ] Task: Update `resume.md` with final current state, decisions, deviations, and verification commands/results.
-- [ ] Task: Run `codex-review` on the approved spec, plan, resume, touched implementation files, tests, and Change evidence.
+- [x] Task: Update this `plan.md` Change evidence with touched paths and scenario mappings.
+- [x] Task: Update `resume.md` with final current state, decisions, deviations, and verification commands/results.
+- [x] Task: Run `codex-review` on the approved spec, plan, resume, touched implementation files, tests, and Change evidence.
   - Review focus:
     - spec compliance
     - no pause/resume leakage
@@ -306,15 +320,15 @@ cd /home/tan/.pi/agent/extensions && node --test test/runtime-extension-inventor
     - audit failure cannot mark complete
     - tests map to scenarios
     - no stale repeat toggle behavior remains
-- [ ] Task: Fix straightforward review findings and rerun targeted tests.
+- [x] Task: Fix straightforward review findings and rerun targeted tests.
 
 ## Phase 9: Completion Sync
 
-- [ ] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final behavior.
-- [ ] Task: Sync `lat-md/do-not-stop.md` and `lat-md/tests.md` if implementation changed architecture/test reality.
-- [ ] Task: Commit implementation with a Conventional Commit message, likely `feat(do-not-stop): add goal continuation audits`.
-- [ ] Task: Run `/reload` after committing extension changes.
-- [ ] Task: Mark track complete in `conductor/tracks.md` only after implementation, verification, review, and completion sync pass.
+- [x] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final behavior.
+- [x] Task: Sync `lat-md/do-not-stop.md` and `lat-md/tests.md` if implementation changed architecture/test reality.
+- [x] Task: Commit implementation with a Conventional Commit message, likely `feat(do-not-stop): add goal continuation audits`.
+- [x] Task: Run `/reload` after committing extension changes.
+- [x] Task: Mark track complete in `conductor/tracks.md` only after implementation, verification, review, and completion sync pass.
 
 ## Implementation Notes
 

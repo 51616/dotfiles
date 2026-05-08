@@ -1,14 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import doNotStop from "../do-not-stop/index.ts";
-import { DO_NOT_STOP_PROMPT } from "../do-not-stop/lib/do-not-stop.ts";
 import {
   __resetDoNotStopRuntimeStoreForTests,
-  getDoNotStopSnapshotForSession,
+  getDoNotStopGoalSnapshotForSession,
 } from "../do-not-stop/lib/do-not-stop-runtime.ts";
 
 function flushTimers() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => setTimeout(resolve, 20));
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }
 
 function createHarness(options = {}) {
@@ -19,13 +26,25 @@ function createHarness(options = {}) {
   const sentMessages = [];
   const notifications = [];
   const editorComponentCalls = [];
+  const appendedEntries = [];
+  const statuses = [];
+  const confirmations = [];
+  const branchEntries = options.branchEntries ?? [];
 
   const pi = {
+    __doNotStopAuditRunner: options.auditRunner,
     on(name, handler) {
       handlers.set(String(name), handler);
     },
     registerCommand(name, spec) {
       commands.set(String(name), spec);
+    },
+    appendEntry(customType, data) {
+      appendedEntries.push({ customType, data });
+      branchEntries.push({ type: "custom", customType, data });
+    },
+    exec() {
+      throw new Error("live audit must be mocked in tests");
     },
     sendUserMessage(text, sendOptions) {
       sentMessages.push({ text, sendOptions });
@@ -37,11 +56,16 @@ function createHarness(options = {}) {
   };
 
   const ctx = {
-    hasUI: true,
-    isIdle: () => true,
-    hasPendingMessages: () => false,
+    cwd: options.cwd ?? "/tmp/pi-do-not-stop-test",
+    model: options.model ?? { provider: "test-provider", id: "test-model" },
+    signal: undefined,
+    hasUI: options.hasUI ?? true,
+    isIdle: () => options.isIdle?.() ?? true,
+    hasPendingMessages: () => options.hasPendingMessages?.() ?? false,
     sessionManager: {
-      getSessionId: () => options.sessionId ?? "session-1",
+      getSessionId: () => (typeof options.sessionId === "function" ? options.sessionId() : options.sessionId ?? "session-1"),
+      getSessionFile: () => options.sessionFile ?? "/tmp/pi-do-not-stop-session.jsonl",
+      getBranch: () => branchEntries,
     },
     ui: {
       notify(message, level) {
@@ -49,6 +73,13 @@ function createHarness(options = {}) {
       },
       setEditorComponent(value) {
         editorComponentCalls.push(value);
+      },
+      setStatus(key, text) {
+        statuses.push({ key, text });
+      },
+      async confirm(title, message) {
+        confirmations.push({ title, message });
+        return options.confirmResult ?? true;
       },
     },
   };
@@ -61,62 +92,371 @@ function createHarness(options = {}) {
     sentMessages,
     notifications,
     editorComponentCalls,
+    appendedEntries,
+    statuses,
+    confirmations,
+    branchEntries,
     ctx,
   };
 }
 
-test("do-not-stop queues a follow-up turn and persists repeat progress", async () => {
-  const harness = createHarness();
-  const { handlers, commands, ctx } = harness;
-
-  handlers.get("session_start")({}, ctx);
-  await commands.get("do-not-stop").handler("on", ctx);
-  await commands.get("do-not-stop").handler("repeats 2", ctx);
-
-  handlers.get("input")({ text: "Finish the migration", source: "interactive" }, ctx);
-  handlers.get("agent_end")({}, ctx);
-  await flushTimers();
-
-  assert.deepEqual(harness.sentMessages, [
-    {
-      text: DO_NOT_STOP_PROMPT,
-      sendOptions: { deliverAs: "followUp" },
-    },
-  ]);
-
-  assert.deepEqual(getDoNotStopSnapshotForSession("session-1"), {
-    enabled: true,
-    repeatTarget: 2,
-    pendingRepeats: 1,
-    completedRepeats: 1,
+test("/do-not-stop creates an active unlimited goal and does not arm from ordinary input", async () => {
+  const harness = createHarness({
+    auditRunner: async () => ({
+      ok: true,
+      attempts: 1,
+      auditSessionPath: "/tmp/audit.jsonl",
+      commands: [],
+      audit: {
+        decision: "continue",
+        confidence: "high",
+        summary: "needs work",
+        completedItems: [],
+        remainingItems: ["continue"],
+        evidence: [],
+        sourcePaths: [],
+        continuationMessage: "Continue implementation.",
+      },
+    }),
   });
+
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish the migration", harness.ctx);
+  assert.deepEqual(getDoNotStopGoalSnapshotForSession("session-1"), {
+    goalId: getDoNotStopGoalSnapshotForSession("session-1").goalId,
+    objective: "finish the migration",
+    status: "active",
+    turnBudget: null,
+    turnsUsed: 0,
+    startedAtMs: getDoNotStopGoalSnapshotForSession("session-1").startedAtMs,
+    updatedAtMs: getDoNotStopGoalSnapshotForSession("session-1").updatedAtMs,
+  });
+
+  harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 0);
 });
 
-test("do-not-stop restores repeat counters when the follow-up cannot be queued", async () => {
+test("blank command during a running turn adopts the previous user message", async () => {
+  const harness = createHarness({ isIdle: () => false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  harness.handlers.get("before_agent_start")(
+    { source: "user", prompt: "fix the failing auth tests", triggerMessage: { role: "user" } },
+    harness.ctx,
+  );
+
+  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+
+  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
+  assert.equal(snapshot.objective, "fix the failing auth tests");
+  assert.equal(snapshot.status, "active");
+  assert.equal(harness.sentMessages.length, 0);
+});
+
+test("blank command does not adopt a previous session message after session switch", async () => {
+  let sessionId = "session-a";
+  const harness = createHarness({ isIdle: () => false, sessionId: () => sessionId });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  harness.handlers.get("before_agent_start")(
+    { source: "user", prompt: "message from session a", triggerMessage: { role: "user" } },
+    harness.ctx,
+  );
+
+  sessionId = "session-b";
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-b"), null);
+  assert.match(harness.notifications.at(-1).message, /could not find a previous user message/);
+});
+
+test("agent_end runs audit, sends anchored follow-up, and increments turns after dispatch", async () => {
   const harness = createHarness({
-    sendUserMessage() {
-      throw new Error("queue jam");
+    auditRunner: async (_goal, prompt) => {
+      assert.match(prompt, /external progress\/completion auditor/);
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "progress found",
+          completedItems: ["spec written"],
+          remainingItems: ["implement runtime"],
+          evidence: ["plan.md"],
+          sourcePaths: ["conductor/tracks/x/plan.md"],
+          continuationMessage: "Implement runtime next.",
+        },
+      };
     },
   });
-  const { handlers, commands, ctx } = harness;
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish the migration", harness.ctx);
 
-  handlers.get("session_start")({}, ctx);
-  await commands.get("do-not-stop").handler("on", ctx);
-  await commands.get("do-not-stop").handler("repeats 1", ctx);
-
-  handlers.get("input")({ text: "Audit the queue", source: "interactive" }, ctx);
-  handlers.get("agent_end")({}, ctx);
+  harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 1);
-  assert.deepEqual(getDoNotStopSnapshotForSession("session-1"), {
-    enabled: true,
-    repeatTarget: 1,
-    pendingRepeats: 1,
-    completedRepeats: 0,
+  assert.equal(harness.sentMessages[0].sendOptions.deliverAs, "followUp");
+  assert.match(harness.sentMessages[0].text, /Original objective:\nfinish the migration/);
+  assert.match(harness.sentMessages[0].text, /spec written/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("continuation gates are rechecked after audit before dispatch", async () => {
+  let pending = false;
+  const harness = createHarness({
+    hasPendingMessages: () => pending,
+    auditRunner: async () => {
+      pending = true;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next.",
+        },
+      };
+    },
   });
-  assert.deepEqual(harness.notifications.at(-1), {
-    message: "do-not-stop failed to queue follow-up: queue jam",
-    level: "warning",
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "active");
+});
+
+test("high-confidence complete audit marks complete and does not send follow-up", async () => {
+  const harness = createHarness({
+    auditRunner: async () => ({
+      ok: true,
+      attempts: 1,
+      auditSessionPath: "/tmp/audit.jsonl",
+      commands: [],
+      audit: {
+        decision: "complete",
+        confidence: "high",
+        summary: "all tests passed",
+        completedItems: ["implementation"],
+        remainingItems: [],
+        evidence: ["node --test passed"],
+        sourcePaths: ["test/do-not-stop.test.mjs"],
+        continuationMessage: "",
+      },
+    }),
   });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 0);
+  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
+  assert.equal(snapshot.status, "complete");
+  assert.equal(snapshot.completionSummary, "all tests passed");
+});
+
+test("same-goal updates do not cancel or duplicate an in-flight dispatch", async () => {
+  const audits = [];
+  const harness = createHarness({
+    auditRunner: async (goal) => {
+      const gate = deferred();
+      audits.push({ goalId: goal.goalId, objective: goal.objective, gate });
+      await gate.promise;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 1);
+
+  await harness.commands.get("do-not-stop").handler("budget 5", harness.ctx);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 1);
+
+  audits[0].gate.resolve();
+  await flushTimers();
+  assert.equal(harness.sentMessages.length, 1);
+  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
+  assert.equal(snapshot.turnBudget, 5);
+  assert.equal(snapshot.turnsUsed, 1);
+});
+
+test("stale audit completion does not clear a newer dispatch lock", async () => {
+  const audits = [];
+  const harness = createHarness({
+    auditRunner: async (goal) => {
+      const gate = deferred();
+      audits.push({ goalId: goal.goalId, objective: goal.objective, gate });
+      await gate.promise;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("first goal", harness.ctx);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 1);
+
+  await harness.commands.get("do-not-stop").handler("replace second goal", harness.ctx);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 2);
+
+  audits[0].gate.resolve();
+  await flushTimers();
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 2);
+
+  audits[1].gate.resolve();
+  await flushTimers();
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /second goal/);
+});
+
+test("audit failure falls back to unanchored continuation and never completes", async () => {
+  const harness = createHarness({
+    auditRunner: async () => ({
+      ok: false,
+      failureReason: "audit timed out",
+      attempts: 2,
+      auditSessionPath: "/tmp/audit.jsonl",
+      commands: [],
+      audit: {
+        decision: "unknown",
+        confidence: "low",
+        summary: "Audit unavailable: audit timed out",
+        completedItems: [],
+        remainingItems: [],
+        evidence: [],
+        sourcePaths: [],
+        continuationMessage: "",
+      },
+    }),
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /audit timed out/);
+  assert.notEqual(getDoNotStopGoalSnapshotForSession("session-1").status, "complete");
+});
+
+test("budget exhaustion marks budget_limited and stops scheduling", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: [],
+          sourcePaths: [],
+          continuationMessage: "Next.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("finish tests", harness.ctx);
+  await harness.commands.get("do-not-stop").handler("budget 1", harness.ctx);
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "budget_limited");
+});
+
+test("replacement requires UI confirmation or explicit replace in non-UI contexts", async () => {
+  const noUi = createHarness({ hasUI: false });
+  noUi.handlers.get("session_start")({}, noUi.ctx);
+  await noUi.commands.get("do-not-stop").handler("first goal", noUi.ctx);
+  await noUi.commands.get("do-not-stop").handler("second goal", noUi.ctx);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").objective, "first goal");
+  await noUi.commands.get("do-not-stop").handler("replace second goal", noUi.ctx);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").objective, "second goal");
+
+  const withUi = createHarness({ confirmResult: false, sessionId: "session-2" });
+  withUi.handlers.get("session_start")({}, withUi.ctx);
+  await withUi.commands.get("do-not-stop").handler("first goal", withUi.ctx);
+  await withUi.commands.get("do-not-stop").handler("second goal", withUi.ctx);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-2").objective, "first goal");
+  assert.equal(withUi.confirmations.length, 1);
+});
+
+test("legacy toggle and removed repeats commands give guidance", async () => {
+  const toggleHarness = createHarness();
+  toggleHarness.handlers.get("session_start")({}, toggleHarness.ctx);
+  await toggleHarness.commands.get("do-not-stop").handler("on", toggleHarness.ctx);
+  assert.match(toggleHarness.notifications.at(-1).message, /old do-not-stop toggle was removed/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+
+  const harness = createHarness({ sessionId: "session-repeats" });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await harness.commands.get("do-not-stop").handler("repeats 2", harness.ctx);
+  assert.match(harness.notifications.at(-1).message, /budget <n>/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-repeats"), null);
 });
