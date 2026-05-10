@@ -55,6 +55,8 @@ When a goal exists, the user editor border is red and the top-border text indica
 
 During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing |`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
 
+Auto-checkpointing has higher priority than goal continuation. If the shared auto-checkpoint cycle marker is active, do-not-stop defers audit and follow-up dispatch so checkpoint compaction can finish and send its resume ping first.
+
 Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 
 ## Change guidance

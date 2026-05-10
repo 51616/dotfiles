@@ -38,6 +38,7 @@ import {
   snapshotFromSessionBranch,
 } from "./lib/do-not-stop-runtime.ts";
 import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/do-not-stop-session.ts";
+import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
 
 type BorderColorFn = (str: string) => string;
 type AuditRunner = (goal: DoNotStopGoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
@@ -220,6 +221,14 @@ function getHasPendingMessages(ctx: ExtensionContext): boolean {
   return typeof (ctx as unknown as { hasPendingMessages?: () => boolean }).hasPendingMessages === "function"
     ? Boolean((ctx as unknown as { hasPendingMessages: () => boolean }).hasPendingMessages())
     : false;
+}
+
+function getAutoCheckpointCycleActive(ctx: ExtensionContext): boolean {
+  try {
+    return isCheckpointCycleActive(ctx);
+  } catch {
+    return false;
+  }
 }
 
 function isInteractiveUserText(text: string, source?: unknown): boolean {
@@ -451,6 +460,8 @@ export default function doNotStop(pi: ExtensionAPI) {
   };
 
   const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
+    if (getAutoCheckpointCycleActive(ctx)) return;
+
     if (shouldBudgetLimitGoal(currentGoal)) {
       currentGoal = markGoalBudgetLimited(currentGoal as DoNotStopGoalState);
       applyEditorOverride(ctx);
@@ -481,6 +492,7 @@ export default function doNotStop(pi: ExtensionAPI) {
       void (async () => {
         try {
           if (!currentGoal || currentGoal.goalId !== scheduledGoalId) return;
+          if (getAutoCheckpointCycleActive(ctx)) return;
 
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
@@ -538,7 +550,13 @@ export default function doNotStop(pi: ExtensionAPI) {
             return;
           }
 
-          if (activeDispatchToken !== scheduledDispatchToken || currentGoal.status !== "active" || !ctx.isIdle() || getHasPendingMessages(ctx)) {
+          if (
+            activeDispatchToken !== scheduledDispatchToken ||
+            currentGoal.status !== "active" ||
+            getAutoCheckpointCycleActive(ctx) ||
+            !ctx.isIdle() ||
+            getHasPendingMessages(ctx)
+          ) {
             return;
           }
 

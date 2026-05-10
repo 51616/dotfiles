@@ -5,6 +5,10 @@ import {
   __resetDoNotStopRuntimeStoreForTests,
   getDoNotStopGoalSnapshotForSession,
 } from "../do-not-stop/lib/do-not-stop-runtime.ts";
+import {
+  resetCheckpointCycleState,
+  setCheckpointCycleActive,
+} from "../lib/autockpt/autockpt-runtime-state.ts";
 
 function flushTimers() {
   return new Promise((resolve) => setTimeout(resolve, 20));
@@ -30,6 +34,7 @@ async function createIdleGoalAndClearStarter(harness, objective) {
 
 function createHarness(options = {}) {
   __resetDoNotStopRuntimeStoreForTests();
+  resetCheckpointCycleState();
 
   const handlers = new Map();
   const commands = new Map();
@@ -294,6 +299,94 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
   assert.equal(harness.sentMessages.length, 0);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "active");
+});
+
+test("agent_end defers audit while an auto-checkpoint cycle is active", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next after checkpoint.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  setCheckpointCycleActive(harness.ctx, true);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  setCheckpointCycleActive(harness.ctx, false);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after checkpoint/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
+});
+
+test("scheduled audit rechecks auto-checkpoint state before dispatch", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next after delayed checkpoint.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  setCheckpointCycleActive(harness.ctx, true);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  setCheckpointCycleActive(harness.ctx, false);
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after delayed checkpoint/);
+  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("high-confidence complete audit auto-clears the goal after a styled stats notification", async () => {
