@@ -11,6 +11,7 @@ export type CompactThenResumeDeps = {
   releaseCompactionLock: (ctx: ExtensionContext, reason: string) => void;
 
   setCheckpointCycleActive: (ctx: ExtensionContext, active: boolean) => void;
+  refreshCheckpointCycleState: (ctx: ExtensionContext) => void;
 
   buildResumeText: (checkpointPath: string) => string;
   buildCustomInstructions: (checkpointPath: string, extraInstructions?: string) => string;
@@ -119,8 +120,8 @@ export function compactThenResume(
         });
 
         deps.setPendingCompactionRequested(false);
-        safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
         safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_complete"));
+        safeCtxOp(() => deps.refreshCheckpointCycleState(ctx));
         safeCtxOp(() => deps.updateArmedStatus(ctx));
       },
       onError: async (err) => {
@@ -140,8 +141,8 @@ export function compactThenResume(
         });
 
         deps.setPendingCompactionRequested(false);
-        safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
         safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_error"));
+        safeCtxOp(() => deps.refreshCheckpointCycleState(ctx));
         safeCtxOp(() => deps.updateArmedStatus(ctx));
       },
     });
@@ -157,8 +158,8 @@ export function compactThenResume(
 
     // Compaction did not start; release the lock and keep going.
     deps.setPendingCompactionRequested(false);
-    safeCtxOp(() => deps.setCheckpointCycleActive(ctx, false));
     safeCtxOp(() => deps.releaseCompactionLock(ctx, "compaction_throw"));
+    safeCtxOp(() => deps.refreshCheckpointCycleState(ctx));
     safeCtxOp(() => deps.updateArmedStatus(ctx));
 
     safeCtxOp(() => {

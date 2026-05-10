@@ -26,6 +26,7 @@ test("compactThenResume still records loader lifecycle hooks and starts compacti
       ensureCompactionLock: () => true,
       releaseCompactionLock() {},
       setCheckpointCycleActive() {},
+      refreshCheckpointCycleState() {},
       buildResumeText: (checkpointPath) => `resume ${checkpointPath}`,
       buildCustomInstructions: (checkpointPath, extraInstructions) =>
         `${checkpointPath}${extraInstructions ? ` ${extraInstructions}` : ""}`,

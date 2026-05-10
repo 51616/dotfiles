@@ -50,6 +50,7 @@ export type SelfCheckpointingHookDeps = {
 
   setCheckpointCycleActive: (ctx: ExtensionContext, active: boolean) => void;
   syncCheckpointCycleState: (ctx: ExtensionContext) => void;
+  refreshCheckpointCycleState: (ctx: ExtensionContext) => void;
   updateArmedStatus: (ctx: ExtensionContext) => void;
   maybeAutoKick: (ctx: ExtensionContext, reason: string) => void;
   startCompaction: (ctx: ExtensionContext, checkpointPath: string, compactionInstructions?: string) => void;
@@ -156,10 +157,10 @@ export function registerSelfCheckpointingHooks(
     deps.pushDebug(ctx, "session_compact observed (autockpt); clearing pending compaction and resuming");
 
     deps.setPendingCompactionRequested(false);
-    deps.setCheckpointCycleActive(ctx, false);
     deps.sessionStore.releaseCompactionLock(ctx, "session_compact");
     deps.autotest.cleanup(ctx, "session_compact");
     deps.pendingResume.trySend(ctx, "session_compact");
+    deps.refreshCheckpointCycleState(ctx);
     deps.updateArmedStatus(ctx);
   });
 
@@ -178,9 +179,12 @@ export function registerSelfCheckpointingHooks(
   });
 
   pi.on("input", (event, ctx) => {
+    let pendingResumeCleared = false;
+
     try {
       const text = String(event?.text || "");
-      deps.pendingResume.observeInputText(ctx, text, String((event as any)?.source || "?"));
+      const observed = deps.pendingResume.observeInputText(ctx, text, String((event as any)?.source || "?"));
+      pendingResumeCleared = observed.cleared;
 
       if (!deps.getPendingCompactionRequested()) {
         deps.pendingResume.trySend(ctx, "input_event");
@@ -189,6 +193,9 @@ export function registerSelfCheckpointingHooks(
       // ignore
     }
 
+    if (pendingResumeCleared) {
+      deps.refreshCheckpointCycleState(ctx);
+    }
     deps.updateArmedStatus(ctx);
   });
 

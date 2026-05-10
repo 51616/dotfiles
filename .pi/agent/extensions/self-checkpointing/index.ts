@@ -207,9 +207,27 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     getActiveCompactionLock: sessionStore.getActiveCompactionLock,
   });
 
+  const hasPendingResume = (ctx: ExtensionContext): boolean => {
+    try {
+      return sessionStore.readPending(ctx) !== null;
+    } catch {
+      return false;
+    }
+  };
+
+  // The checkpoint cycle is not over when compaction finishes. A pending resume
+  // self-ping is still part of the cycle; clearing this too early lets /goal audit
+  // and queue work in the narrow gap before the resume prompt is consumed.
+  const isCheckpointCycleOngoing = (ctx: ExtensionContext): boolean =>
+    pendingCompactionRequested || autoKick.isInFlight() || hasPendingResume(ctx);
+
   const syncCheckpointCycleState = (ctx: ExtensionContext) => {
-    const active = isCheckpointCycleActive(ctx) || pendingCompactionRequested || autoKick.isInFlight();
+    const active = isCheckpointCycleActive(ctx) || isCheckpointCycleOngoing(ctx);
     setCheckpointCycleActive(ctx, active);
+  };
+
+  const refreshCheckpointCycleState = (ctx: ExtensionContext) => {
+    setCheckpointCycleActive(ctx, isCheckpointCycleOngoing(ctx));
   };
 
   const pendingResume: PendingResumeController = createPendingResumeController({
@@ -265,6 +283,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
         ensureCompactionLock: (ctx2, checkpointPath2) => sessionStore.ensureCompactionLock(ctx2, checkpointPath2),
         releaseCompactionLock: sessionStore.releaseCompactionLock,
         setCheckpointCycleActive,
+        refreshCheckpointCycleState,
         buildResumeText: buildResumeSelfPing,
         buildCustomInstructions: (checkpointPath2, extraInstructions) =>
           buildCompactionInstructions({ checkpointPath: checkpointPath2, extraInstructions }),
@@ -341,6 +360,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     getThresholdTokens,
     setCheckpointCycleActive,
     syncCheckpointCycleState,
+    refreshCheckpointCycleState,
     updateArmedStatus: (ctx) => updateArmedStatus(ctx, autoKick),
     maybeAutoKick,
     startCompaction,

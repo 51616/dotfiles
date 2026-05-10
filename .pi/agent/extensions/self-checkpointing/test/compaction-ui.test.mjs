@@ -23,6 +23,7 @@ function createDeps() {
         releaseReasons.push(reason);
       },
       setCheckpointCycleActive: () => {},
+      refreshCheckpointCycleState: () => {},
       buildResumeText: (checkpointPath) => `resume:${checkpointPath}`,
       buildCustomInstructions: (checkpointPath, extraInstructions) =>
         `compact:${checkpointPath}:${extraInstructions || ""}`,
@@ -120,6 +121,9 @@ test("compactThenResume tolerates stale ctx in completion callback", async () =>
   state.deps.setCheckpointCycleActive = () => {
     throw new Error("stale ctx");
   };
+  state.deps.refreshCheckpointCycleState = () => {
+    throw new Error("stale ctx");
+  };
   active = false;
 
   await assert.doesNotReject(async () => compactOptions?.onComplete?.());
@@ -144,6 +148,9 @@ test("compactThenResume tolerates stale ctx in error callback", async () => {
     throw new Error("stale ctx");
   };
   state.deps.releaseCompactionLock = () => {
+    throw new Error("stale ctx");
+  };
+  state.deps.refreshCheckpointCycleState = () => {
     throw new Error("stale ctx");
   };
   state.deps.updateArmedStatus = () => {
