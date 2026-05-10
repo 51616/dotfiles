@@ -51,9 +51,9 @@ If session-tree state is missing, the runtime falls back to the per-session in-m
 
 The editor badge/border reflects active goal-chasing state, not repeat state.
 
-When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ ⟐ PURSUING GOAL` with no leading whitespace. Detailed state remains available through status text and `/do-not-stop status`.
+When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ ⟐ PURSUING GOAL` with no leading whitespace. The footer status text is `⚑ goal`; detailed state remains available through `/do-not-stop status`.
 
-During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
+During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
 
 Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/do-not-stop clear` removes the goal.
 

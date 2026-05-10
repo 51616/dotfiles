@@ -333,6 +333,9 @@ test("high-confidence complete audit auto-clears the goal after a styled stats n
   assert.equal(harness.sentMessages.length, 0);
   assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
 
+  assert.ok(harness.statuses.some((status) => status.key === "do-not-stop" && status.text === "⚑ auditing"));
+  assert.ok(harness.statuses.some((status) => status.key === "do-not-stop" && status.text === "⚑ goal"));
+
   const notification = harness.notifications.at(-1);
   assert.equal(notification.level, "info");
   assert.match(notification.message, /^\x1b\[1mGoal complete:\x1b\[22m/);

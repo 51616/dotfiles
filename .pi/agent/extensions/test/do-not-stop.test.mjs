@@ -100,7 +100,7 @@ test("goal state helpers create, budget-limit, complete, and schedule safely", (
   assert.equal(goal.turnBudget, null);
   assert.equal(goal.turnsUsed, 0);
   assert.equal(goal.status, "active");
-  assert.equal(buildDoNotStopBorderLabel(goal), "goal active 0/∞");
+  assert.equal(buildDoNotStopBorderLabel(goal), "⚑ goal");
 
   const budgeted = setGoalBudget(goal, 1, 1100);
   assert.equal(shouldBudgetLimitGoal(budgeted), false);
@@ -118,7 +118,7 @@ test("goal state helpers create, budget-limit, complete, and schedule safely", (
 
   const limited = markGoalBudgetLimited(used, 1300);
   assert.equal(limited.status, "budget_limited");
-  assert.equal(buildDoNotStopBorderLabel(limited), "goal budget-limited 1/1");
+  assert.equal(buildDoNotStopBorderLabel(limited), "⚑ goal");
 
   const complete = markGoalCompleteFromAudit(goal, {
     decision: "complete",

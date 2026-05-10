@@ -150,7 +150,7 @@ export function formatBudget(turnBudget: number | null): string {
 
 export function buildDoNotStopBorderLabel(goal: DoNotStopGoalState | null): string {
   if (!goal) return "goal none";
-  return `goal ${goal.status.replace("_", "-")} ${Math.max(0, goal.turnsUsed)}/${formatBudget(goal.turnBudget)}`;
+  return "⚑ goal";
 }
 
 export function formatDurationMs(elapsedMs: number): string {

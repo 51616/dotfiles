@@ -497,7 +497,7 @@ export default function doNotStop(pi: ExtensionAPI) {
             let outcome: AuditRunnerOutcome;
             const closeAuditLoader = showAuditLoader(ctx);
             try {
-              setStatus(ctx, "auditing goal…");
+              setStatus(ctx, "⚑ auditing");
               const auditInput = await buildPromptForGoal(goalAtAuditStart, ctx);
               outcome = await runAudit(goalAtAuditStart, auditInput.prompt, ctx, auditInput.ssh);
             } catch (error) {
