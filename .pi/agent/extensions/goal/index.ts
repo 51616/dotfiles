@@ -43,6 +43,8 @@ import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.
 type BorderColorFn = (str: string) => string;
 type AuditRunner = (goal: GoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
 
+export const DEFAULT_AUDIT_START_DELAY_MS = 10_000;
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
@@ -255,6 +257,13 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
     });
 }
 
+function auditStartDelayMs(pi: ExtensionAPI): number {
+  const override = (pi as unknown as { __goalExtensionAuditStartDelayMs?: unknown }).__goalExtensionAuditStartDelayMs;
+  return typeof override === "number" && Number.isFinite(override) && override >= 0
+    ? Math.floor(override)
+    : DEFAULT_AUDIT_START_DELAY_MS;
+}
+
 class GoalEditor extends CustomEditor {
   private baseBorderColor: BorderColorFn;
   private readonly hasGoal: () => boolean;
@@ -314,6 +323,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   let activeSessionId = "";
   let lastUserMessage: { sessionId: string; text: string } | null = null;
   const runAudit = makeAuditRunner(pi);
+  const auditDelayMs = auditStartDelayMs(pi);
 
   registerTuiBrokerEditorBadgeProvider("goal", () => {
     if (!currentGoal) return null;
@@ -488,6 +498,8 @@ export default function goalExtension(pi: ExtensionAPI) {
     activeDispatchToken = scheduledDispatchToken;
     dispatchScheduled = true;
 
+    const dispatchDelayMs = options.skipAudit ? 0 : auditDelayMs;
+
     setTimeout(() => {
       void (async () => {
         try {
@@ -577,7 +589,7 @@ export default function goalExtension(pi: ExtensionAPI) {
           }
         }
       })();
-    }, 0);
+    }, dispatchDelayMs);
   };
 
   pi.registerCommand("goal", {

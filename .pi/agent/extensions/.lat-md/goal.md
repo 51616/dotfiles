@@ -55,7 +55,7 @@ When a goal exists, the user editor border is red and the top-border text indica
 
 During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing |`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
 
-Auto-checkpointing has higher priority than goal continuation. If the shared auto-checkpoint cycle marker is active, goal defers audit and follow-up dispatch so checkpoint compaction can finish and send its resume ping first.
+Auto-checkpointing has higher priority than goal continuation. Audited continuations wait 10 seconds before starting the external audit, giving auto-checkpoint footer detection and compaction a chance to claim the session first. If the shared auto-checkpoint cycle marker is active when scheduling or dispatch runs, goal defers audit and follow-up dispatch so checkpoint compaction can finish and send its resume ping first.
 
 Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/goal clear` removes the goal.
 

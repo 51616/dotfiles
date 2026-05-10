@@ -47,6 +47,7 @@ function createHarness(options = {}) {
   const branchEntries = options.branchEntries ?? [];
 
   const pi = {
+    __goalExtensionAuditStartDelayMs: options.auditStartDelayMs ?? 0,
     __goalExtensionAuditRunner:
       options.auditRunner ??
       (async () => ({
@@ -229,6 +230,46 @@ test("blank command does not adopt a previous session message after session swit
 
   assert.equal(getGoalSnapshotForSession("session-b"), null);
   assert.match(harness.notifications.at(-1).message, /could not find a previous user message/);
+});
+
+test("agent_end waits for the configured audit delay before auditing", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditStartDelayMs: 35,
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next after audit delay.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 35));
+
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after audit delay/);
 });
 
 test("agent_end runs audit, sends anchored follow-up, and increments turns after dispatch", async () => {
