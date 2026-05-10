@@ -1,4 +1,4 @@
-// @lat: [[do-not-stop#Do not stop]]
+// @lat: [[goal#Goal]]
 
 import { BorderedLoader, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
@@ -7,21 +7,21 @@ import {
   registerTuiBrokerEditorBadgeProvider,
   requestTuiBrokerEditorReinstall,
 } from "../tui-broker/lib/runtime.ts";
-import { fallbackAuditResult, isHighConfidenceComplete } from "./lib/do-not-stop-audit.ts";
-import { defaultAuditSessionPath, runDoNotStopAudit, type AuditRunnerOutcome, type AuditSshTarget } from "./lib/do-not-stop-audit-runner.ts";
-import { resolveDoNotStopAuditTarget } from "./lib/do-not-stop-audit-target.ts";
-import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "./lib/do-not-stop-continuation.ts";
+import { fallbackAuditResult, isHighConfidenceComplete } from "./lib/goal-audit.ts";
+import { defaultAuditSessionPath, runGoalAudit, type AuditRunnerOutcome, type AuditSshTarget } from "./lib/goal-audit-runner.ts";
+import { resolveGoalAuditTarget } from "./lib/goal-audit-target.ts";
+import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "./lib/goal-continuation.ts";
 import {
   brightRed,
-  buildDoNotStopBorderLabel,
-  DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE,
+  buildGoalBorderLabel,
+  GOAL_STATE_ENTRY_TYPE,
   formatGoalCompletionStats,
   formatGoalStatusSummary,
-  parseDoNotStopCommand,
+  parseGoalCommand,
   usageText,
-  validateDoNotStopObjective,
-  type DoNotStopGoalState,
-} from "./lib/do-not-stop.ts";
+  validateGoalObjective,
+  type GoalState,
+} from "./lib/goal.ts";
 import {
   createGoal,
   incrementGoalTurnsUsed,
@@ -31,17 +31,17 @@ import {
   setGoalBudget,
   shouldBudgetLimitGoal,
   shouldScheduleGoalContinuation,
-} from "./lib/do-not-stop-state.ts";
+} from "./lib/goal-state.ts";
 import {
-  getDoNotStopGoalSnapshotForSession,
-  saveDoNotStopGoalSnapshot,
+  getGoalSnapshotForSession,
+  saveGoalSnapshot,
   snapshotFromSessionBranch,
-} from "./lib/do-not-stop-runtime.ts";
-import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/do-not-stop-session.ts";
+} from "./lib/goal-runtime.ts";
+import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/goal-session.ts";
 import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
 
 type BorderColorFn = (str: string) => string;
-type AuditRunner = (goal: DoNotStopGoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
+type AuditRunner = (goal: GoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
 
 function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -59,13 +59,13 @@ function bold(text: string): string {
   return `\x1b[1m${text}\x1b[22m`;
 }
 
-function buildDoNotStopEditorIndicator(): string {
+function buildGoalEditorIndicator(): string {
   return `─ ${bold("⟐ PURSUING GOAL")}`;
 }
 
 function setStatus(ctx: ExtensionContext, text: string | undefined): void {
   const ui = ctx.ui as unknown as { setStatus?: (key: string, text: string | undefined) => void };
-  if (ctx.hasUI && typeof ui.setStatus === "function") ui.setStatus("do-not-stop", text);
+  if (ctx.hasUI && typeof ui.setStatus === "function") ui.setStatus("goal", text);
 }
 
 function getSessionId(ctx: ExtensionContext): string {
@@ -147,7 +147,7 @@ function assistantUsageTokens(usage: UsageLike | undefined): GoalTokenUsage | nu
   return direct === null ? null : { totalTokens: direct, cacheReadTokens: 0 };
 }
 
-function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): GoalTokenUsage | null {
+function totalGoalTokensUsed(ctx: ExtensionContext, goal: GoalState): GoalTokenUsage | null {
   let totalTokens = 0;
   let cacheReadTokens = 0;
   let counted = 0;
@@ -170,7 +170,7 @@ function totalGoalTokensUsed(ctx: ExtensionContext, goal: DoNotStopGoalState): G
   return counted > 0 ? { totalTokens, cacheReadTokens } : null;
 }
 
-function buildGoalCompletionNotification(ctx: ExtensionContext, goal: DoNotStopGoalState): string {
+function buildGoalCompletionNotification(ctx: ExtensionContext, goal: GoalState): string {
   const tokens = totalGoalTokensUsed(ctx, goal);
   const stats = formatGoalCompletionStats(goal, {
     totalTokens: tokens?.totalTokens ?? null,
@@ -240,11 +240,11 @@ function isInteractiveUserText(text: string, source?: unknown): boolean {
 }
 
 function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
-  const injected = (pi as unknown as { __doNotStopAuditRunner?: unknown }).__doNotStopAuditRunner;
+  const injected = (pi as unknown as { __goalExtensionAuditRunner?: unknown }).__goalExtensionAuditRunner;
   if (typeof injected === "function") return injected as AuditRunner;
 
   return (goal, prompt, ctx, ssh) =>
-    runDoNotStopAudit({
+    runGoalAudit({
       exec: (command, args, options) => pi.exec(command, args, options),
       prompt,
       cwd: ctx.cwd,
@@ -255,17 +255,17 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
     });
 }
 
-class DoNotStopEditor extends CustomEditor {
+class GoalEditor extends CustomEditor {
   private baseBorderColor: BorderColorFn;
   private readonly hasGoal: () => boolean;
-  private readonly getGoal: () => DoNotStopGoalState | null;
+  private readonly getGoal: () => GoalState | null;
 
   constructor(
     tui: unknown,
     theme: unknown,
     keybindings: unknown,
     hasGoal: () => boolean,
-    getGoal: () => DoNotStopGoalState | null,
+    getGoal: () => GoalState | null,
   ) {
     super(tui as never, theme as never, keybindings as never);
 
@@ -293,7 +293,7 @@ class DoNotStopEditor extends CustomEditor {
     const plainTop = stripAnsi(lines[0] ?? "");
     const moreMatch = plainTop.match(/↑\s+\d+\s+more/);
 
-    const labelBase = buildDoNotStopEditorIndicator();
+    const labelBase = buildGoalEditorIndicator();
     const withScrollInfo = moreMatch ? `${labelBase} • ${moreMatch[0]}` : labelBase;
 
     const rawLabel = `${withScrollInfo} `;
@@ -305,8 +305,8 @@ class DoNotStopEditor extends CustomEditor {
   }
 }
 
-export default function doNotStop(pi: ExtensionAPI) {
-  let currentGoal: DoNotStopGoalState | null = null;
+export default function goalExtension(pi: ExtensionAPI) {
+  let currentGoal: GoalState | null = null;
   let dispatchScheduled = false;
   let activeDispatchToken: number | null = null;
   let nextDispatchToken = 0;
@@ -315,9 +315,9 @@ export default function doNotStop(pi: ExtensionAPI) {
   let lastUserMessage: { sessionId: string; text: string } | null = null;
   const runAudit = makeAuditRunner(pi);
 
-  registerTuiBrokerEditorBadgeProvider("do-not-stop", () => {
+  registerTuiBrokerEditorBadgeProvider("goal", () => {
     if (!currentGoal) return null;
-    return { text: buildDoNotStopEditorIndicator(), priority: 200, borderColor: "#f38ba8" };
+    return { text: buildGoalEditorIndicator(), priority: 200, borderColor: "#f38ba8" };
   });
 
   const refreshTuiBrokerEditor = () => {
@@ -334,7 +334,7 @@ export default function doNotStop(pi: ExtensionAPI) {
 
     if (currentGoal && !editorOverrideActive) {
       ctx.ui.setEditorComponent(
-        (tui, theme, keybindings) => new DoNotStopEditor(tui, theme, keybindings, () => currentGoal !== null, () => currentGoal),
+        (tui, theme, keybindings) => new GoalEditor(tui, theme, keybindings, () => currentGoal !== null, () => currentGoal),
       );
       editorOverrideActive = true;
       return;
@@ -360,19 +360,19 @@ export default function doNotStop(pi: ExtensionAPI) {
   const persistGoal = (ctx?: ExtensionContext) => {
     const sid = (ctx ? getSessionId(ctx) : activeSessionId).trim();
     if (sid) activeSessionId = sid;
-    saveDoNotStopGoalSnapshot(sid || activeSessionId, currentGoal);
+    saveGoalSnapshot(sid || activeSessionId, currentGoal);
 
     if (ctx) {
       try {
-        pi.appendEntry(DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE, { goal: currentGoal, recordedAtMs: Date.now() });
+        pi.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: currentGoal, recordedAtMs: Date.now() });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        notify(ctx, `do-not-stop could not persist goal entry: ${message}`, "warning");
+        notify(ctx, `goal could not persist goal entry: ${message}`, "warning");
       }
     }
   };
 
-  const setCurrentGoal = (ctx: ExtensionContext, goal: DoNotStopGoalState | null) => {
+  const setCurrentGoal = (ctx: ExtensionContext, goal: GoalState | null) => {
     const previousGoalId = currentGoal?.goalId ?? null;
     const nextGoalId = goal?.goalId ?? null;
     currentGoal = goal;
@@ -380,7 +380,7 @@ export default function doNotStop(pi: ExtensionAPI) {
       dispatchScheduled = false;
       activeDispatchToken = null;
     }
-    setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
+    setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
     applyEditorOverride(ctx);
     refreshTuiBrokerEditor();
     persistGoal(ctx);
@@ -391,22 +391,22 @@ export default function doNotStop(pi: ExtensionAPI) {
     if (lastUserMessage?.sessionId !== activeSessionId) lastUserMessage = null;
     currentGoal = snapshotFromSessionBranch(getBranchEntries(ctx));
     if (!currentGoal && activeSessionId) {
-      currentGoal = getDoNotStopGoalSnapshotForSession(activeSessionId);
+      currentGoal = getGoalSnapshotForSession(activeSessionId);
     }
     dispatchScheduled = false;
 
-    if (currentGoal && !validateDoNotStopObjective(currentGoal.objective).ok) {
+    if (currentGoal && !validateGoalObjective(currentGoal.objective).ok) {
       const invalidObjective = currentGoal.objective;
       currentGoal = null;
       setStatus(ctx, undefined);
       applyEditorOverride(ctx);
       refreshTuiBrokerEditor();
       persistGoal(ctx);
-      notify(ctx, `do-not-stop cleared invalid restored goal: ${invalidObjective}`, "warning");
+      notify(ctx, `goal cleared invalid restored goal: ${invalidObjective}`, "warning");
       return;
     }
 
-    setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
+    setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
     applyEditorOverride(ctx);
     refreshTuiBrokerEditor();
   };
@@ -416,7 +416,7 @@ export default function doNotStop(pi: ExtensionAPI) {
     objective: string,
     options: { explicitReplace?: boolean; allowUiConfirm?: boolean } = {},
   ) => {
-    const validation = validateDoNotStopObjective(objective);
+    const validation = validateGoalObjective(objective);
     if (!validation.ok) {
       notify(ctx, usageText(validation.guidance), "warning");
       return;
@@ -425,27 +425,27 @@ export default function doNotStop(pi: ExtensionAPI) {
     if (currentGoal && !options.explicitReplace) {
       if (ctx.hasUI && options.allowUiConfirm !== false) {
         const confirmed = await ctx.ui.confirm(
-          "Replace /do-not-stop goal?",
+          "Replace /goal objective?",
           `Current goal:\n${currentGoal.objective}\n\nNew goal:\n${objective}`,
         );
         if (!confirmed) {
-          notify(ctx, "do-not-stop goal replacement cancelled", "info");
+          notify(ctx, "goal replacement cancelled", "info");
           return;
         }
       } else {
-        notify(ctx, "do-not-stop already has a goal. Use /do-not-stop clear or /do-not-stop replace <objective>.", "warning");
+        notify(ctx, "a goal is already active. Use /goal clear or /goal replace <objective>.", "warning");
         return;
       }
     }
 
     const next = currentGoal ? replaceGoal(currentGoal, objective) : createGoal(objective);
     setCurrentGoal(ctx, next);
-    notify(ctx, `do-not-stop goal active: ${next.objective}`, "info");
+    notify(ctx, `goal active: ${next.objective}`, "info");
     scheduleGoalContinuation(ctx, { skipAudit: true });
   };
 
-  const buildPromptForGoal = async (goal: DoNotStopGoalState, ctx: ExtensionContext): Promise<{ prompt: string; ssh?: { remote: string; port: number; remoteCwd: string } }> => {
-    const target = await resolveDoNotStopAuditTarget(ctx);
+  const buildPromptForGoal = async (goal: GoalState, ctx: ExtensionContext): Promise<{ prompt: string; ssh?: { remote: string; port: number; remoteCwd: string } }> => {
+    const target = await resolveGoalAuditTarget(ctx);
     return {
       prompt: buildAuditPrompt({
         goal,
@@ -463,11 +463,11 @@ export default function doNotStop(pi: ExtensionAPI) {
     if (getAutoCheckpointCycleActive(ctx)) return;
 
     if (shouldBudgetLimitGoal(currentGoal)) {
-      currentGoal = markGoalBudgetLimited(currentGoal as DoNotStopGoalState);
+      currentGoal = markGoalBudgetLimited(currentGoal as GoalState);
       applyEditorOverride(ctx);
       refreshTuiBrokerEditor();
       persistGoal(ctx);
-      notify(ctx, "do-not-stop goal stopped: turn budget exhausted", "warning");
+      notify(ctx, "goal stopped: turn budget exhausted", "warning");
       return;
     }
 
@@ -496,7 +496,7 @@ export default function doNotStop(pi: ExtensionAPI) {
 
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
-            notify(ctx, "do-not-stop goal stopped: turn budget exhausted", "warning");
+            notify(ctx, "goal stopped: turn budget exhausted", "warning");
             return;
           }
 
@@ -524,7 +524,7 @@ export default function doNotStop(pi: ExtensionAPI) {
               };
             } finally {
               closeAuditLoader?.();
-              setStatus(ctx, currentGoal ? buildDoNotStopBorderLabel(currentGoal) : undefined);
+              setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
             }
 
             if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
@@ -546,7 +546,7 @@ export default function doNotStop(pi: ExtensionAPI) {
           if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
-            notify(ctx, "do-not-stop goal stopped: turn budget exhausted", "warning");
+            notify(ctx, "goal stopped: turn budget exhausted", "warning");
             return;
           }
 
@@ -565,11 +565,11 @@ export default function doNotStop(pi: ExtensionAPI) {
             setCurrentGoal(ctx, incrementGoalTurnsUsed(currentGoal));
           } catch (error) {
             const messageText = error instanceof Error ? error.message : String(error);
-            notify(ctx, `do-not-stop failed to queue continuation: ${messageText}`, "warning");
+            notify(ctx, `goal failed to queue continuation: ${messageText}`, "warning");
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          notify(ctx, `do-not-stop continuation failed: ${message}`, "warning");
+          notify(ctx, `goal continuation failed: ${message}`, "warning");
         } finally {
           if (activeDispatchToken === scheduledDispatchToken) {
             dispatchScheduled = false;
@@ -580,10 +580,10 @@ export default function doNotStop(pi: ExtensionAPI) {
     }, 0);
   };
 
-  pi.registerCommand("do-not-stop", {
-    description: "Set an auto-continuation goal (/do-not-stop <objective>|status|clear|budget <n>|replace <objective>)",
+  pi.registerCommand("goal", {
+    description: "Set an auto-continuation goal (/goal <objective>|status|clear|budget <n>|replace <objective>)",
     handler: async (args, ctx) => {
-      const parsed = parseDoNotStopCommand(args ?? "");
+      const parsed = parseGoalCommand(args ?? "");
 
       if (parsed.kind === "blank") {
         if (currentGoal) {
@@ -596,7 +596,7 @@ export default function doNotStop(pi: ExtensionAPI) {
             await createOrReplaceGoal(ctx, objective, { explicitReplace: false, allowUiConfirm: false });
             return;
           }
-          notify(ctx, "do-not-stop could not find a previous user message to use as the goal.", "warning");
+          notify(ctx, "goal could not find a previous user message to use as the goal.", "warning");
           return;
         }
         notify(ctx, usageText(), "info");
@@ -615,21 +615,21 @@ export default function doNotStop(pi: ExtensionAPI) {
 
       if (parsed.kind === "clear") {
         if (!currentGoal) {
-          notify(ctx, "do-not-stop: no goal is set", "info");
+          notify(ctx, "goal: no goal is set", "info");
           return;
         }
         setCurrentGoal(ctx, null);
-        notify(ctx, "do-not-stop goal cleared", "info");
+        notify(ctx, "goal cleared", "info");
         return;
       }
 
       if (parsed.kind === "setBudget") {
         if (!currentGoal) {
-          notify(ctx, "do-not-stop budget requires an active goal", "warning");
+          notify(ctx, "goal budget requires an active goal", "warning");
           return;
         }
         setCurrentGoal(ctx, setGoalBudget(currentGoal, parsed.turnBudget));
-        notify(ctx, `do-not-stop budget set to ${parsed.turnBudget === null ? "unlimited" : parsed.turnBudget}`, "info");
+        notify(ctx, `goal budget set to ${parsed.turnBudget === null ? "unlimited" : parsed.turnBudget}`, "info");
         return;
       }
 
@@ -638,7 +638,7 @@ export default function doNotStop(pi: ExtensionAPI) {
         return;
       }
 
-      notify(ctx, usageText(parsed.invalid ? `Unknown /do-not-stop arguments: ${parsed.invalid}` : undefined), parsed.invalid ? "warning" : "info");
+      notify(ctx, usageText(parsed.invalid ? `Unknown /goal arguments: ${parsed.invalid}` : undefined), parsed.invalid ? "warning" : "info");
     },
   });
 

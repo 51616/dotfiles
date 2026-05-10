@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildAuditCommandArgs, runDoNotStopAudit } from "../do-not-stop/lib/do-not-stop-audit-runner.ts";
+import { buildAuditCommandArgs, runGoalAudit } from "../goal/lib/goal-audit-runner.ts";
 
 test("buildAuditCommandArgs uses print mode, current model, medium thinking, and explicit session", () => {
   const args = buildAuditCommandArgs({
@@ -49,13 +49,13 @@ test("buildAuditCommandArgs carries pi-ssh target without using continue", () =>
   assert.equal(args.includes("--continue"), false);
 });
 
-test("runDoNotStopAudit retries with the same explicit session and parses JSON", async () => {
+test("runGoalAudit retries with the same explicit session and parses JSON", async () => {
   const calls = [];
   let now = 0;
-  const auditDir = join(tmpdir(), `do-not-stop-audit-test-${process.pid}-${Date.now()}`);
+  const auditDir = join(tmpdir(), `goal-audit-test-${process.pid}-${Date.now()}`);
   const auditSessionPath = join(auditDir, "audit-session.jsonl");
   rmSync(auditDir, { recursive: true, force: true });
-  const outcome = await runDoNotStopAudit({
+  const outcome = await runGoalAudit({
     prompt: "audit prompt",
     cwd: "/repo",
     model: { provider: "anthropic", id: "claude-test" },
@@ -105,9 +105,9 @@ test("runDoNotStopAudit retries with the same explicit session and parses JSON",
   }
 });
 
-test("runDoNotStopAudit returns fallback after timeout cap without completion", async () => {
+test("runGoalAudit returns fallback after timeout cap without completion", async () => {
   let now = 0;
-  const outcome = await runDoNotStopAudit({
+  const outcome = await runGoalAudit({
     prompt: "audit prompt",
     cwd: "/repo",
     auditSessionPath: "/tmp/audit-session.jsonl",

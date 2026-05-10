@@ -1,13 +1,13 @@
-export const DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE = "do-not-stop-goal-state";
+export const GOAL_STATE_ENTRY_TYPE = "goal-state";
 
-export type DoNotStopGoalStatus = "active" | "budget_limited" | "complete";
-export type DoNotStopAuditDecision = "complete" | "continue" | "unknown";
-export type DoNotStopAuditConfidence = "high" | "medium" | "low";
+export type GoalStatus = "active" | "budget_limited" | "complete";
+export type GoalAuditDecision = "complete" | "continue" | "unknown";
+export type GoalAuditConfidence = "high" | "medium" | "low";
 
-export type DoNotStopGoalState = {
+export type GoalState = {
   goalId: string;
   objective: string;
-  status: DoNotStopGoalStatus;
+  status: GoalStatus;
   turnBudget: number | null;
   turnsUsed: number;
   startedAtMs: number;
@@ -18,9 +18,9 @@ export type DoNotStopGoalState = {
   completionSourcePaths?: string[];
 };
 
-export type DoNotStopAuditResult = {
-  decision: DoNotStopAuditDecision;
-  confidence: DoNotStopAuditConfidence;
+export type GoalAuditResult = {
+  decision: GoalAuditDecision;
+  confidence: GoalAuditConfidence;
   summary: string;
   completedItems: string[];
   remainingItems: string[];
@@ -34,7 +34,7 @@ export type ObjectiveValidationResult = {
   guidance?: string;
 };
 
-export type DoNotStopCommand =
+export type GoalCommand =
   | { kind: "blank" }
   | { kind: "setObjective"; objective: string; replace: boolean }
   | { kind: "status" }
@@ -60,15 +60,15 @@ const VAGUE_OBJECTIVE_NORMALIZED = new Set([
   "something",
 ]);
 
-export function validateDoNotStopObjective(objective: string): ObjectiveValidationResult {
+export function validateGoalObjective(objective: string): ObjectiveValidationResult {
   const normalized = objective.trim().replace(/\s+/g, " ").replace(/[.!?]+$/g, "").toLowerCase();
   if (!normalized) {
-    return { ok: false, guidance: "do-not-stop needs a concrete, verifiable objective." };
+    return { ok: false, guidance: "goal needs a concrete, verifiable objective." };
   }
   if (VAGUE_OBJECTIVE_NORMALIZED.has(normalized)) {
     return {
       ok: false,
-      guidance: `do-not-stop needs a concrete, verifiable objective, not "${objective.trim()}". Example: /do-not-stop fix the failing auth tests and commit the fix`,
+      guidance: `goal needs a concrete, verifiable objective, not "${objective.trim()}". Example: /goal fix the failing auth tests and commit the fix`,
     };
   }
   return { ok: true };
@@ -82,7 +82,7 @@ export function parsePositiveInteger(value: unknown): number | null {
   return Math.min(999, n);
 }
 
-export function parseDoNotStopCommand(args: string): DoNotStopCommand {
+export function parseGoalCommand(args: string): GoalCommand {
   const raw = String(args ?? "").trim();
   if (!raw) return { kind: "blank" };
 
@@ -97,7 +97,7 @@ export function parseDoNotStopCommand(args: string): DoNotStopCommand {
     return {
       kind: "unsupported",
       command: first,
-      guidance: `/${"do-not-stop"} ${first} is not supported. Use /do-not-stop clear to stop a goal, or /do-not-stop <objective> to create one.`,
+      guidance: `/${"goal"} ${first} is not supported. Use /goal clear to stop a goal, or /goal <objective> to create one.`,
     };
   }
 
@@ -105,7 +105,7 @@ export function parseDoNotStopCommand(args: string): DoNotStopCommand {
     return {
       kind: "unsupported",
       command: first,
-      guidance: "The old do-not-stop toggle was removed. Use /do-not-stop <objective>, /do-not-stop clear, or /do-not-stop budget <n>.",
+      guidance: "The old goal toggle was removed. Use /goal <objective>, /goal clear, or /goal budget <n>.",
     };
   }
 
@@ -113,7 +113,7 @@ export function parseDoNotStopCommand(args: string): DoNotStopCommand {
     return {
       kind: "unsupported",
       command: first,
-      guidance: "Repeat counts were removed. Use /do-not-stop budget <n> or /do-not-stop budget unlimited.",
+      guidance: "Repeat counts were removed. Use /goal budget <n> or /goal budget unlimited.",
     };
   }
 
@@ -148,7 +148,7 @@ export function formatBudget(turnBudget: number | null): string {
   return turnBudget === null ? "∞" : String(turnBudget);
 }
 
-export function buildDoNotStopBorderLabel(goal: DoNotStopGoalState | null): string {
+export function buildGoalBorderLabel(goal: GoalState | null): string {
   if (!goal) return "goal none";
   return "⚑ goal |";
 }
@@ -177,7 +177,7 @@ export function formatTokenCount(tokens: number | null | undefined): string {
 }
 
 export function formatGoalCompletionStats(
-  goal: DoNotStopGoalState,
+  goal: GoalState,
   options: { nowMs?: number; totalTokens?: number | null; cacheReadTokens?: number | null } = {},
 ): string {
   const completedOrNowMs = options.nowMs ?? goal.completedAtMs ?? Date.now();
@@ -189,13 +189,13 @@ export function formatGoalCompletionStats(
   return `${goal.turnsUsed} ${turnLabel}, ${formatElapsedMs(completedOrNowMs, goal.startedAtMs)} total time used, ${formatTokenCount(options.totalTokens)} total tokens used${cacheReadSuffix}`;
 }
 
-export function formatGoalStatusSummary(goal: DoNotStopGoalState | null, nowMs = Date.now()): string {
+export function formatGoalStatusSummary(goal: GoalState | null, nowMs = Date.now()): string {
   if (!goal) {
-    return "do-not-stop: no goal is set. Use /do-not-stop <objective> to create one.";
+    return "goal: no goal is set. Use /goal <objective> to create one.";
   }
 
   const parts = [
-    `do-not-stop goal ${goal.status.replace("_", "-")}`,
+    `goal ${goal.status.replace("_", "-")}`,
     `turns ${goal.turnsUsed}/${formatBudget(goal.turnBudget)}`,
     `elapsed ${formatElapsedMs(nowMs, goal.startedAtMs)}`,
     `objective: ${goal.objective}`,
@@ -206,5 +206,5 @@ export function formatGoalStatusSummary(goal: DoNotStopGoalState | null, nowMs =
 
 export function usageText(extra?: string): string {
   const prefix = extra ? `${extra}\n\n` : "";
-  return `${prefix}Usage: /do-not-stop <objective> | status | clear | budget <n>|unlimited | replace <objective> | help`;
+  return `${prefix}Usage: /goal <objective> | status | clear | budget <n>|unlimited | replace <objective> | help`;
 }

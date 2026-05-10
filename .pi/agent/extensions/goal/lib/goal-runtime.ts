@@ -1,23 +1,23 @@
-import type { DoNotStopGoalState } from "./do-not-stop.ts";
-import { DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE } from "./do-not-stop.ts";
+import type { GoalState } from "./goal.ts";
+import { GOAL_STATE_ENTRY_TYPE } from "./goal.ts";
 
-export type DoNotStopGoalSnapshot = DoNotStopGoalState | null;
+export type GoalSnapshot = GoalState | null;
 
-type DoNotStopRuntimeStore = {
-  bySession: Record<string, DoNotStopGoalSnapshot>;
-  lastGoal: DoNotStopGoalSnapshot;
+type GoalRuntimeStore = {
+  bySession: Record<string, GoalSnapshot>;
+  lastGoal: GoalSnapshot;
 };
 
-const STORE_KEY = "__PI_DO_NOT_STOP_GOAL_RUNTIME__";
+const STORE_KEY = "__PI_GOAL_RUNTIME__";
 
-function getStore(): DoNotStopRuntimeStore {
+function getStore(): GoalRuntimeStore {
   const g = globalThis as Record<string, unknown>;
   const existing = g[STORE_KEY];
   if (existing && typeof existing === "object") {
-    return existing as DoNotStopRuntimeStore;
+    return existing as GoalRuntimeStore;
   }
 
-  const created: DoNotStopRuntimeStore = {
+  const created: GoalRuntimeStore = {
     bySession: {},
     lastGoal: null,
   };
@@ -29,7 +29,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-export function isDoNotStopGoalState(value: unknown): value is DoNotStopGoalState {
+export function isGoalState(value: unknown): value is GoalState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const status = record.status;
@@ -57,25 +57,25 @@ export function isLegacyRepeatSnapshot(value: unknown): boolean {
   return "enabled" in record || "repeatTarget" in record || "pendingRepeats" in record || "completedRepeats" in record;
 }
 
-export function cloneGoalSnapshot(goal: DoNotStopGoalSnapshot): DoNotStopGoalSnapshot {
+export function cloneGoalSnapshot(goal: GoalSnapshot): GoalSnapshot {
   if (!goal) return null;
-  const cloned: DoNotStopGoalState = { ...goal };
+  const cloned: GoalState = { ...goal };
   if (goal.completionEvidence) cloned.completionEvidence = [...goal.completionEvidence];
   if (goal.completionSourcePaths) cloned.completionSourcePaths = [...goal.completionSourcePaths];
   return cloned;
 }
 
-export function getLastDoNotStopGoalSnapshot(): DoNotStopGoalSnapshot {
+export function getLastGoalSnapshot(): GoalSnapshot {
   return cloneGoalSnapshot(getStore().lastGoal);
 }
 
-export function getDoNotStopGoalSnapshotForSession(sessionId: string): DoNotStopGoalSnapshot {
+export function getGoalSnapshotForSession(sessionId: string): GoalSnapshot {
   const key = String(sessionId ?? "").trim();
   if (!key) return null;
   return cloneGoalSnapshot(getStore().bySession[key] ?? null);
 }
 
-export function saveDoNotStopGoalSnapshot(sessionId: string | null | undefined, goal: DoNotStopGoalSnapshot): void {
+export function saveGoalSnapshot(sessionId: string | null | undefined, goal: GoalSnapshot): void {
   const store = getStore();
   const cloned = cloneGoalSnapshot(goal);
   store.lastGoal = cloned;
@@ -85,24 +85,24 @@ export function saveDoNotStopGoalSnapshot(sessionId: string | null | undefined, 
   store.bySession[key] = cloned;
 }
 
-function extractGoalFromCustomData(data: unknown): DoNotStopGoalSnapshot | undefined {
+function extractGoalFromCustomData(data: unknown): GoalSnapshot | undefined {
   if (data === null) return null;
-  if (isDoNotStopGoalState(data)) return cloneGoalSnapshot(data);
+  if (isGoalState(data)) return cloneGoalSnapshot(data);
   if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
   const record = data as Record<string, unknown>;
   if (record.goal === null) return null;
-  if (isDoNotStopGoalState(record.goal)) return cloneGoalSnapshot(record.goal);
+  if (isGoalState(record.goal)) return cloneGoalSnapshot(record.goal);
   if (isLegacyRepeatSnapshot(record)) return null;
   return undefined;
 }
 
-export function snapshotFromSessionBranch(entries: readonly unknown[]): DoNotStopGoalSnapshot {
-  let latest: DoNotStopGoalSnapshot | undefined;
+export function snapshotFromSessionBranch(entries: readonly unknown[]): GoalSnapshot {
+  let latest: GoalSnapshot | undefined;
 
   for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const record = entry as Record<string, unknown>;
-    if (record.type !== "custom" || record.customType !== DO_NOT_STOP_GOAL_STATE_ENTRY_TYPE) continue;
+    if (record.type !== "custom" || record.customType !== GOAL_STATE_ENTRY_TYPE) continue;
     const next = extractGoalFromCustomData(record.data);
     if (next !== undefined) latest = next;
   }
@@ -110,7 +110,7 @@ export function snapshotFromSessionBranch(entries: readonly unknown[]): DoNotSto
   return latest ?? null;
 }
 
-export function __resetDoNotStopRuntimeStoreForTests(): void {
+export function __resetGoalRuntimeStoreForTests(): void {
   const store = getStore();
   store.lastGoal = null;
   store.bySession = {};

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fallbackAuditResult, parseAuditResult } from "./do-not-stop-audit.ts";
-import type { DoNotStopAuditResult } from "./do-not-stop.ts";
+import { fallbackAuditResult, parseAuditResult } from "./goal-audit.ts";
+import type { GoalAuditResult } from "./goal.ts";
 
 export type AuditExecResult = {
   stdout: string;
@@ -39,7 +39,7 @@ export type AuditRunnerOptions = {
 
 export type AuditRunnerOutcome = {
   ok: boolean;
-  audit: DoNotStopAuditResult;
+  audit: GoalAuditResult;
   failureReason?: string;
   attempts: number;
   auditSessionPath: string;
@@ -63,7 +63,7 @@ function sanitizeGoalSessionComponent(value: string): string {
 }
 
 export function defaultAuditSessionPath(goalId: string, nowMs = Date.now()): string {
-  return join("/tmp/pi-work/do-not-stop-audits", `${nowMs}-${sanitizeGoalSessionComponent(goalId)}.jsonl`);
+  return join("/tmp/pi-work/goal-audits", `${nowMs}-${sanitizeGoalSessionComponent(goalId)}.jsonl`);
 }
 
 export function buildAuditCommandArgs(options: {
@@ -94,7 +94,7 @@ function classifyFailure(result: AuditExecResult): string {
   return "audit did not produce a usable result";
 }
 
-export async function runDoNotStopAudit(options: AuditRunnerOptions): Promise<AuditRunnerOutcome> {
+export async function runGoalAudit(options: AuditRunnerOptions): Promise<AuditRunnerOutcome> {
   const nowMs = options.nowMs ?? defaultNowMs;
   const waitMs = options.waitMs ?? defaultWaitMs;
   const maxTotalMs = options.maxTotalMs ?? DEFAULT_MAX_TOTAL_MS;

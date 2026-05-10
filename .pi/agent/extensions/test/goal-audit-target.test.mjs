@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveDoNotStopAuditTarget } from "../do-not-stop/lib/do-not-stop-audit-target.ts";
+import { resolveGoalAuditTarget } from "../goal/lib/goal-audit-target.ts";
 import { __publishActivePiSshSessionForTests } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 afterEach(() => {
@@ -71,8 +71,8 @@ function createSshSession({ writes, commands, existingPaths }) {
   };
 }
 
-test("resolveDoNotStopAuditTarget syncs the current session file and returns the matching pi-ssh target", async () => {
-  const tmp = mkdtempSync(join(tmpdir(), "do-not-stop-audit-target-"));
+test("resolveGoalAuditTarget syncs the current session file and returns the matching pi-ssh target", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "goal-audit-target-"));
   try {
     const sessionFile = join(tmp, "session.jsonl");
     writeFileSync(sessionFile, '{"type":"message","message":{"role":"user","content":"work"}}\n');
@@ -81,16 +81,16 @@ test("resolveDoNotStopAuditTarget syncs the current session file and returns the
     const existingPaths = new Set(["/tmp/pi-work/checkpoints", "/remote/worktree/subdir/conductor/tracks"]);
     __publishActivePiSshSessionForTests(createSshSession({ writes, commands, existingPaths }));
 
-    const target = await resolveDoNotStopAuditTarget(createCtx(sessionFile));
+    const target = await resolveGoalAuditTarget(createCtx(sessionFile));
 
     assert.deepEqual(target.ssh, { remote: "gpu-box", port: 2222, remoteCwd: "/remote/worktree/subdir" });
     assert.equal(target.promptCwd, "/remote/worktree/subdir");
     assert.equal(target.promptCheckpointDir, "/tmp/pi-work/checkpoints");
     assert.equal(target.promptConductorDir, "/remote/worktree/subdir/conductor/tracks");
-    assert.equal(target.promptSessionFile, "/home/tan/.cache/pi/do-not-stop/session-snapshots/session-abc-123.jsonl");
+    assert.equal(target.promptSessionFile, "/home/tan/.cache/pi/goal/session-snapshots/session-abc-123.jsonl");
     assert.deepEqual(writes, [
       {
-        path: "/home/tan/.cache/pi/do-not-stop/session-snapshots/session-abc-123.jsonl",
+        path: "/home/tan/.cache/pi/goal/session-snapshots/session-abc-123.jsonl",
         content: '{"type":"message","message":{"role":"user","content":"work"}}\n',
       },
     ]);
@@ -100,8 +100,8 @@ test("resolveDoNotStopAuditTarget syncs the current session file and returns the
   }
 });
 
-test("resolveDoNotStopAuditTarget falls back to the connection remote cwd when local cwd cannot be mapped", async () => {
-  const tmp = mkdtempSync(join(tmpdir(), "do-not-stop-audit-target-unmapped-"));
+test("resolveGoalAuditTarget falls back to the connection remote cwd when local cwd cannot be mapped", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "goal-audit-target-unmapped-"));
   try {
     const sessionFile = join(tmp, "session.jsonl");
     writeFileSync(sessionFile, "{}\n");
@@ -109,7 +109,7 @@ test("resolveDoNotStopAuditTarget falls back to the connection remote cwd when l
     const commands = [];
     __publishActivePiSshSessionForTests(createSshSession({ writes, commands, existingPaths: new Set() }));
 
-    const target = await resolveDoNotStopAuditTarget({
+    const target = await resolveGoalAuditTarget({
       ...createCtx(sessionFile),
       cwd: "/outside/local",
       sessionManager: {

@@ -26,14 +26,14 @@ The right side of the footer identifies model and reasoning effort as `󰚩 <dis
 
 It intentionally omits git branch text from the cwd line because `git-state` owns the compact branch meter in the editor top-right border. It intentionally drops cumulative token, cache, and dollar stats from the footer.
 
-The editor override subclasses `CustomEditor` and decorates the final rendered border lines rather than replacing core editing behavior. It defaults the user editor border to `#fab387` so core thinking-level updates cannot change the input border color. A high-priority editor badge may provide a temporary border color override for active modes such as `/do-not-stop`.
+The editor override subclasses `CustomEditor` and decorates the final rendered border lines rather than replacing core editing behavior. It defaults the user editor border to `#fab387` so core thinking-level updates cannot change the input border color. A high-priority editor badge may provide a temporary border color override for active modes such as `/goal`.
 
 The context-meter label format is `12.2%/272k` or `?/272k` when the percentage is unknown.
 
 The top-right editor status slot is right-aligned on the top border and is intended for compact live state such as the `git-state` meter.
 
 Current contributors:
-- `do-not-stop` contributes the red bold `─ GOAL CHASING!` badge while a goal is active
+- `goal` contributes the red bold `─ ⟐ PURSUING GOAL` badge while a goal is active
 - `snippets` contributes the active snippet badge
 - `git-state` contributes the Git working-tree meter in the editor top-right border
 - `pi-ssh` contributes the footer path label while SSH is active

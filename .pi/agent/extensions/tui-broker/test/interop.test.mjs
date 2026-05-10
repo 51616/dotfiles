@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import tuiBroker from "../index.ts";
-import doNotStop from "../../do-not-stop/index.ts";
+import goalExtension from "../../goal/index.ts";
 import { applyFffEditorMode } from "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/editor-mode.ts";
 import {
   __resetTuiBrokerRuntimeForTests,
@@ -16,11 +16,11 @@ import {
   requestTuiBrokerEditorReinstall,
   unregisterTuiBrokerAutocompleteProviderWrapper,
 } from "../lib/runtime.ts";
-import { __resetDoNotStopRuntimeStoreForTests } from "../../do-not-stop/lib/do-not-stop-runtime.ts";
+import { __resetGoalRuntimeStoreForTests } from "../../goal/lib/goal-runtime.ts";
 import { buildPiSshFooterLabel } from "../../pi-ssh/lib/pi-ssh-footer-runtime.ts";
 
 const BORDER_COLOR_OPEN = "\x1b[38;2;250;179;135m";
-const DO_NOT_STOP_BORDER_COLOR_OPEN = "\x1b[38;2;243;139;168m";
+const GOAL_BORDER_COLOR_OPEN = "\x1b[38;2;243;139;168m";
 const ANSI_RESET = "\x1b[0m";
 const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const NORMAL_BORDER = "─";
@@ -151,12 +151,12 @@ function createRenderedEditorLines(ctx, width = 40) {
   return createEditorInstance(ctx).render(width);
 }
 
-test("do-not-stop contributes through tui-broker when the broker is installed", async () => {
+test("goal contributes through tui-broker when the broker is installed", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
-  doNotStop(pi);
+  goalExtension(pi);
   tuiBroker(pi);
 
   assert.equal(isTuiBrokerInstalled(), true);
@@ -170,29 +170,29 @@ test("do-not-stop contributes through tui-broker when the broker is installed", 
   const editorCallsAfterStartup = ctx.calls.filter((entry) => entry.type === "editor").length;
   assert.equal(editorCallsAfterStartup, 1);
 
-  const dnsCommand = pi.commands.get("do-not-stop");
-  assert.ok(dnsCommand);
-  await dnsCommand.handler("finish the migration", ctx);
+  const goalCommand = pi.commands.get("goal");
+  assert.ok(goalCommand);
+  await goalCommand.handler("finish the migration", ctx);
 
   const activeEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.match(stripAnsi(activeEditorLines[0] ?? ""), /^─ GOAL CHASING! /);
-  assert.match(activeEditorLines[0] ?? "", /\x1b\[1mGOAL CHASING!\x1b\[22m/);
-  assert.ok((activeEditorLines[0] ?? "").includes(DO_NOT_STOP_BORDER_COLOR_OPEN));
+  assert.match(stripAnsi(activeEditorLines[0] ?? ""), /^─ ⟐ PURSUING GOAL /);
+  assert.match(activeEditorLines[0] ?? "", /\x1b\[1m⟐ PURSUING GOAL\x1b\[22m/);
+  assert.ok((activeEditorLines[0] ?? "").includes(GOAL_BORDER_COLOR_OPEN));
   assert.ok((activeEditorLines[0] ?? "").includes(NORMAL_BORDER));
   assert.doesNotMatch(activeEditorLines[0] ?? "", /━/);
   assert.doesNotMatch(activeEditorLines[0] ?? "", /\x1b\[91m/);
   assert.match(activeEditorLines.at(-1) ?? "", /12\.2%\/272k/);
 
-  await dnsCommand.handler("clear", ctx);
+  await goalCommand.handler("clear", ctx);
 
   const inactiveEditorLines = createRenderedEditorLines(ctx, 60);
-  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /GOAL CHASING!/);
+  assert.doesNotMatch(inactiveEditorLines[0] ?? "", /PURSUING GOAL/);
   assert.ok((inactiveEditorLines[0] ?? "").includes(BORDER_COLOR_OPEN));
 });
 
 test("tui-broker registers fresh handlers for later runtimes even when runtime state is already active", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const firstPi = createFakePi();
   tuiBroker(firstPi);
@@ -219,7 +219,7 @@ test("tui-broker registers fresh handlers for later runtimes even when runtime s
 
 test("tui-broker does not reinstall on input or agent lifecycle noise", () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -231,7 +231,7 @@ test("tui-broker does not reinstall on input or agent lifecycle noise", () => {
 
 test("tui-broker exposes a reinstall hook so late editor augmenters can reapply it", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -256,7 +256,7 @@ test("tui-broker exposes a reinstall hook so late editor augmenters can reapply 
 
 test("tui-broker applies registered autocomplete-provider wrappers", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   let wrappedProvider = null;
   registerTuiBrokerAutocompleteProviderWrapper("test-wrapper", (provider) => {
@@ -289,7 +289,7 @@ test("tui-broker applies registered autocomplete-provider wrappers", async () =>
 
 test("tui-broker keeps editor ownership when pi-fff uses broker composition hooks", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -343,7 +343,7 @@ test("tui-broker keeps editor ownership when pi-fff uses broker composition hook
 
 test("tui-broker keeps the user editor border on the configured color", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -365,7 +365,7 @@ test("tui-broker keeps the user editor border on the configured color", async ()
 
 test("tui-broker renders the context usage label into the editor bottom border", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const pi = createFakePi();
   tuiBroker(pi);
@@ -383,7 +383,7 @@ test("tui-broker renders the context usage label into the editor bottom border",
 
 test("tui-broker renders registered top-right editor statuses", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   registerTuiBrokerEditorTopRightStatusProvider("git-state", () => ({ text: " main 2 +10 -3", priority: 100 }));
 
@@ -407,7 +407,7 @@ test("tui-broker renders registered top-right editor statuses", async () => {
 
 test("tui-broker falls back to the startup default model context window before the first turn", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   const tempAgentDir = mkdtempSync(join(tmpdir(), "tui-broker-agent-"));
   mkdirSync(tempAgentDir, { recursive: true });
@@ -452,7 +452,7 @@ test("tui-broker falls back to the startup default model context window before t
 
 test("tui-broker uses the highest-priority footer path contributor without losing its own layout", async () => {
   __resetTuiBrokerRuntimeForTests();
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
 
   registerTuiBrokerFooterPathProvider("pi-ssh", ({ sessionName }) => ({
     text: buildPiSshFooterLabel(

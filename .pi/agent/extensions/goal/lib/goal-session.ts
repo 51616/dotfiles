@@ -1,4 +1,4 @@
-import type { DoNotStopGoalState } from "./do-not-stop.ts";
+import type { GoalState } from "./goal.ts";
 
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -32,14 +32,14 @@ export function findPreviousUserMessageForGoal(entries: readonly unknown[]): str
     const text = messageTextFromEntry(entries[i]).trim();
     if (!text) continue;
     if (text.startsWith("/")) continue;
-    if (text.includes("Continue the active /do-not-stop goal.")) continue;
+    if (text.includes("Continue the active /goal objective.")) continue;
     return text;
   }
   return null;
 }
 
 export type AuditPromptInput = {
-  goal: DoNotStopGoalState;
+  goal: GoalState;
   cwd: string;
   sessionFile?: string;
   checkpointDir?: string;
@@ -56,7 +56,7 @@ export function buildAuditPrompt(input: AuditPromptInput): string {
   ];
 
   return [
-    "You are an external progress/completion auditor for a pi /do-not-stop goal.",
+    "You are an external progress/completion auditor for a pi /goal objective.",
     "The active agent must not decide completion by itself; your job is to inspect real state and return strict JSON only.",
     "",
     "Goal state:",

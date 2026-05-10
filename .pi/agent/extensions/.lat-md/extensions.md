@@ -32,13 +32,13 @@ Owns the custom working-indicator word list and spinner renderer used while pi i
 
 Entrypoint: [[custom-spinner/index.ts]].
 
-## do-not-stop
+## goal
 
 Owns the bounded autonomous follow-up loop, its persisted runtime state, and the editor-border affordance that shows loop progress.
 
-See also [[do-not-stop]].
+See also [[goal]].
 
-Entrypoint: [[do-not-stop/index.ts]].
+Entrypoint: [[goal/index.ts]].
 
 ## git-state
 

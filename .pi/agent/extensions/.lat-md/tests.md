@@ -31,21 +31,21 @@ What this proves:
 - narrow terminals stay width-safe and the widget remains height-bounded
 
 
-## Do-not-stop goal continuation is explicit, audited, and budget-safe
+## Goal continuation is explicit, audited, and budget-safe
 
 Owned by:
-- `.pi/extensions/test/do-not-stop.test.mjs`
-- `.pi/extensions/test/do-not-stop-follow-up.test.mjs`
-- `.pi/extensions/test/do-not-stop-runtime.test.mjs`
-- `.pi/extensions/test/do-not-stop-audit-runner.test.mjs`
-- `.pi/extensions/test/do-not-stop-audit-target.test.mjs`
+- `.pi/extensions/test/goal.test.mjs`
+- `.pi/extensions/test/goal-follow-up.test.mjs`
+- `.pi/extensions/test/goal-runtime.test.mjs`
+- `.pi/extensions/test/goal-audit-runner.test.mjs`
+- `.pi/extensions/test/goal-audit-target.test.mjs`
 - `.pi/extensions/tui-broker/test/interop.test.mjs`
 
 What this proves:
-- `/do-not-stop <objective>` creates an explicit active goal with unlimited budget by default, and starts the first non-audited starter continuation when issued from idle, instead of enabling a repeat toggle
+- `/goal <objective>` creates an explicit active goal with unlimited budget by default, and starts the first non-audited starter continuation when issued from idle, instead of enabling a repeat toggle
 - vague non-verifiable objectives like `goal` are rejected with concrete-objective guidance, do not arm a goal, and are cleared if restored from old persisted state
-- when `tui-broker` owns the editor, an active `/do-not-stop` goal makes the user editor red and renders the bold `─ GOAL CHASING!` top-border indicator without leading whitespace
-- blank `/do-not-stop` during a running turn can adopt the previous user message without injecting an immediate continuation
+- when `tui-broker` owns the editor, an active `/goal` goal makes the user editor red and renders the bold `─ ⟐ PURSUING GOAL` top-border indicator without leading whitespace
+- blank `/goal` during a running turn can adopt the previous user message without injecting an immediate continuation
 - ordinary user input does not arm a repeat cycle
 - `pause`, `resume`, and old `repeats` controls are rejected with actionable guidance toward `clear` or `budget`
 - active goals continue only after idle scheduling gates pass and `turnsUsed` increments only after follow-up dispatch succeeds

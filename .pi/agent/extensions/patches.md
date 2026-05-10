@@ -102,8 +102,8 @@ Relevant verification lives in:
 
 These are not package-reinstall patches. They are local extension source edits that should already be present in the extension workspace.
 
-### do-not-stop
-- path: `~/.pi/agent/extensions/do-not-stop/index.ts`
+### goal
+- path: `~/.pi/agent/extensions/goal/index.ts`
 - state to preserve: no stale `session_switch` hook
 - reason: `session_start` already covers the relevant restore paths on current pi versions
 

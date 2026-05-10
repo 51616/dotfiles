@@ -26,9 +26,9 @@ export const REGRESSION_MATRIX = {
   "custom-spinner": [
     "test/runtime-entrypoint-imports.test.mjs",
   ],
-  "do-not-stop": [
-    "test/do-not-stop.test.mjs",
-    "test/do-not-stop-follow-up.test.mjs",
+  "goal": [
+    "test/goal.test.mjs",
+    "test/goal-follow-up.test.mjs",
   ],
   "git-state": [
     "git-state/test/git-state.test.mjs",

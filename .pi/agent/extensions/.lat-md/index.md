@@ -9,7 +9,7 @@ Installable extension folders under `.pi/extensions/` are expected to be symlink
 - [[activity-block]] — bounded live activity widget plus live-transcript suppression contract
 - [[command-palette]] — slash-command overlay with fuzzy filtering and editor insertion behavior
 - [[command-context-for-tools]] — session-control hooks exposed on plain tool contexts
-- [[do-not-stop]] — bounded autonomous follow-up loop behavior
+- [[goal]] — bounded autonomous follow-up loop behavior
 - [[git-state]] — live Git working-tree meter for the editor top-right border
 - [[pi-diff-review-tui]] — interactive diff-review overlay entrypoint
 - [[pi-diff-review-turn-tracker]] — per-turn capture for diff-review evidence

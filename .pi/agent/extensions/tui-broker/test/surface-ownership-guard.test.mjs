@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 
 const SEARCH_ROOTS = [
   "/home/tan/.pi/agent/extensions/tui-broker",
-  "/home/tan/.pi/agent/extensions/do-not-stop",
+  "/home/tan/.pi/agent/extensions/goal",
   "/home/tan/.pi/agent/extensions/git-state",
   "/home/tan/.pi/agent/extensions/pi-ssh",
   "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src",
@@ -17,7 +17,7 @@ const ALLOWED_FOOTER_OWNERS = new Set([
 
 const ALLOWED_EDITOR_OWNERS = new Set([
   "/home/tan/.pi/agent/extensions/tui-broker/index.ts",
-  "/home/tan/.pi/agent/extensions/do-not-stop/index.ts",
+  "/home/tan/.pi/agent/extensions/goal/index.ts",
   "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/index.ts",
 ]);
 

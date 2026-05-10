@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DoNotStopAuditResult, DoNotStopGoalState } from "./do-not-stop.ts";
+import type { GoalAuditResult, GoalState } from "./goal.ts";
 
 export type GoalFactoryOptions = {
   nowMs?: number;
@@ -8,7 +8,7 @@ export type GoalFactoryOptions = {
 };
 
 export type ScheduleDecisionOptions = {
-  goal: DoNotStopGoalState | null;
+  goal: GoalState | null;
   isIdle: boolean;
   hasPendingMessages: boolean;
   dispatchScheduled: boolean;
@@ -18,10 +18,10 @@ export function normalizeObjective(objective: string): string {
   return String(objective ?? "").trim().replace(/\s+/g, " ");
 }
 
-export function createGoal(objective: string, options: GoalFactoryOptions = {}): DoNotStopGoalState {
+export function createGoal(objective: string, options: GoalFactoryOptions = {}): GoalState {
   const normalized = normalizeObjective(objective);
   if (!normalized) {
-    throw new Error("do-not-stop objective must not be empty");
+    throw new Error("goal objective must not be empty");
   }
 
   const nowMs = options.nowMs ?? Date.now();
@@ -36,11 +36,11 @@ export function createGoal(objective: string, options: GoalFactoryOptions = {}):
   };
 }
 
-export function replaceGoal(_existing: DoNotStopGoalState | null, objective: string, options: GoalFactoryOptions = {}): DoNotStopGoalState {
+export function replaceGoal(_existing: GoalState | null, objective: string, options: GoalFactoryOptions = {}): GoalState {
   return createGoal(objective, options);
 }
 
-export function setGoalBudget(goal: DoNotStopGoalState, turnBudget: number | null, nowMs = Date.now()): DoNotStopGoalState {
+export function setGoalBudget(goal: GoalState, turnBudget: number | null, nowMs = Date.now()): GoalState {
   return {
     ...goal,
     turnBudget,
@@ -48,7 +48,7 @@ export function setGoalBudget(goal: DoNotStopGoalState, turnBudget: number | nul
   };
 }
 
-export function markGoalBudgetLimited(goal: DoNotStopGoalState, nowMs = Date.now()): DoNotStopGoalState {
+export function markGoalBudgetLimited(goal: GoalState, nowMs = Date.now()): GoalState {
   return {
     ...goal,
     status: "budget_limited",
@@ -56,7 +56,7 @@ export function markGoalBudgetLimited(goal: DoNotStopGoalState, nowMs = Date.now
   };
 }
 
-export function markGoalActive(goal: DoNotStopGoalState, nowMs = Date.now()): DoNotStopGoalState {
+export function markGoalActive(goal: GoalState, nowMs = Date.now()): GoalState {
   return {
     ...goal,
     status: "active",
@@ -69,10 +69,10 @@ export function markGoalActive(goal: DoNotStopGoalState, nowMs = Date.now()): Do
 }
 
 export function markGoalCompleteFromAudit(
-  goal: DoNotStopGoalState,
-  audit: DoNotStopAuditResult,
+  goal: GoalState,
+  audit: GoalAuditResult,
   nowMs = Date.now(),
-): DoNotStopGoalState {
+): GoalState {
   return {
     ...goal,
     status: "complete",
@@ -84,7 +84,7 @@ export function markGoalCompleteFromAudit(
   };
 }
 
-export function incrementGoalTurnsUsed(goal: DoNotStopGoalState, nowMs = Date.now()): DoNotStopGoalState {
+export function incrementGoalTurnsUsed(goal: GoalState, nowMs = Date.now()): GoalState {
   return {
     ...goal,
     turnsUsed: goal.turnsUsed + 1,
@@ -92,7 +92,7 @@ export function incrementGoalTurnsUsed(goal: DoNotStopGoalState, nowMs = Date.no
   };
 }
 
-export function shouldBudgetLimitGoal(goal: DoNotStopGoalState | null): boolean {
+export function shouldBudgetLimitGoal(goal: GoalState | null): boolean {
   return Boolean(goal && goal.status === "active" && goal.turnBudget !== null && goal.turnsUsed >= goal.turnBudget);
 }
 
@@ -107,6 +107,6 @@ export function shouldScheduleGoalContinuation(options: ScheduleDecisionOptions)
   return true;
 }
 
-export function sameGoal(left: DoNotStopGoalState | null, right: DoNotStopGoalState | null): boolean {
+export function sameGoal(left: GoalState | null, right: GoalState | null): boolean {
   return Boolean(left && right && left.goalId === right.goalId);
 }

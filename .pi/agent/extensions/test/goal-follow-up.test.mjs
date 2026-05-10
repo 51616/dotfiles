@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import doNotStop from "../do-not-stop/index.ts";
+import goalExtension from "../goal/index.ts";
 import {
-  __resetDoNotStopRuntimeStoreForTests,
-  getDoNotStopGoalSnapshotForSession,
-} from "../do-not-stop/lib/do-not-stop-runtime.ts";
+  __resetGoalRuntimeStoreForTests,
+  getGoalSnapshotForSession,
+} from "../goal/lib/goal-runtime.ts";
 import {
   resetCheckpointCycleState,
   setCheckpointCycleActive,
@@ -27,13 +27,13 @@ function deferred() {
 }
 
 async function createIdleGoalAndClearStarter(harness, objective) {
-  await harness.commands.get("do-not-stop").handler(objective, harness.ctx);
+  await harness.commands.get("goal").handler(objective, harness.ctx);
   await flushTimers();
   harness.sentMessages.length = 0;
 }
 
 function createHarness(options = {}) {
-  __resetDoNotStopRuntimeStoreForTests();
+  __resetGoalRuntimeStoreForTests();
   resetCheckpointCycleState();
 
   const handlers = new Map();
@@ -47,7 +47,7 @@ function createHarness(options = {}) {
   const branchEntries = options.branchEntries ?? [];
 
   const pi = {
-    __doNotStopAuditRunner:
+    __goalExtensionAuditRunner:
       options.auditRunner ??
       (async () => ({
         ok: true,
@@ -88,7 +88,7 @@ function createHarness(options = {}) {
   };
 
   const ctx = {
-    cwd: options.cwd ?? "/tmp/pi-do-not-stop-test",
+    cwd: options.cwd ?? "/tmp/pi-goal-test",
     model: options.model ?? { provider: "test-provider", id: "test-model" },
     signal: undefined,
     hasUI: options.hasUI ?? true,
@@ -96,7 +96,7 @@ function createHarness(options = {}) {
     hasPendingMessages: () => options.hasPendingMessages?.() ?? false,
     sessionManager: {
       getSessionId: () => (typeof options.sessionId === "function" ? options.sessionId() : options.sessionId ?? "session-1"),
-      getSessionFile: () => options.sessionFile ?? "/tmp/pi-do-not-stop-session.jsonl",
+      getSessionFile: () => options.sessionFile ?? "/tmp/pi-goal-session.jsonl",
       getBranch: () => branchEntries,
     },
     ui: {
@@ -116,7 +116,7 @@ function createHarness(options = {}) {
     },
   };
 
-  doNotStop(pi);
+  goalExtension(pi);
 
   return {
     handlers,
@@ -132,7 +132,7 @@ function createHarness(options = {}) {
   };
 }
 
-test("/do-not-stop creates an active unlimited goal and starts the first continuation from idle without audit", async () => {
+test("/goal creates an active unlimited goal and starts the first continuation from idle without audit", async () => {
   let auditCalls = 0;
   const harness = createHarness({
     auditRunner: async () => {
@@ -142,15 +142,15 @@ test("/do-not-stop creates an active unlimited goal and starts the first continu
   });
 
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("finish the migration", harness.ctx);
-  assert.deepEqual(getDoNotStopGoalSnapshotForSession("session-1"), {
-    goalId: getDoNotStopGoalSnapshotForSession("session-1").goalId,
+  await harness.commands.get("goal").handler("finish the migration", harness.ctx);
+  assert.deepEqual(getGoalSnapshotForSession("session-1"), {
+    goalId: getGoalSnapshotForSession("session-1").goalId,
     objective: "finish the migration",
     status: "active",
     turnBudget: null,
     turnsUsed: 0,
-    startedAtMs: getDoNotStopGoalSnapshotForSession("session-1").startedAtMs,
-    updatedAtMs: getDoNotStopGoalSnapshotForSession("session-1").updatedAtMs,
+    startedAtMs: getGoalSnapshotForSession("session-1").startedAtMs,
+    updatedAtMs: getGoalSnapshotForSession("session-1").updatedAtMs,
   });
 
   await flushTimers();
@@ -158,20 +158,20 @@ test("/do-not-stop creates an active unlimited goal and starts the first continu
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /^Objective:\nfinish the migration/m);
   assert.doesNotMatch(harness.sentMessages[0].text, /Budget\/progress/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
-test("/do-not-stop rejects vague objectives without arming a goal", async () => {
+test("/goal rejects vague objectives without arming a goal", async () => {
   const harness = createHarness();
   harness.handlers.get("session_start")({}, harness.ctx);
 
-  await harness.commands.get("do-not-stop").handler("goal", harness.ctx);
+  await harness.commands.get("goal").handler("goal", harness.ctx);
   await flushTimers();
 
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
   assert.equal(harness.sentMessages.length, 0);
   assert.match(harness.notifications.at(-1).message, /concrete, verifiable objective/);
 });
@@ -187,13 +187,13 @@ test("session restore clears an existing vague goal", () => {
     updatedAtMs: 2000,
   };
   const harness = createHarness({
-    branchEntries: [{ type: "custom", customType: "do-not-stop-goal-state", data: { goal: vagueGoal } }],
+    branchEntries: [{ type: "custom", customType: "goal-state", data: { goal: vagueGoal } }],
   });
 
   harness.handlers.get("session_start")({}, harness.ctx);
 
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
-  assert.equal(harness.appendedEntries.at(-1).customType, "do-not-stop-goal-state");
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
+  assert.equal(harness.appendedEntries.at(-1).customType, "goal-state");
   assert.deepEqual(harness.appendedEntries.at(-1).data.goal, null);
   assert.match(harness.notifications.at(-1).message, /cleared invalid restored goal: goal/);
 });
@@ -206,9 +206,9 @@ test("blank command during a running turn adopts the previous user message", asy
     harness.ctx,
   );
 
-  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+  await harness.commands.get("goal").handler("", harness.ctx);
 
-  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
+  const snapshot = getGoalSnapshotForSession("session-1");
   assert.equal(snapshot.objective, "fix the failing auth tests");
   assert.equal(snapshot.status, "active");
   assert.equal(harness.sentMessages.length, 0);
@@ -225,9 +225,9 @@ test("blank command does not adopt a previous session message after session swit
 
   sessionId = "session-b";
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+  await harness.commands.get("goal").handler("", harness.ctx);
 
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-b"), null);
+  assert.equal(getGoalSnapshotForSession("session-b"), null);
   assert.match(harness.notifications.at(-1).message, /could not find a previous user message/);
 });
 
@@ -263,7 +263,7 @@ test("agent_end runs audit, sends anchored follow-up, and increments turns after
   assert.equal(harness.sentMessages[0].sendOptions.deliverAs, "followUp");
   assert.match(harness.sentMessages[0].text, /Original objective:\nfinish the migration/);
   assert.match(harness.sentMessages[0].text, /spec written/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("continuation gates are rechecked after audit before dispatch", async () => {
@@ -297,8 +297,8 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "active");
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getGoalSnapshotForSession("session-1").status, "active");
 });
 
 test("agent_end defers audit while an auto-checkpoint cycle is active", async () => {
@@ -333,7 +333,7 @@ test("agent_end defers audit while an auto-checkpoint cycle is active", async ()
 
   assert.equal(auditCalls, 0);
   assert.equal(harness.sentMessages.length, 0);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   setCheckpointCycleActive(harness.ctx, false);
   harness.handlers.get("agent_end")({}, harness.ctx);
@@ -342,7 +342,7 @@ test("agent_end defers audit while an auto-checkpoint cycle is active", async ()
   assert.equal(auditCalls, 1);
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /Next after checkpoint/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("scheduled audit rechecks auto-checkpoint state before dispatch", async () => {
@@ -377,7 +377,7 @@ test("scheduled audit rechecks auto-checkpoint state before dispatch", async () 
 
   assert.equal(auditCalls, 0);
   assert.equal(harness.sentMessages.length, 0);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   setCheckpointCycleActive(harness.ctx, false);
   harness.handlers.get("agent_end")({}, harness.ctx);
@@ -386,7 +386,7 @@ test("scheduled audit rechecks auto-checkpoint state before dispatch", async () 
   assert.equal(auditCalls, 1);
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /Next after delayed checkpoint/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").turnsUsed, 2);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("high-confidence complete audit auto-clears the goal after a styled stats notification", async () => {
@@ -412,7 +412,7 @@ test("high-confidence complete audit auto-clears the goal after a styled stats n
         completedItems: ["implementation"],
         remainingItems: [],
         evidence: ["node --test passed"],
-        sourcePaths: ["test/do-not-stop.test.mjs"],
+        sourcePaths: ["test/goal.test.mjs"],
         continuationMessage: "",
       },
     }),
@@ -424,10 +424,10 @@ test("high-confidence complete audit auto-clears the goal after a styled stats n
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
 
-  assert.ok(harness.statuses.some((status) => status.key === "do-not-stop" && status.text === "⚑ auditing |"));
-  assert.ok(harness.statuses.some((status) => status.key === "do-not-stop" && status.text === "⚑ goal |"));
+  assert.ok(harness.statuses.some((status) => status.key === "goal" && status.text === "⚑ auditing |"));
+  assert.ok(harness.statuses.some((status) => status.key === "goal" && status.text === "⚑ goal |"));
 
   const notification = harness.notifications.at(-1);
   assert.equal(notification.level, "info");
@@ -471,7 +471,7 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
   await flushTimers();
   assert.equal(audits.length, 1);
 
-  await harness.commands.get("do-not-stop").handler("budget 5", harness.ctx);
+  await harness.commands.get("goal").handler("budget 5", harness.ctx);
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
@@ -479,7 +479,7 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
   audits[0].gate.resolve();
   await flushTimers();
   assert.equal(harness.sentMessages.length, 1);
-  const snapshot = getDoNotStopGoalSnapshotForSession("session-1");
+  const snapshot = getGoalSnapshotForSession("session-1");
   assert.equal(snapshot.turnBudget, 5);
   assert.equal(snapshot.turnsUsed, 2);
 });
@@ -515,7 +515,7 @@ test("stale audit completion does not clear a newer dispatch lock", async () => 
   await flushTimers();
   assert.equal(audits.length, 1);
 
-  await harness.commands.get("do-not-stop").handler("replace second goal", harness.ctx);
+  await harness.commands.get("goal").handler("replace second goal", harness.ctx);
   await flushTimers();
   harness.sentMessages.length = 0;
   harness.handlers.get("agent_end")({}, harness.ctx);
@@ -562,7 +562,7 @@ test("audit failure falls back to unanchored continuation and never completes", 
 
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /audit timed out/);
-  assert.notEqual(getDoNotStopGoalSnapshotForSession("session-1").status, "complete");
+  assert.notEqual(getGoalSnapshotForSession("session-1").status, "complete");
 });
 
 test("budget exhaustion marks budget_limited and stops scheduling", async () => {
@@ -590,7 +590,7 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
   });
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
-  await harness.commands.get("do-not-stop").handler("budget 2", harness.ctx);
+  await harness.commands.get("goal").handler("budget 2", harness.ctx);
 
   harness.handlers.get("agent_end")({}, harness.ctx);
   await flushTimers();
@@ -599,7 +599,7 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
 
   assert.equal(auditCalls, 1);
   assert.equal(harness.sentMessages.length, 1);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").status, "budget_limited");
+  assert.equal(getGoalSnapshotForSession("session-1").status, "budget_limited");
 });
 
 test("blank command rejects a vague previous user message", async () => {
@@ -610,39 +610,39 @@ test("blank command rejects a vague previous user message", async () => {
     harness.ctx,
   );
 
-  await harness.commands.get("do-not-stop").handler("", harness.ctx);
+  await harness.commands.get("goal").handler("", harness.ctx);
 
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
   assert.match(harness.notifications.at(-1).message, /concrete, verifiable objective/);
 });
 
 test("replacement requires UI confirmation or explicit replace in non-UI contexts", async () => {
   const noUi = createHarness({ hasUI: false });
   noUi.handlers.get("session_start")({}, noUi.ctx);
-  await noUi.commands.get("do-not-stop").handler("first goal", noUi.ctx);
-  await noUi.commands.get("do-not-stop").handler("second goal", noUi.ctx);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").objective, "first goal");
-  await noUi.commands.get("do-not-stop").handler("replace second goal", noUi.ctx);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1").objective, "second goal");
+  await noUi.commands.get("goal").handler("first goal", noUi.ctx);
+  await noUi.commands.get("goal").handler("second goal", noUi.ctx);
+  assert.equal(getGoalSnapshotForSession("session-1").objective, "first goal");
+  await noUi.commands.get("goal").handler("replace second goal", noUi.ctx);
+  assert.equal(getGoalSnapshotForSession("session-1").objective, "second goal");
 
   const withUi = createHarness({ confirmResult: false, sessionId: "session-2" });
   withUi.handlers.get("session_start")({}, withUi.ctx);
-  await withUi.commands.get("do-not-stop").handler("first goal", withUi.ctx);
-  await withUi.commands.get("do-not-stop").handler("second goal", withUi.ctx);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-2").objective, "first goal");
+  await withUi.commands.get("goal").handler("first goal", withUi.ctx);
+  await withUi.commands.get("goal").handler("second goal", withUi.ctx);
+  assert.equal(getGoalSnapshotForSession("session-2").objective, "first goal");
   assert.equal(withUi.confirmations.length, 1);
 });
 
 test("legacy toggle and removed repeats commands give guidance", async () => {
   const toggleHarness = createHarness();
   toggleHarness.handlers.get("session_start")({}, toggleHarness.ctx);
-  await toggleHarness.commands.get("do-not-stop").handler("on", toggleHarness.ctx);
-  assert.match(toggleHarness.notifications.at(-1).message, /old do-not-stop toggle was removed/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-1"), null);
+  await toggleHarness.commands.get("goal").handler("on", toggleHarness.ctx);
+  assert.match(toggleHarness.notifications.at(-1).message, /old goal toggle was removed/);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
 
   const harness = createHarness({ sessionId: "session-repeats" });
   harness.handlers.get("session_start")({}, harness.ctx);
-  await harness.commands.get("do-not-stop").handler("repeats 2", harness.ctx);
+  await harness.commands.get("goal").handler("repeats 2", harness.ctx);
   assert.match(harness.notifications.at(-1).message, /budget <n>/);
-  assert.equal(getDoNotStopGoalSnapshotForSession("session-repeats"), null);
+  assert.equal(getGoalSnapshotForSession("session-repeats"), null);
 });

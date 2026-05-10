@@ -1,11 +1,11 @@
 import type {
-  DoNotStopAuditConfidence,
-  DoNotStopAuditDecision,
-  DoNotStopAuditResult,
-} from "./do-not-stop.ts";
+  GoalAuditConfidence,
+  GoalAuditDecision,
+  GoalAuditResult,
+} from "./goal.ts";
 
-const DECISIONS = new Set<DoNotStopAuditDecision>(["complete", "continue", "unknown"]);
-const CONFIDENCES = new Set<DoNotStopAuditConfidence>(["high", "medium", "low"]);
+const DECISIONS = new Set<GoalAuditDecision>(["complete", "continue", "unknown"]);
+const CONFIDENCES = new Set<GoalAuditConfidence>(["high", "medium", "low"]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -29,14 +29,14 @@ function extractStrictJsonObject(text: string): string | null {
   return raw;
 }
 
-export function normalizeAuditResult(value: unknown): DoNotStopAuditResult {
+export function normalizeAuditResult(value: unknown): GoalAuditResult {
   const record = asRecord(value);
   if (!record) throw new Error("audit result must be a JSON object");
 
-  const rawDecision = stringField(record, "decision") as DoNotStopAuditDecision;
-  const rawConfidence = stringField(record, "confidence") as DoNotStopAuditConfidence;
-  const decision: DoNotStopAuditDecision = DECISIONS.has(rawDecision) ? rawDecision : "unknown";
-  const confidence: DoNotStopAuditConfidence = CONFIDENCES.has(rawConfidence) ? rawConfidence : "low";
+  const rawDecision = stringField(record, "decision") as GoalAuditDecision;
+  const rawConfidence = stringField(record, "confidence") as GoalAuditConfidence;
+  const decision: GoalAuditDecision = DECISIONS.has(rawDecision) ? rawDecision : "unknown";
+  const confidence: GoalAuditConfidence = CONFIDENCES.has(rawConfidence) ? rawConfidence : "low";
 
   return {
     decision,
@@ -50,7 +50,7 @@ export function normalizeAuditResult(value: unknown): DoNotStopAuditResult {
   };
 }
 
-export function parseAuditResult(text: string): DoNotStopAuditResult {
+export function parseAuditResult(text: string): GoalAuditResult {
   const json = extractStrictJsonObject(text);
   if (!json) throw new Error("audit output must be exactly one JSON object");
 
@@ -65,7 +65,7 @@ export function parseAuditResult(text: string): DoNotStopAuditResult {
   return normalizeAuditResult(parsed);
 }
 
-export function isHighConfidenceComplete(audit: DoNotStopAuditResult): boolean {
+export function isHighConfidenceComplete(audit: GoalAuditResult): boolean {
   return (
     audit.decision === "complete" &&
     audit.confidence === "high" &&
@@ -74,7 +74,7 @@ export function isHighConfidenceComplete(audit: DoNotStopAuditResult): boolean {
   );
 }
 
-export function fallbackAuditResult(reason: string): DoNotStopAuditResult {
+export function fallbackAuditResult(reason: string): GoalAuditResult {
   return {
     decision: "unknown",
     confidence: "low",

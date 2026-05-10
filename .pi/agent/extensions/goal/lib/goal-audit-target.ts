@@ -4,21 +4,21 @@ import { posix as posixPath } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getActivePiSshSession, type PiSshConnectionInfo, type PiSshSession } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
-export type DoNotStopAuditSshTarget = {
+export type GoalAuditSshTarget = {
   remote: string;
   port: number;
   remoteCwd: string;
 };
 
-export type DoNotStopAuditTarget = {
+export type GoalAuditTarget = {
   promptCwd: string;
   promptSessionFile?: string;
   promptCheckpointDir?: string;
   promptConductorDir?: string;
-  ssh?: DoNotStopAuditSshTarget;
+  ssh?: GoalAuditSshTarget;
 };
 
-const REMOTE_SESSION_SNAPSHOT_DIR = ".cache/pi/do-not-stop/session-snapshots";
+const REMOTE_SESSION_SNAPSHOT_DIR = ".cache/pi/goal/session-snapshots";
 const REMOTE_CHECKPOINT_DIR = "/tmp/pi-work/checkpoints";
 
 function shellQuote(value: string): string {
@@ -97,7 +97,7 @@ async function syncSessionFileToRemote(session: PiSshSession, ctx: ExtensionCont
   return remoteSessionFile;
 }
 
-function buildSshTarget(connection: PiSshConnectionInfo, remoteCwd: string): DoNotStopAuditSshTarget {
+function buildSshTarget(connection: PiSshConnectionInfo, remoteCwd: string): GoalAuditSshTarget {
   return {
     remote: connection.remote,
     port: connection.port,
@@ -115,7 +115,7 @@ function resolveRemoteCwdForContext(session: PiSshSession, ctx: ExtensionContext
   return normalizeRemotePath(connection.remoteCwd);
 }
 
-async function buildSshAuditTarget(session: PiSshSession, ctx: ExtensionContext): Promise<DoNotStopAuditTarget> {
+async function buildSshAuditTarget(session: PiSshSession, ctx: ExtensionContext): Promise<GoalAuditTarget> {
   const connection = session.getConnectionInfo();
   const remoteCwd = resolveRemoteCwdForContext(session, ctx, connection);
   const localSessionFile = getSessionFile(ctx);
@@ -131,7 +131,7 @@ async function buildSshAuditTarget(session: PiSshSession, ctx: ExtensionContext)
   };
 }
 
-export async function resolveDoNotStopAuditTarget(ctx: ExtensionContext): Promise<DoNotStopAuditTarget> {
+export async function resolveGoalAuditTarget(ctx: ExtensionContext): Promise<GoalAuditTarget> {
   const sshSession = getActivePiSshSession();
   if (sshSession) {
     return buildSshAuditTarget(sshSession, ctx);

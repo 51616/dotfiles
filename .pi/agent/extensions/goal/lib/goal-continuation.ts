@@ -1,11 +1,11 @@
-import type { DoNotStopAuditResult, DoNotStopGoalState } from "./do-not-stop.ts";
+import type { GoalAuditResult, GoalState } from "./goal.ts";
 
 function bulletList(items: string[], emptyText: string): string {
   if (items.length === 0) return `- ${emptyText}`;
   return items.map((item) => `- ${item}`).join("\n");
 }
 
-export function buildInitialGoalMessage(goal: DoNotStopGoalState): string {
+export function buildInitialGoalMessage(goal: GoalState): string {
   return [
     "Objective:",
     goal.objective,
@@ -19,7 +19,7 @@ export function buildInitialGoalMessage(goal: DoNotStopGoalState): string {
   ].join("\n");
 }
 
-export function buildAnchoredContinuationMessage(goal: DoNotStopGoalState, audit: DoNotStopAuditResult): string {
+export function buildAnchoredContinuationMessage(goal: GoalState, audit: GoalAuditResult): string {
   const auditContinuation = audit.continuationMessage.trim();
   const nextSteps = auditContinuation || audit.remainingItems.join("\n").trim() || "Inspect the current repo/session state and continue with the next concrete unfinished step.";
 
@@ -43,7 +43,7 @@ export function buildAnchoredContinuationMessage(goal: DoNotStopGoalState, audit
   ].join("\n");
 }
 
-export function buildFallbackContinuationMessage(goal: DoNotStopGoalState, failureReason: string): string {
+export function buildFallbackContinuationMessage(goal: GoalState, failureReason: string): string {
   return [
     "Original objective:",
     goal.objective,

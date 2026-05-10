@@ -2,16 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   brightRed,
-  buildDoNotStopBorderLabel,
+  buildGoalBorderLabel,
   formatDurationMs,
   formatGoalCompletionStats,
   formatGoalStatusSummary,
   formatTokenCount,
-  parseDoNotStopCommand,
-  validateDoNotStopObjective,
-} from "../do-not-stop/lib/do-not-stop.ts";
-import { parseAuditResult, isHighConfidenceComplete } from "../do-not-stop/lib/do-not-stop-audit.ts";
-import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "../do-not-stop/lib/do-not-stop-continuation.ts";
+  parseGoalCommand,
+  validateGoalObjective,
+} from "../goal/lib/goal.ts";
+import { parseAuditResult, isHighConfidenceComplete } from "../goal/lib/goal-audit.ts";
+import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, buildInitialGoalMessage } from "../goal/lib/goal-continuation.ts";
 import {
   createGoal,
   incrementGoalTurnsUsed,
@@ -20,8 +20,8 @@ import {
   setGoalBudget,
   shouldBudgetLimitGoal,
   shouldScheduleGoalContinuation,
-} from "../do-not-stop/lib/do-not-stop-state.ts";
-import { buildAuditPrompt, findPreviousUserMessageForGoal } from "../do-not-stop/lib/do-not-stop-session.ts";
+} from "../goal/lib/goal-state.ts";
+import { buildAuditPrompt, findPreviousUserMessageForGoal } from "../goal/lib/goal-session.ts";
 
 test("brightRed wraps text with ANSI bright-red sequence", () => {
   assert.equal(brightRed("abc"), "\x1b[91mabc\x1b[0m");
@@ -52,44 +52,44 @@ test("goal completion stats format turns, elapsed time, and tokens", () => {
   );
 });
 
-test("parseDoNotStopCommand handles goal command surface", () => {
-  assert.deepEqual(parseDoNotStopCommand(""), { kind: "blank" });
-  assert.deepEqual(parseDoNotStopCommand("status"), { kind: "status" });
-  assert.deepEqual(parseDoNotStopCommand("clear"), { kind: "clear" });
-  assert.deepEqual(parseDoNotStopCommand("budget 10"), { kind: "setBudget", turnBudget: 10 });
-  assert.deepEqual(parseDoNotStopCommand("budget unlimited"), { kind: "setBudget", turnBudget: null });
-  assert.deepEqual(parseDoNotStopCommand("replace finish the lint cleanup"), {
+test("parseGoalCommand handles goal command surface", () => {
+  assert.deepEqual(parseGoalCommand(""), { kind: "blank" });
+  assert.deepEqual(parseGoalCommand("status"), { kind: "status" });
+  assert.deepEqual(parseGoalCommand("clear"), { kind: "clear" });
+  assert.deepEqual(parseGoalCommand("budget 10"), { kind: "setBudget", turnBudget: 10 });
+  assert.deepEqual(parseGoalCommand("budget unlimited"), { kind: "setBudget", turnBudget: null });
+  assert.deepEqual(parseGoalCommand("replace finish the lint cleanup"), {
     kind: "setObjective",
     objective: "finish the lint cleanup",
     replace: true,
   });
-  assert.deepEqual(parseDoNotStopCommand("--replace finish the lint cleanup"), {
+  assert.deepEqual(parseGoalCommand("--replace finish the lint cleanup"), {
     kind: "setObjective",
     objective: "finish the lint cleanup",
     replace: true,
   });
-  assert.deepEqual(parseDoNotStopCommand("finish the lint cleanup"), {
+  assert.deepEqual(parseGoalCommand("finish the lint cleanup"), {
     kind: "setObjective",
     objective: "finish the lint cleanup",
     replace: false,
   });
 });
 
-test("validateDoNotStopObjective rejects vague non-verifiable objectives", () => {
-  assert.equal(validateDoNotStopObjective("goal").ok, false);
-  assert.match(validateDoNotStopObjective("goal").guidance ?? "", /concrete, verifiable objective/);
-  assert.equal(validateDoNotStopObjective("do it").ok, false);
-  assert.equal(validateDoNotStopObjective("fix the failing auth tests and commit the fix").ok, true);
-  assert.equal(validateDoNotStopObjective("go to work!").ok, true);
+test("validateGoalObjective rejects vague non-verifiable objectives", () => {
+  assert.equal(validateGoalObjective("goal").ok, false);
+  assert.match(validateGoalObjective("goal").guidance ?? "", /concrete, verifiable objective/);
+  assert.equal(validateGoalObjective("do it").ok, false);
+  assert.equal(validateGoalObjective("fix the failing auth tests and commit the fix").ok, true);
+  assert.equal(validateGoalObjective("go to work!").ok, true);
 });
 
-test("parseDoNotStopCommand rejects removed pause/resume/repeats controls", () => {
-  assert.equal(parseDoNotStopCommand("pause").kind, "unsupported");
-  assert.equal(parseDoNotStopCommand("resume").kind, "unsupported");
-  assert.equal(parseDoNotStopCommand("on").kind, "unsupported");
-  assert.equal(parseDoNotStopCommand("off").kind, "unsupported");
-  assert.equal(parseDoNotStopCommand("toggle").kind, "unsupported");
-  const repeats = parseDoNotStopCommand("repeats 3");
+test("parseGoalCommand rejects removed pause/resume/repeats controls", () => {
+  assert.equal(parseGoalCommand("pause").kind, "unsupported");
+  assert.equal(parseGoalCommand("resume").kind, "unsupported");
+  assert.equal(parseGoalCommand("on").kind, "unsupported");
+  assert.equal(parseGoalCommand("off").kind, "unsupported");
+  assert.equal(parseGoalCommand("toggle").kind, "unsupported");
+  const repeats = parseGoalCommand("repeats 3");
   assert.equal(repeats.kind, "unsupported");
   assert.match(repeats.guidance, /budget <n>/);
 });
@@ -100,7 +100,7 @@ test("goal state helpers create, budget-limit, complete, and schedule safely", (
   assert.equal(goal.turnBudget, null);
   assert.equal(goal.turnsUsed, 0);
   assert.equal(goal.status, "active");
-  assert.equal(buildDoNotStopBorderLabel(goal), "⚑ goal |");
+  assert.equal(buildGoalBorderLabel(goal), "⚑ goal |");
 
   const budgeted = setGoalBudget(goal, 1, 1100);
   assert.equal(shouldBudgetLimitGoal(budgeted), false);
@@ -118,7 +118,7 @@ test("goal state helpers create, budget-limit, complete, and schedule safely", (
 
   const limited = markGoalBudgetLimited(used, 1300);
   assert.equal(limited.status, "budget_limited");
-  assert.equal(buildDoNotStopBorderLabel(limited), "⚑ goal |");
+  assert.equal(buildGoalBorderLabel(limited), "⚑ goal |");
 
   const complete = markGoalCompleteFromAudit(goal, {
     decision: "complete",
@@ -143,7 +143,7 @@ test("audit parser accepts strict JSON and only high-confidence complete can sto
     completedItems: ["implemented"],
     remainingItems: [],
     evidence: ["tests passed"],
-    sourcePaths: ["test/do-not-stop.test.mjs"],
+    sourcePaths: ["test/goal.test.mjs"],
     continuationMessage: "",
   }));
   assert.equal(isHighConfidenceComplete(audit), true);
@@ -168,7 +168,7 @@ test("continuation messages include objective, budget, audit progress, and guard
     completedItems: ["updated parser"],
     remainingItems: ["fix runtime test"],
     evidence: ["node --test failed"],
-    sourcePaths: ["test/do-not-stop-runtime.test.mjs"],
+    sourcePaths: ["test/goal-runtime.test.mjs"],
     continuationMessage: "Fix the runtime test next.",
   };
 
@@ -184,7 +184,7 @@ test("continuation messages include objective, budget, audit progress, and guard
   assert.match(anchored, /updated parser/);
   assert.match(anchored, /Fix the runtime test next/);
   assert.match(anchored, /Do not repeat completed work/);
-  assert.doesNotMatch(anchored, /Continue the active \/do-not-stop goal/);
+  assert.doesNotMatch(anchored, /Continue the active \/goal objective/);
   assert.doesNotMatch(anchored, /Budget\/progress/);
   assert.doesNotMatch(anchored, /Audit source paths/);
   assert.doesNotMatch(anchored, /turn budget is exhausted/);
@@ -193,7 +193,7 @@ test("continuation messages include objective, budget, audit progress, and guard
   const fallback = buildFallbackContinuationMessage(goal, "audit timed out");
   assert.match(fallback, /audit timed out/);
   assert.match(fallback, /Inspect the current session\/repo state/);
-  assert.doesNotMatch(fallback, /Continue the active \/do-not-stop goal/);
+  assert.doesNotMatch(fallback, /Continue the active \/goal objective/);
   assert.doesNotMatch(fallback, /Budget\/progress/);
 });
 
