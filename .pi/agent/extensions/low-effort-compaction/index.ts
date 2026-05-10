@@ -2,6 +2,7 @@ import { compact, type ExtensionAPI, type ExtensionContext } from "@mariozechner
 
 const COMPACTION_THINKING_LEVEL = "low" as const;
 const STATUS_KEY = "low-effort-compaction";
+const COMPACTING_STATUS = "⧉ compacting |";
 
 type ActiveModel = NonNullable<ExtensionContext["model"]>;
 
@@ -39,7 +40,7 @@ export default function lowEffortCompaction(pi: ExtensionAPI) {
 
     compactionModel = snapshotModel(model);
     if (ctx.hasUI) {
-      ctx.ui.setStatus(STATUS_KEY, `compacting (${COMPACTION_THINKING_LEVEL})`);
+      ctx.ui.setStatus(STATUS_KEY, COMPACTING_STATUS);
     }
 
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);

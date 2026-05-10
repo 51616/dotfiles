@@ -36,6 +36,7 @@ export const REGRESSION_MATRIX = {
   ],
   "low-effort-compaction": [
     "test/runtime-entrypoint-imports.test.mjs",
+    "low-effort-compaction/test/index.test.mjs",
   ],
   "pi-diff-review-tui": [
     "pi-diff-review-tui/test/app.test.mjs",

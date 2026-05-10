@@ -48,6 +48,12 @@ See also [[git-state]].
 
 Entrypoint: [[git-state/index.ts]].
 
+## low-effort-compaction
+
+Overrides pi's compaction provider path to use low reasoning while showing the footer status `⧉ compacting |` during compaction.
+
+Entrypoint: [[low-effort-compaction/index.ts]].
+
 ## pi-diff-review-tui
 
 Owns the interactive diff-review overlay and related TUI surfaces for human-in-the-loop patch review.
