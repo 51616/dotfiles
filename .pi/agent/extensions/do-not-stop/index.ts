@@ -59,7 +59,7 @@ function bold(text: string): string {
 }
 
 function buildDoNotStopEditorIndicator(): string {
-  return `─ ${bold("GOAL CHASING!")}`;
+  return `─ ${bold("◆ PURSUING GOAL")}`;
 }
 
 function setStatus(ctx: ExtensionContext, text: string | undefined): void {
