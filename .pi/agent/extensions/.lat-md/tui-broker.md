@@ -23,7 +23,7 @@ The canonical implementation lives in [[tui-broker/index.ts]]. Shared formatting
 
 The footer keeps the folder-glyph cwd / session-name line and preserves extension status lines from `ctx.ui.setStatus()`.
 
-The right side of the footer identifies model and reasoning effort as `󰚩 <display-model> · 󰧑 <display-thinking-level>` for reasoning-capable models, and `󰚩 <display-model>` otherwise. Registered model-effort suffixes render immediately after the thinking level, such as `󰚩 GPT-5.4 · 󰧑 High (fast)`, and are ignored for non-reasoning model labels.
+The right side of the footer identifies model and reasoning effort as `󰚩 <display-model> · 󰧑 <display-thinking-level>` for reasoning-capable models, and `󰚩 <display-model>` otherwise. Registered model-effort suffixes render immediately after the thinking level, such as `󰚩 GPT-5.4 · 󰧑 High (review)`, and are ignored for non-reasoning model labels.
 
 It intentionally omits git branch text from the cwd line because `git-state` owns the compact branch meter in the editor top-right border. It intentionally drops cumulative token, cache, and dollar stats from the footer.
 
@@ -38,7 +38,6 @@ Current contributors:
 - `snippets` contributes the active snippet badge
 - `git-state` contributes the Git working-tree meter in the editor top-right border
 - `pi-ssh` contributes the footer path label while SSH is active
-- `codex-fast-mode` contributes the `fast` model-effort suffix for enabled OpenAI Codex sessions
 - `pi-fff` contributes an autocomplete-provider wrapper instead of taking editor ownership
 
 ## Boundaries

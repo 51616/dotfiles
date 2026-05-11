@@ -455,9 +455,9 @@ test("tui-broker renders registered footer effort suffixes next to the thinking 
   __resetTuiBrokerRuntimeForTests();
   __resetGoalRuntimeStoreForTests();
 
-  registerTuiBrokerFooterModelEffortSuffixProvider("codex-fast-mode", ({ provider }) => {
+  registerTuiBrokerFooterModelEffortSuffixProvider("test-effort-suffix", ({ provider }) => {
     if (provider !== "openai-codex") return null;
-    return { text: "fast", priority: 100 };
+    return { text: "review", priority: 100 };
   });
 
   const pi = createFakePi();
@@ -486,7 +486,7 @@ test("tui-broker renders registered footer effort suffixes next to the thinking 
 
   const lines = footer.render(80);
   assert.equal(lines.length, 1);
-  assert.ok(lines[0].endsWith("󰚩 GPT-5.4 · 󰧑 High (fast)"));
+  assert.ok(lines[0].endsWith("󰚩 GPT-5.4 · 󰧑 High (review)"));
 
   const snapshot = getTuiBrokerRuntimeSnapshot({
     sessionName: ctx.sessionManager.getSessionName(),
@@ -495,8 +495,8 @@ test("tui-broker renders registered footer effort suffixes next to the thinking 
     reasoning: true,
     thinkingLevel: "high",
   });
-  assert.deepEqual(snapshot.footerModelEffortSuffixKeys, ["codex-fast-mode"]);
-  assert.deepEqual(snapshot.footerModelEffortSuffixes, ["fast"]);
+  assert.deepEqual(snapshot.footerModelEffortSuffixKeys, ["test-effort-suffix"]);
+  assert.deepEqual(snapshot.footerModelEffortSuffixes, ["review"]);
 });
 
 test("tui-broker uses the highest-priority footer path contributor without losing its own layout", async () => {

@@ -23,9 +23,6 @@ export const REGRESSION_MATRIX = {
     "test/command-palette.test.mjs",
     "test/command-palette-overlay.test.mjs",
   ],
-  "codex-fast-mode": [
-    "codex-fast-mode/test/index.test.mjs",
-  ],
   "custom-spinner": [
     "test/runtime-entrypoint-imports.test.mjs",
   ],

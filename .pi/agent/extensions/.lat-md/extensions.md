@@ -26,14 +26,6 @@ See also [[command-context-for-tools]].
 
 Entrypoint: [[command-context-for-tools/index.ts]].
 
-## codex-fast-mode
-
-Owns `/fast`, `/normal`, and `/codex-fast-mode` for OpenAI Codex Responses API service-tier request injection plus the footer ` (fast)` effort suffix.
-
-See also [[codex-fast-mode]].
-
-Entrypoint: [[codex-fast-mode/index.ts]].
-
 ## Working spinner customization
 
 Owns the custom working-indicator word list and spinner renderer used while pi is actively processing a turn.
