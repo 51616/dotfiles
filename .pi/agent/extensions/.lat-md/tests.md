@@ -48,7 +48,7 @@ What this proves:
 - blank `/goal` during a running turn can adopt the previous user message without injecting an immediate continuation
 - ordinary user input does not arm a repeat cycle
 - `pause`, `resume`, and old `repeats` controls are rejected with actionable guidance toward `clear` or `budget`
-- active goals continue only after idle scheduling gates pass and `turnsUsed` increments only after follow-up dispatch succeeds
+- active goals continue only after idle scheduling gates pass, auto-checkpoint and session-compaction blockers are clear, and `turnsUsed` increments only after follow-up dispatch succeeds
 - configured turn budgets transition to `budget_limited` instead of pretending the goal is complete
 - high-confidence external audit completion marks `complete` and suppresses follow-up dispatch only when concrete evidence and source paths are present
 - audit failures/timeouts and low-confidence results fall back to continuation and never mark completion

@@ -23,7 +23,7 @@ The helper modules under `goal/lib/` own the contracts that must stay testable w
 
 Absence of a goal is represented by `null`, not by a status. Valid statuses are only `active`, `budget_limited`, and `complete`.
 
-An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle.
+An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, no session compaction is active, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle. `session_before_compact` marks compaction as a hard audit blocker; `session_compact` clears that blocker and asks the normal scheduler to resume when the remaining gates allow it.
 
 Goal creation rejects known vague, non-verifiable objectives such as `goal`, `task`, `work`, `continue`, `do it`, `finish`, `stuff`, and `things`. The extension reports a concrete-objective example instead of arming an audit loop that cannot honestly complete. Restoring an already-persisted vague goal clears it and writes a null goal entry.
 
@@ -55,7 +55,7 @@ When a goal exists, the user editor border is red and the top-border text indica
 
 During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing |`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
 
-Auto-checkpointing has higher priority than goal continuation. Audited continuations wait 10 seconds before starting the external audit, giving auto-checkpoint footer detection and compaction a chance to claim the session first. If the shared auto-checkpoint cycle marker is active when scheduling or dispatch runs, goal defers audit and follow-up dispatch so checkpoint compaction can finish and send its resume ping first.
+Auto-checkpointing and session compaction have higher priority than goal continuation. Audited continuations wait 10 seconds before starting the external audit, giving auto-checkpoint footer detection and compaction a chance to claim the session first. If the shared auto-checkpoint cycle marker is active, or a `session_before_compact` event has fired without a matching `session_compact` or abort, goal defers audit and follow-up dispatch so checkpoint/manual compaction can finish first.
 
 Completed goals auto-clear after their completion notification. Budget-limited goals remain visible until `/goal clear` removes the goal.
 

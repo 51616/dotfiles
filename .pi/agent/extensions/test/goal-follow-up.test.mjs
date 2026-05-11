@@ -430,6 +430,49 @@ test("scheduled audit rechecks auto-checkpoint state before dispatch", async () 
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
+test("scheduled audit stays muted while session compaction is active and resumes after compaction", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next after compaction.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("session_before_compact")({ signal: new AbortController().signal }, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  harness.handlers.get("session_compact")({ compactionEntry: { id: "c1" }, fromExtension: false }, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after compaction/);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
+});
+
 test("high-confidence complete audit auto-clears the goal after a styled stats notification", async () => {
   const harness = createHarness({
     branchEntries: [

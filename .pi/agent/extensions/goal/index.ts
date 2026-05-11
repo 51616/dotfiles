@@ -322,6 +322,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   let editorOverrideActive = false;
   let activeSessionId = "";
   let lastUserMessage: { sessionId: string; text: string } | null = null;
+  let compactionActive = false;
   const runAudit = makeAuditRunner(pi);
   const auditDelayMs = auditStartDelayMs(pi);
 
@@ -332,6 +333,10 @@ export default function goalExtension(pi: ExtensionAPI) {
 
   const refreshTuiBrokerEditor = () => {
     if (isTuiBrokerInstalled()) requestTuiBrokerEditorReinstall();
+  };
+
+  const clearCompactionActive = () => {
+    compactionActive = false;
   };
 
   const applyEditorOverride = (ctx: ExtensionContext) => {
@@ -470,7 +475,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   };
 
   const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
-    if (getAutoCheckpointCycleActive(ctx)) return;
+    if (getAutoCheckpointCycleActive(ctx) || compactionActive) return;
 
     if (shouldBudgetLimitGoal(currentGoal)) {
       currentGoal = markGoalBudgetLimited(currentGoal as GoalState);
@@ -504,7 +509,7 @@ export default function goalExtension(pi: ExtensionAPI) {
       void (async () => {
         try {
           if (!currentGoal || currentGoal.goalId !== scheduledGoalId) return;
-          if (getAutoCheckpointCycleActive(ctx)) return;
+          if (getAutoCheckpointCycleActive(ctx) || compactionActive) return;
 
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
@@ -566,6 +571,7 @@ export default function goalExtension(pi: ExtensionAPI) {
             activeDispatchToken !== scheduledDispatchToken ||
             currentGoal.status !== "active" ||
             getAutoCheckpointCycleActive(ctx) ||
+            compactionActive ||
             !ctx.isIdle() ||
             getHasPendingMessages(ctx)
           ) {
@@ -590,6 +596,18 @@ export default function goalExtension(pi: ExtensionAPI) {
         }
       })();
     }, dispatchDelayMs);
+  };
+
+  const markCompactionActive = (ctx: ExtensionContext, signal?: AbortSignal): void => {
+    compactionActive = true;
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearCompactionActive();
+        scheduleGoalContinuation(ctx);
+      },
+      { once: true },
+    );
   };
 
   pi.registerCommand("goal", {
@@ -655,10 +673,21 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event, ctx) => {
+    clearCompactionActive();
     restoreGoalForSession(ctx);
   });
 
+  pi.on("session_before_compact", (event, ctx) => {
+    markCompactionActive(ctx, event.signal);
+  });
+
+  pi.on("session_compact", (_event, ctx) => {
+    clearCompactionActive();
+    scheduleGoalContinuation(ctx);
+  });
+
   pi.on("session_shutdown", (_event, ctx) => {
+    clearCompactionActive();
     persistGoal(ctx);
     setStatus(ctx, undefined);
   });
@@ -670,6 +699,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", (event, ctx) => {
+    clearCompactionActive();
     if (event.source === "user" && isInteractiveUserText(event.prompt, "user")) {
       rememberUserMessage(ctx, event.prompt);
     }
