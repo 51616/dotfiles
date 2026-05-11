@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 import goalExtension from "../goal/index.ts";
 import { __resetGoalRuntimeStoreForTests } from "../goal/lib/goal-runtime.ts";
@@ -47,7 +48,32 @@ function latestPendingPath(dir) {
   return path.join(dir, files.at(-1));
 }
 
-function createHarness(tmpDir) {
+function pendingPathForSession(dir, sessionId) {
+  const hash = createHash("sha1").update(sessionId).digest("hex").slice(0, 12);
+  return path.join(dir, `pending-resume.${hash}.json`);
+}
+
+function writePendingResume(dir, sessionId, checkpointPath) {
+  fs.writeFileSync(
+    pendingPathForSession(dir, sessionId),
+    `${JSON.stringify(
+      {
+        v: 1,
+        checkpointPath,
+        resumeText: "We just auto-checkpointed and compacted context. Please continue your work.",
+        createdAt: Date.now(),
+        attempts: 0,
+        ownerPid: process.pid,
+        sessionId,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+function createHarness(tmpDir, options = {}) {
   __resetGoalRuntimeStoreForTests();
   resetCheckpointCycleState();
 
@@ -126,8 +152,13 @@ function createHarness(tmpDir) {
     },
   };
 
-  selfCheckpointing(pi);
-  goalExtension(pi);
+  if (options.goalFirst) {
+    goalExtension(pi);
+    selfCheckpointing(pi);
+  } else {
+    selfCheckpointing(pi);
+    goalExtension(pi);
+  }
 
   return {
     handlers,
@@ -145,6 +176,90 @@ function createHarness(tmpDir) {
     },
   };
 }
+
+test("session_start restores checkpoint-cycle blocking from an outstanding pending resume", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-autockpt-session-start-"));
+  const checkpointPath = path.join(tmpDir, "checkpoint.md");
+  const sessionId = "goal-autockpt-session";
+  fs.writeFileSync(checkpointPath, "# checkpoint\n", "utf8");
+  writePendingResume(tmpDir, sessionId, checkpointPath);
+
+  try {
+    await withEnv(
+      {
+        PI_SELF_CHECKPOINT_ENABLE: "1",
+        PI_SELF_CHECKPOINT_STATE_DIR: tmpDir,
+        PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME: "65",
+      },
+      async () => {
+        const harness = createHarness(tmpDir);
+        const { handlers, commands, ctx } = harness;
+
+        await callAll(handlers, "session_start", {}, ctx);
+        assert.equal(isCheckpointCycleActive(ctx), true, "pending resume should block goal immediately after session_start");
+
+        await commands.get("goal").handler("finish the auto-checkpoint session-start interaction test", ctx);
+        await delay();
+        assert.equal(harness.getAuditCalls(), 0);
+        assert.equal(harness.sentUserMessages.length, 0, "goal must not start before checkpoint resume is consumed");
+
+        await callAll(handlers, "agent_end", {}, ctx);
+        await delay();
+        assert.equal(harness.getAuditCalls(), 0, "goal audit remains blocked by the restored pending resume");
+
+        await callAll(handlers, "session_shutdown", {}, ctx);
+      },
+    );
+  } finally {
+    resetCheckpointCycleState();
+    __resetGoalRuntimeStoreForTests();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("session_compact with an existing pending resume beats goal scheduling regardless of handler order", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-autockpt-session-compact-"));
+  const checkpointPath = path.join(tmpDir, "checkpoint.md");
+  const sessionId = "goal-autockpt-session";
+  fs.writeFileSync(checkpointPath, "# checkpoint\n", "utf8");
+
+  try {
+    await withEnv(
+      {
+        PI_SELF_CHECKPOINT_ENABLE: "1",
+        PI_SELF_CHECKPOINT_STATE_DIR: tmpDir,
+        PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME: "65",
+      },
+      async () => {
+        const harness = createHarness(tmpDir, { goalFirst: true });
+        const { handlers, commands, ctx } = harness;
+
+        await callAll(handlers, "session_start", {}, ctx);
+        await commands.get("goal").handler("finish the auto-checkpoint compaction-order interaction test", ctx);
+        await delay();
+        harness.sentUserMessages.length = 0;
+
+        writePendingResume(tmpDir, sessionId, checkpointPath);
+        resetCheckpointCycleState();
+        assert.equal(isCheckpointCycleActive(ctx), false, "test starts with only durable pending-resume state");
+
+        await callAll(handlers, "session_compact", { compactionEntry: { id: "c1" }, fromExtension: false }, ctx);
+        await delay();
+
+        assert.equal(harness.getAuditCalls(), 0, "goal audit must not win the post-compaction pending-resume race");
+        assert.equal(harness.sentUserMessages.length, 1);
+        assert.match(harness.sentUserMessages[0].text, /auto-checkpointed and compacted context/);
+        assert.equal(isCheckpointCycleActive(ctx), true, "sent-but-unconsumed resume keeps the checkpoint cycle active");
+
+        await callAll(handlers, "session_shutdown", {}, ctx);
+      },
+    );
+  } finally {
+    resetCheckpointCycleState();
+    __resetGoalRuntimeStoreForTests();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
 
 test("/goal audit stays muted while auto-checkpoint pending resume is outstanding", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-autockpt-integration-"));

@@ -48,7 +48,7 @@ What this proves:
 - blank `/goal` during a running turn can adopt the previous user message without injecting an immediate continuation
 - ordinary user input does not arm a repeat cycle
 - `pause`, `resume`, and old `repeats` controls are rejected with actionable guidance toward `clear` or `budget`
-- active goals continue only after idle scheduling gates pass, auto-checkpoint and session-compaction blockers are clear, and `turnsUsed` increments only after follow-up dispatch succeeds
+- active goals continue only after idle scheduling gates pass, auto-checkpoint pending-resume/session-compaction blockers are clear, and `turnsUsed` increments only after follow-up dispatch succeeds
 - configured turn budgets transition to `budget_limited` instead of pretending the goal is complete
 - high-confidence external audit completion marks `complete` and suppresses follow-up dispatch only when concrete evidence and source paths are present
 - audit failures/timeouts and low-confidence results fall back to continuation and never mark completion
@@ -175,4 +175,5 @@ What this proves:
 - a valid footer path can reach `startCompaction()` even when the assistant emits an absolute remote-workspace path
 - SSH-backed checkpoint probing is used for remote existence/freshness checks instead of local-only filesystem assumptions
 - pending resume does not clear a valid remote checkpoint just because it is absent from the local filesystem
+- durable pending-resume state restores the shared checkpoint-cycle blocker on session start and after `session_compact`, so `/goal` cannot win a post-compaction race before the resume prompt is consumed
 - compaction callbacks still show/clear UI state and preserve the queued resume path after compaction completes or throws

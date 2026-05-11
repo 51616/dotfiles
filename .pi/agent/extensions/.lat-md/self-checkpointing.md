@@ -12,7 +12,7 @@ It also owns the optional autotest and debug helpers that support checkpointing 
 
 There should be one checkpoint cycle per session state at a time.
 
-Threshold-based arming, auto-kick state, pending compaction state, and footer dedupe should stay aligned so one threshold crossing does not trigger duplicate compactions or duplicate resume pings.
+Threshold-based arming, auto-kick state, pending compaction state, pending-resume state, and footer dedupe should stay aligned so one threshold crossing does not trigger duplicate compactions or duplicate resume pings. A durable pending resume is still an active checkpoint cycle after reloads, timers, and `session_compact` events even when the in-memory pending-compaction flag was lost; other automation such as `/goal` relies on that shared blocker.
 
 Footer detection should be explicit and deduplicated within the configured window instead of guessing from loosely similar output.
 

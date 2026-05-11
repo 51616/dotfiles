@@ -96,6 +96,7 @@ export function registerSelfCheckpointingHooks(
 
     deps.clearCompactionLoader(ctx);
     clearCheckpointCycleState(ctx);
+    deps.refreshCheckpointCycleState(ctx);
     deps.setStatus(ctx, undefined);
     deps.pushDebug(ctx, "session_start");
     deps.pushDebug(ctx, `checkpoint_probe ${formatCheckpointProbeInfo(deps.describeCheckpointProbe())}`);
@@ -115,6 +116,7 @@ export function registerSelfCheckpointingHooks(
 
         if (!deps.getPendingCompactionRequested()) {
           deps.pendingResume.trySend(ctx, "timer");
+          deps.refreshCheckpointCycleState(ctx);
         }
 
         if (cleared) {
@@ -152,7 +154,16 @@ export function registerSelfCheckpointingHooks(
 
   pi.on("session_compact", (_event, ctx) => {
     deps.clearCompactionLoader(ctx);
-    if (!deps.getPendingCompactionRequested()) return;
+    if (!deps.getPendingCompactionRequested()) {
+      // A compaction can outlive the in-memory pendingCompaction flag after reloads
+      // or callback/context handoff. The durable pending-resume file is still the
+      // authority; refresh the shared blocker before other automation (notably /goal)
+      // can treat post-compaction idle as free to schedule its own follow-up.
+      deps.pendingResume.trySend(ctx, "session_compact_without_pending_compaction");
+      deps.refreshCheckpointCycleState(ctx);
+      deps.updateArmedStatus(ctx);
+      return;
+    }
 
     deps.pushDebug(ctx, "session_compact observed (autockpt); clearing pending compaction and resuming");
 
@@ -188,6 +199,7 @@ export function registerSelfCheckpointingHooks(
 
       if (!deps.getPendingCompactionRequested()) {
         deps.pendingResume.trySend(ctx, "input_event");
+        deps.refreshCheckpointCycleState(ctx);
       }
     } catch {
       // ignore
