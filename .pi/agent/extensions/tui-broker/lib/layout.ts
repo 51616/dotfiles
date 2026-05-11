@@ -183,11 +183,18 @@ export function buildModelEffortLabel(
   modelId: string | undefined,
   reasoning: boolean | undefined,
   thinkingLevel: string | undefined,
+  effortSuffixes: readonly string[] = [],
 ): string {
   const modelLabel = `${MODEL_ICON} ${formatModelIdForDisplay(modelId)}`;
   if (!reasoning) return modelLabel;
 
-  return `${modelLabel} · ${EFFORT_ICON} ${formatThinkingLevelForDisplay(thinkingLevel)}`;
+  const suffix = effortSuffixes
+    .map(sanitizeStatusText)
+    .filter(Boolean)
+    .map((text) => ` (${text})`)
+    .join("");
+
+  return `${modelLabel} · ${EFFORT_ICON} ${formatThinkingLevelForDisplay(thinkingLevel)}${suffix}`;
 }
 
 export function buildSingleLineFooter(left: string, right: string, width: number): string {

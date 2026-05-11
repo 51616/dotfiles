@@ -142,6 +142,19 @@ What this proves:
 - palette execution expands frontmatter-backed prompt-template files and pastes the resolved body into the editor
 - prompt-template insertion prefixes two blank lines only when the captured cursor line is already non-empty
 
+## Codex fast mode stays a service-tier toggle
+
+Owned by:
+- `.pi/extensions/codex-fast-mode/test/index.test.mjs`
+- `.pi/extensions/tui-broker/test/interop.test.mjs`
+- `.pi/extensions/tui-broker/test/layout.test.mjs`
+
+What this proves:
+- `/fast` enables and `/normal` disables the persisted `codex-fast-mode` state without switching models or changing reasoning effort
+- enabled OpenAI Codex requests receive `service_tier: "fast"`
+- non-Codex providers stay untouched even when fast mode is enabled
+- the footer effort suffix is brokered through `tui-broker` and renders as ` (fast)` beside the thinking level only for reasoning model labels
+
 ## pi-ssh shared session runtime and prompt-context pickup stay exact
 
 Owned by:

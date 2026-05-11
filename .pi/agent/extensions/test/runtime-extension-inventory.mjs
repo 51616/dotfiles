@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 export const EXT_ROOT = path.resolve(TEST_DIR, "..");
-export const SUPPORT_DIRS = ["conductor", "lat-md", "lib", "node_modules", "test", "work"];
+export const SUPPORT_DIRS = [".lat-md", "conductor", "lib", "node_modules", "test", "work"];
 const SUPPORT_DIR_SET = new Set(SUPPORT_DIRS);
 
 // This file is the migration checklist for the live extension workspace.
@@ -22,6 +22,9 @@ export const REGRESSION_MATRIX = {
   "command-palette": [
     "test/command-palette.test.mjs",
     "test/command-palette-overlay.test.mjs",
+  ],
+  "codex-fast-mode": [
+    "codex-fast-mode/test/index.test.mjs",
   ],
   "custom-spinner": [
     "test/runtime-entrypoint-imports.test.mjs",

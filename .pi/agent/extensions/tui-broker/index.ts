@@ -19,6 +19,7 @@ import {
   getTuiBrokerEditorBadges,
   getTuiBrokerEditorBorderColor,
   getTuiBrokerEditorTopRightStatuses,
+  getTuiBrokerFooterModelEffortSuffixes,
   getTuiBrokerFooterPath,
   getTuiBrokerRuntimeSnapshot,
   markTuiBrokerInstalled,
@@ -337,11 +338,18 @@ export default function tuiBroker(pi: ExtensionAPI) {
     description: "Show tui-broker surface contributors",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) return;
-      const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
+      const snapshot = getTuiBrokerRuntimeSnapshot({
+        sessionName: ctx.sessionManager.getSessionName(),
+        provider: ctx.model?.provider,
+        modelId: ctx.model?.id,
+        reasoning: ctx.model?.reasoning,
+        thinkingLevel: pi.getThinkingLevel(),
+      });
       const parts = [
         `footer=${snapshot.footerPathSourceKey ?? "local"}`,
         `badges=${snapshot.editorBadgeKeys.join(",") || "none"}`,
         `topRight=${snapshot.editorTopRightStatusKeys.join(",") || "none"}`,
+        `effortSuffixes=${snapshot.footerModelEffortSuffixKeys.join(",") || "none"}`,
         `border=${EDITOR_BORDER_COLOR_LABEL}`,
         `autocomplete=${snapshot.autocompleteWrappers.join(",") || "none"}`,
       ];
@@ -393,7 +401,18 @@ export default function tuiBroker(pi: ExtensionAPI) {
           const sessionName = ctx.sessionManager.getSessionName();
           const contributedPath = getTuiBrokerFooterPath({ sessionName });
           const pwd = contributedPath?.text ?? formatPwd(ctx.sessionManager.getCwd(), sessionName);
-          const modelLineText = buildModelEffortLabel(ctx.model?.id, ctx.model?.reasoning, pi.getThinkingLevel());
+          const effortSuffixes = getTuiBrokerFooterModelEffortSuffixes({
+            provider: ctx.model?.provider,
+            modelId: ctx.model?.id,
+            reasoning: ctx.model?.reasoning,
+            thinkingLevel: pi.getThinkingLevel(),
+          }).map((entry) => entry.text);
+          const modelLineText = buildModelEffortLabel(
+            ctx.model?.id,
+            ctx.model?.reasoning,
+            pi.getThinkingLevel(),
+            effortSuffixes,
+          );
           lines.push(colorizeFooterLine(theme, pwd, modelLineText, width));
 
           const extensionStatuses = footerData.getExtensionStatuses();

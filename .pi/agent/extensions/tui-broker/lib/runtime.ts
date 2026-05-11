@@ -5,6 +5,7 @@ const AUTOCOMPLETE_WRAPPERS_KEY = "__PI_TUI_BROKER_AUTOCOMPLETE_WRAPPERS__";
 const EDITOR_BADGES_KEY = "__PI_TUI_BROKER_EDITOR_BADGES__";
 const EDITOR_TOP_RIGHT_STATUSES_KEY = "__PI_TUI_BROKER_EDITOR_TOP_RIGHT_STATUSES__";
 const FOOTER_PATH_PROVIDERS_KEY = "__PI_TUI_BROKER_FOOTER_PATH_PROVIDERS__";
+const FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS_KEY = "__PI_TUI_BROKER_FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS__";
 const FOOTER_REFRESH_LISTENERS_KEY = "__PI_TUI_BROKER_FOOTER_REFRESH_LISTENERS__";
 const EDITOR_REINSTALL_HANDLER_KEY = "__PI_TUI_BROKER_EDITOR_REINSTALL_HANDLER__";
 const EDITOR_REFRESH_HANDLER_KEY = "__PI_TUI_BROKER_EDITOR_REFRESH_HANDLER__";
@@ -26,6 +27,16 @@ export type TuiBrokerFooterPathContribution = {
   text: string;
   priority?: number;
 };
+export type TuiBrokerFooterModelEffortSuffixArgs = {
+  provider: string | undefined;
+  modelId: string | undefined;
+  reasoning: boolean | undefined;
+  thinkingLevel: string | undefined;
+};
+export type TuiBrokerFooterModelEffortSuffixContribution = {
+  text: string;
+  priority?: number;
+};
 
 type GlobalState = Record<string, unknown>;
 type TuiBrokerEditorBadgeProvider = () => TuiBrokerEditorBadge | null | undefined;
@@ -33,6 +44,9 @@ type TuiBrokerEditorTopRightStatusProvider = () => TuiBrokerEditorTopRightStatus
 type TuiBrokerFooterPathProvider = (
   args: TuiBrokerFooterPathArgs,
 ) => TuiBrokerFooterPathContribution | null | undefined;
+type TuiBrokerFooterModelEffortSuffixProvider = (
+  args: TuiBrokerFooterModelEffortSuffixArgs,
+) => TuiBrokerFooterModelEffortSuffixContribution | null | undefined;
 type ContributionWithKey<T extends object> = T & { key: string; priority: number };
 
 function getGlobalState(): GlobalState {
@@ -173,6 +187,36 @@ export function getTuiBrokerFooterPath(
   return resolved[0] ?? null;
 }
 
+export function registerTuiBrokerFooterModelEffortSuffixProvider(
+  key: string,
+  provider: TuiBrokerFooterModelEffortSuffixProvider,
+): void {
+  getMap<TuiBrokerFooterModelEffortSuffixProvider>(FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS_KEY).set(key, provider);
+}
+
+export function unregisterTuiBrokerFooterModelEffortSuffixProvider(key: string): void {
+  getMap<TuiBrokerFooterModelEffortSuffixProvider>(FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS_KEY).delete(key);
+}
+
+export function getTuiBrokerFooterModelEffortSuffixes(
+  args: TuiBrokerFooterModelEffortSuffixArgs,
+): Array<ContributionWithKey<TuiBrokerFooterModelEffortSuffixContribution>> {
+  const resolved: Array<ContributionWithKey<TuiBrokerFooterModelEffortSuffixContribution>> = [];
+  for (const [key, provider] of getMap<TuiBrokerFooterModelEffortSuffixProvider>(
+    FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS_KEY,
+  ).entries()) {
+    const value = provider(args);
+    if (!value) continue;
+    resolved.push({
+      ...value,
+      key,
+      priority: normalizePriority(value.priority),
+    });
+  }
+
+  return resolved.sort(sortByPriorityThenKey);
+}
+
 export function subscribeTuiBrokerFooterRefresh(listener: () => void): () => void {
   const listeners = getListeners(FOOTER_REFRESH_LISTENERS_KEY);
   listeners.add(listener);
@@ -221,7 +265,9 @@ export function requestTuiBrokerEditorReinstall(): void {
   }
 }
 
-export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { sessionName: undefined }): {
+export function getTuiBrokerRuntimeSnapshot(
+  args: TuiBrokerFooterPathArgs & Partial<TuiBrokerFooterModelEffortSuffixArgs> = { sessionName: undefined },
+): {
   autocompleteWrappers: string[];
   editorBadgeKeys: string[];
   editorBadges: string[];
@@ -231,10 +277,18 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
   footerPathProviderKeys: string[];
   footerPathText: string | null;
   footerPathSourceKey: string | null;
+  footerModelEffortSuffixKeys: string[];
+  footerModelEffortSuffixes: string[];
 } {
   const badges = getTuiBrokerEditorBadges();
   const topRightStatuses = getTuiBrokerEditorTopRightStatuses();
   const footerPath = getTuiBrokerFooterPath(args);
+  const footerModelEffortSuffixes = getTuiBrokerFooterModelEffortSuffixes({
+    provider: args.provider,
+    modelId: args.modelId,
+    reasoning: args.reasoning,
+    thinkingLevel: args.thinkingLevel,
+  });
 
   return {
     autocompleteWrappers: Array.from(getMap<TuiBrokerAutocompleteProviderWrapper>(AUTOCOMPLETE_WRAPPERS_KEY).keys()).sort(),
@@ -246,6 +300,8 @@ export function getTuiBrokerRuntimeSnapshot(args: TuiBrokerFooterPathArgs = { se
     footerPathProviderKeys: Array.from(getMap<TuiBrokerFooterPathProvider>(FOOTER_PATH_PROVIDERS_KEY).keys()).sort(),
     footerPathText: footerPath?.text ?? null,
     footerPathSourceKey: footerPath?.key ?? null,
+    footerModelEffortSuffixKeys: footerModelEffortSuffixes.map((entry) => entry.key),
+    footerModelEffortSuffixes: footerModelEffortSuffixes.map((entry) => entry.text),
   };
 }
 
@@ -258,5 +314,6 @@ export function __resetTuiBrokerRuntimeForTests(): void {
   delete state[EDITOR_BADGES_KEY];
   delete state[EDITOR_TOP_RIGHT_STATUSES_KEY];
   delete state[FOOTER_PATH_PROVIDERS_KEY];
+  delete state[FOOTER_MODEL_EFFORT_SUFFIX_PROVIDERS_KEY];
   delete state[FOOTER_REFRESH_LISTENERS_KEY];
 }

@@ -64,10 +64,11 @@ test("formatThinkingLevelForDisplay makes effort labels human readable", () => {
   assert.equal(formatThinkingLevelForDisplay("off"), "Thinking Off");
 });
 
-test("buildModelEffortLabel keeps only model and effort", () => {
+test("buildModelEffortLabel keeps only model, effort, and effort suffixes", () => {
   assert.equal(buildModelEffortLabel("gpt-5.4", true, "high"), "󰚩 GPT-5.4 · 󰧑 High");
+  assert.equal(buildModelEffortLabel("gpt-5.4", true, "high", ["fast"]), "󰚩 GPT-5.4 · 󰧑 High (fast)");
   assert.equal(buildModelEffortLabel("gpt-5.4", true, "off"), "󰚩 GPT-5.4 · 󰧑 Thinking Off");
-  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high"), "󰚩 GPT-5.4");
+  assert.equal(buildModelEffortLabel("gpt-5.4", false, "high", ["fast"]), "󰚩 GPT-5.4");
 });
 
 test("buildSingleLineFooter keeps model label right-aligned", () => {

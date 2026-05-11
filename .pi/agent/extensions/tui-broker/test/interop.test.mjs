@@ -12,6 +12,7 @@ import {
   isTuiBrokerInstalled,
   registerTuiBrokerAutocompleteProviderWrapper,
   registerTuiBrokerEditorTopRightStatusProvider,
+  registerTuiBrokerFooterModelEffortSuffixProvider,
   registerTuiBrokerFooterPathProvider,
   requestTuiBrokerEditorReinstall,
   unregisterTuiBrokerAutocompleteProviderWrapper,
@@ -448,6 +449,54 @@ test("tui-broker falls back to the startup default model context window before t
     if (previousAgentDir === undefined) delete process.env.PI_AGENT_DIR;
     else process.env.PI_AGENT_DIR = previousAgentDir;
   }
+});
+
+test("tui-broker renders registered footer effort suffixes next to the thinking level", async () => {
+  __resetTuiBrokerRuntimeForTests();
+  __resetGoalRuntimeStoreForTests();
+
+  registerTuiBrokerFooterModelEffortSuffixProvider("codex-fast-mode", ({ provider }) => {
+    if (provider !== "openai-codex") return null;
+    return { text: "fast", priority: 100 };
+  });
+
+  const pi = createFakePi();
+  tuiBroker(pi);
+
+  const ctx = createFakeCtx();
+  for (const handler of pi.events.get("session_start") ?? []) {
+    await handler({}, ctx);
+  }
+
+  const footerFactory = ctx.calls.find((entry) => entry.type === "footer")?.value;
+  assert.equal(typeof footerFactory, "function");
+
+  const footer = footerFactory(
+    { requestRender() {} },
+    {
+      fg: (_color, text) => text,
+      bold: (text) => text,
+    },
+    {
+      getGitBranch: () => "ignored-local-branch",
+      getExtensionStatuses: () => new Map(),
+      onBranchChange: () => () => {},
+    },
+  );
+
+  const lines = footer.render(80);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].endsWith("󰚩 GPT-5.4 · 󰧑 High (fast)"));
+
+  const snapshot = getTuiBrokerRuntimeSnapshot({
+    sessionName: ctx.sessionManager.getSessionName(),
+    provider: "openai-codex",
+    modelId: "gpt-5.4",
+    reasoning: true,
+    thinkingLevel: "high",
+  });
+  assert.deepEqual(snapshot.footerModelEffortSuffixKeys, ["codex-fast-mode"]);
+  assert.deepEqual(snapshot.footerModelEffortSuffixes, ["fast"]);
 });
 
 test("tui-broker uses the highest-priority footer path contributor without losing its own layout", async () => {
