@@ -151,7 +151,9 @@ Owned by:
 
 What this proves:
 - `/fast` enables and `/normal` disables the persisted `codex-fast-mode` state without switching models or changing reasoning effort
-- enabled OpenAI Codex requests receive `service_tier: "fast"`
+- enabled OpenAI Codex requests receive the configured Responses API service tier, defaulting to `service_tier: "priority"` instead of the unsupported literal `"fast"`
+- invalid service-tier overrides fail fast before requests are mutated
+- `/codex-fast-mode status` reports injection diagnostics and the last provider response status
 - non-Codex providers stay untouched even when fast mode is enabled
 - the footer effort suffix is brokered through `tui-broker` and renders as ` (fast)` beside the thinking level only for reasoning model labels
 

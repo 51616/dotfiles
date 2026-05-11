@@ -28,7 +28,7 @@ Entrypoint: [[command-context-for-tools/index.ts]].
 
 ## codex-fast-mode
 
-Owns `/fast`, `/normal`, and `/codex-fast-mode` for OpenAI Codex `service_tier: "fast"` request injection plus the footer ` (fast)` effort suffix.
+Owns `/fast`, `/normal`, and `/codex-fast-mode` for OpenAI Codex Responses API service-tier request injection plus the footer ` (fast)` effort suffix.
 
 See also [[codex-fast-mode]].
 
