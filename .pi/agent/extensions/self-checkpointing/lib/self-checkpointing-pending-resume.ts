@@ -12,7 +12,6 @@ export type PendingResumeControllerDeps = {
 
   sessionIdFor: (ctx: ExtensionContext) => string;
   getActiveCompactionLock: (ctx: ExtensionContext) => PidLockRecord | null;
-  isCheckpointAvailable: (checkpointPath: string) => boolean;
 
   pushDebug: (ctx: ExtensionContext, line: string) => void;
   sendUserMessage: (text: string) => void;
@@ -45,15 +44,6 @@ export function createPendingResumeController(deps: PendingResumeControllerDeps)
     const sid = deps.sessionIdFor(ctx);
     if (sid) {
       if (pending.sessionId === undefined || pending.sessionId !== sid) return false;
-    }
-
-    // If the checkpoint file is gone, the pending record is useless and can cause confusing self-pings.
-    // In pi-ssh mode the checkpoint may exist only on the remote workspace, so use the injected
-    // checkpoint-availability probe instead of a local fs existence check.
-    if (!deps.isCheckpointAvailable(pending.checkpointPath)) {
-      deps.pushDebug(ctx, `stale pending resume: missing checkpoint file (${pending.checkpointPath}); clearing`);
-      deps.clearPending(ctx);
-      return false;
     }
 
     const lock = deps.getActiveCompactionLock(ctx);

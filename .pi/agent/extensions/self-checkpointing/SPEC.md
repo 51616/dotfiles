@@ -76,13 +76,10 @@ The `self-checkpointing` extension uses this footer to:
   - `ctx.getContextUsage().percent >= thresholdPercent` or `ctx.getContextUsage().tokens >= thresholdTokens` at detection time
     - (We intentionally do not rely on any transcript-visible signal because tool usage can split a single user-visible turn into multiple internal turns.)
   - footer matches the strict shape (instruction block + completion line)
-  - checkpoint path validates and exists:
+  - checkpoint footer includes a syntactically valid path:
     - reject placeholders like `<...>` and other obviously malformed paths
     - allow relative or absolute paths
-    - local mode checks the local filesystem; `pi-ssh` mode checks the remote workspace via SSH
-  - checkpoint file freshness check:
-    - file mtime must be within `PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS` (default 10 minutes)
-    - in `pi-ssh` mode, freshness/existence checks use the SSH-aware checkpoint probe instead of local `fs` calls
+    - do **not** probe local or remote filesystem existence/freshness; the footer contract is enough to start compaction and resume
   - duplicate-footer dedupe does not block it (same path ignored for `PI_SELF_CHECKPOINT_FOOTER_DEDUPE_MS`, default 15s)
   - compaction owner PID lock is held by the current process (the pid that injected the steering directive is the pid that performs compaction+resume)
 - Action:
@@ -99,16 +96,13 @@ The `self-checkpointing` extension uses this footer to:
 
 ### Self-ping message content
 
-The injected follow-up user message should:
-- reference checkpoint path explicitly
-- instruct: resume from the checkpoint plan
-
-Example:
+The injected follow-up user message is intentionally stable and path-free:
 
 ```
-We just auto-checkpointed and compacted context. Resume using checkpoint: <path>.
-Continue from the Next steps section in that checkpoint.
+We just auto-checkpointed and compacted context. Please continue your work.
 ```
+
+The compaction summary and session history preserve the checkpoint path; the resume self-ping only restarts work.
 
 ## Triggering & gating details
 
@@ -132,8 +126,7 @@ Environment variables (defaults in parentheses):
 - `PI_SELF_CHECKPOINT_THRESHOLD_PERCENT_RUNTIME` (unset)
 - `PI_SELF_CHECKPOINT_DEBUG` (`0`) — when `1`, keep a live debug widget updated and write debug JSONL logs
 - `PI_SELF_CHECKPOINT_DEBUG_LOG_PATH` (unset) — override the debug JSONL log path; default is `<STATE_DIR>/debug.<sessionHash>.jsonl`
-  - each JSONL record includes `checkpointProbe` metadata showing whether validation is using the local filesystem or an active `pi-ssh` session
-- `PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS` (`600000`) — reject stale checkpoint paths
+  - each JSONL record includes `checkpointProbe` metadata for diagnostics; footer acceptance does not use file existence validation
 - `PI_SELF_CHECKPOINT_FOOTER_DEDUPE_MS` (`15000`) — ignore duplicate footer for the same checkpoint path within this window
 - `PI_SELF_CHECKPOINT_AUTO_KICK_MAX_AGE_MS` (`120000`) — auto-kick watchdog timeout for “writing checkpoint…” state
 - `PI_SELF_CHECKPOINT_AUTO_KICK_MIN_TOOL_CALLS` (`10`) — min number of tool calls between auto-kick reminder attempts
@@ -179,20 +172,18 @@ Purpose: enable hands-off E2E testing without needing to type extension commands
   - it clears the in-flight “writing checkpoint…” state at the next assistant `message_end` (or via watchdog timeout) and releases the compaction owner lock, so status doesn’t get stuck
   - it may retry auto-kick up to the attempt limit (default: 3)
   - debug mode logs “footer not matched” if it looks like the assistant tried
-- If a pending resume record exists but the referenced checkpoint file no longer exists:
-  - clear the pending record (prevents confusing self-pings from stale state)
-  - in `pi-ssh` mode, use the SSH-aware checkpoint probe so remote-only checkpoints are not cleared incorrectly
+- Pending resume records do not validate checkpoint file existence before sending the resume self-ping. This intentionally preserves forward progress even when the assistant wrote a checkpoint but copied the footer path incorrectly.
 
 ## Observability
 
 - Status bar entry:
   - `autockpt: idle|armed|compacting|compaction failed (...)`
-- `/autockpt status` reports the active checkpoint probe mode explicitly:
+- `/autockpt status` reports the diagnostic checkpoint probe mode explicitly:
   - local mode: `checkpointProbe: local source=local-default`
   - SSH mode: `checkpointProbe: ssh source=active-backend|cached-backend remote=<host> port=<port> cwd=<remote_cwd>`
 - Debug widget (when enabled): recent event log + current settings, including the checkpoint probe mode line via `/autockpt status`.
 - Debug JSONL file (when enabled): one record per debug line with timestamp, pid, session id, cwd, checkpoint-probe metadata, and message text.
-- On `session_start`, debug mode emits a `checkpoint_probe ...` line so headless logs show which probe path will be used for checkpoint validation.
+- On `session_start`, debug mode emits a `checkpoint_probe ...` line for remote/local diagnostics.
 
 ## Acceptance tests
 
@@ -202,10 +193,10 @@ Purpose: enable hands-off E2E testing without needing to type extension commands
    - `/autockpt threshold 1`
 2) Run a tool or continue work until the threshold logic trips.
 3) Confirm the auto-checkpoint directive appears.
-4) Write a checkpoint note and end with the footer block. The footer may reference a relative or absolute path as long as the target exists.
+4) Write a checkpoint note and end with the footer block. The footer may reference a syntactically valid relative or absolute path; existence is not checked before compaction/resume.
 5) Verify compaction+resume occurred by checking the session JSONL:
    - new `{"type":"compaction", ...}` line appended
-   - injected resume user message referencing the checkpoint path
+   - injected fixed resume user message
 
 ### One-shot autotest
 

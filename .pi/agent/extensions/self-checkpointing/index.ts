@@ -73,10 +73,6 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     "PI_SELF_CHECKPOINT_COMPACTION_LOCK_MAX_AGE_MS",
     600000,
   );
-  const MAX_CHECKPOINT_AGE_MS = parseNonNegativeIntEnv(
-    "PI_SELF_CHECKPOINT_MAX_CHECKPOINT_AGE_MS",
-    600000,
-  );
   const AUTOTEST_MAX_AGE_MS = parseNonNegativeIntEnv(
     "PI_SELF_CHECKPOINT_AUTOTEST_MAX_AGE_MS",
     300000,
@@ -237,7 +233,6 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     clearPending: sessionStore.clearPending,
     sessionIdFor: sessionStore.sessionIdFor,
     getActiveCompactionLock: sessionStore.getActiveCompactionLock,
-    isCheckpointAvailable: (checkpointPath) => checkpointProbe.isFreshCheckpointFile(checkpointPath, 0),
     pushDebug,
     sendUserMessage: (text) => sendFollowUpUserMessage(text),
   });
@@ -332,9 +327,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
     compactionLockMaxAgeMs: COMPACTION_LOCK_MAX_AGE_MS,
     debugWidgetKey,
     debugWidgetAuto,
-    maxCheckpointAgeMs: MAX_CHECKPOINT_AGE_MS,
     footerDedupeWindowMs: FOOTER_DEDUPE_WINDOW_MS,
-    checkpointProbe,
     autoKick,
     pendingResume,
     autotest,

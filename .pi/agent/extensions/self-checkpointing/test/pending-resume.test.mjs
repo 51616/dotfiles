@@ -23,7 +23,7 @@ function createPending() {
   };
 }
 
-test("pending resume uses injected checkpoint availability for ssh-backed checkpoints", () => {
+test("pending resume sends without probing checkpoint availability", () => {
   const events = [];
   const pending = createPending();
   const ctx = createCtx();
@@ -35,10 +35,6 @@ test("pending resume uses injected checkpoint availability for ssh-backed checkp
     clearPending: () => events.push(["clearPending"]),
     sessionIdFor: () => "sess-1",
     getActiveCompactionLock: () => null,
-    isCheckpointAvailable: (checkpointPath) => {
-      events.push(["isCheckpointAvailable", checkpointPath]);
-      return checkpointPath === pending.checkpointPath;
-    },
     pushDebug: (_ctx, line) => events.push(["debug", line]),
     sendUserMessage: (text) => events.push(["sendUserMessage", text]),
   });
@@ -46,13 +42,8 @@ test("pending resume uses injected checkpoint availability for ssh-backed checkp
   const sent = controller.trySend(ctx, "test");
 
   assert.equal(sent, true);
-  assert.deepEqual(events.map(([name]) => name), [
-    "isCheckpointAvailable",
-    "writePending",
-    "debug",
-    "sendUserMessage",
-  ]);
-  assert.equal(events[3][1], pending.resumeText);
+  assert.deepEqual(events.map(([name]) => name), ["writePending", "debug", "sendUserMessage"]);
+  assert.equal(events[2][1], pending.resumeText);
 });
 
 test("pending resume takes over a dead owner process for the same session", () => {
@@ -70,7 +61,6 @@ test("pending resume takes over a dead owner process for the same session", () =
     clearPending: () => events.push(["clearPending"]),
     sessionIdFor: () => "sess-1",
     getActiveCompactionLock: () => null,
-    isCheckpointAvailable: () => true,
     pushDebug: (_ctx, line) => events.push(["debug", line]),
     sendUserMessage: (text) => events.push(["sendUserMessage", text]),
   });
@@ -84,34 +74,4 @@ test("pending resume takes over a dead owner process for the same session", () =
   assert.equal(events[1][1].ownerPid, process.pid);
   assert.equal(events[2][0], "debug");
   assert.deepEqual(events[3], ["sendUserMessage", pending.resumeText]);
-});
-
-test("pending resume clears state when checkpoint is unavailable", () => {
-  const events = [];
-  const pending = createPending();
-  const ctx = createCtx();
-
-  const controller = createPendingResumeController({
-    pid: process.pid,
-    readPending: () => pending,
-    writePending: (_ctx, next) => events.push(["writePending", next]),
-    clearPending: () => events.push(["clearPending"]),
-    sessionIdFor: () => "sess-1",
-    getActiveCompactionLock: () => null,
-    isCheckpointAvailable: (checkpointPath) => {
-      events.push(["isCheckpointAvailable", checkpointPath]);
-      return false;
-    },
-    pushDebug: (_ctx, line) => events.push(["debug", line]),
-    sendUserMessage: (text) => events.push(["sendUserMessage", text]),
-  });
-
-  const sent = controller.trySend(ctx, "test");
-
-  assert.equal(sent, false);
-  assert.deepEqual(events, [
-    ["isCheckpointAvailable", pending.checkpointPath],
-    ["debug", `stale pending resume: missing checkpoint file (${pending.checkpointPath}); clearing`],
-    ["clearPending"],
-  ]);
 });

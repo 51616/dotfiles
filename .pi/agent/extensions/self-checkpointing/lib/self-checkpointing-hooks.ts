@@ -9,7 +9,7 @@ import type { PendingResumeController } from "./self-checkpointing-pending-resum
 import type { AutotestController } from "./self-checkpointing-autotest.ts";
 import { cleanupStaleCompactionLocksInStateDir } from "./self-checkpointing-lock-sweep.ts";
 import { handleAssistantMessageEnd } from "./self-checkpointing-footer-handler.ts";
-import type { CheckpointProbe, CheckpointProbeInfo } from "./self-checkpointing-checkpoint-probe.ts";
+import type { CheckpointProbeInfo } from "./self-checkpointing-checkpoint-probe.ts";
 import { isContextUsageAtOrAboveThreshold } from "../../lib/autockpt/autockpt-threshold.ts";
 
 type SessionStoreDeps = {
@@ -24,9 +24,7 @@ export type SelfCheckpointingHookDeps = {
   compactionLockMaxAgeMs: number;
   debugWidgetKey: string;
   debugWidgetAuto: boolean;
-  maxCheckpointAgeMs: number;
   footerDedupeWindowMs: number;
-  checkpointProbe: CheckpointProbe;
 
   autoKick: AutoKickController;
   pendingResume: PendingResumeController;
@@ -257,9 +255,7 @@ export function registerSelfCheckpointingHooks(
         getUsage: deps.getUsage,
         getThresholdPercent: deps.getThresholdPercent,
         getThresholdTokens: deps.getThresholdTokens,
-        maxCheckpointAgeMs: deps.maxCheckpointAgeMs,
         footerDedupeWindowMs: deps.footerDedupeWindowMs,
-        checkpointProbe: deps.checkpointProbe,
         ensureCompactionLock: deps.sessionStore.ensureCompactionLock,
         setCheckpointCycleActive: deps.setCheckpointCycleActive,
         pushDebug: deps.pushDebug,

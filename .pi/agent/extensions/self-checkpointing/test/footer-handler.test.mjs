@@ -18,15 +18,7 @@ function createDeps(events) {
     getUsage: () => ({ tokens: 90, contextWindow: 100, percent: 90 }),
     getThresholdPercent: () => 65,
     getThresholdTokens: () => 192000,
-    maxCheckpointAgeMs: 60_000,
     footerDedupeWindowMs: 15_000,
-    checkpointProbe: {
-      isFreshCheckpointFile: (checkpointPath) => {
-        events.push(["isFreshCheckpointFile", checkpointPath]);
-        return checkpointPath === "/remote/home/repo/work/log/checkpoints/demo.md";
-      },
-      inferLatestCheckpointPath: () => null,
-    },
     ensureCompactionLock: (_ctx, checkpointPath) => {
       events.push(["ensureCompactionLock", checkpointPath]);
       return true;
@@ -40,7 +32,7 @@ function createDeps(events) {
   };
 }
 
-test("handleAssistantMessageEnd starts compaction synchronously in headless mode", () => {
+test("handleAssistantMessageEnd accepts a syntactic footer path without probing file existence", () => {
   const events = [];
   const deps = createDeps(events);
   const ctx = { hasUI: false };
@@ -55,7 +47,7 @@ test("handleAssistantMessageEnd starts compaction synchronously in headless mode
             "__pi_compact_instructions_begin__",
             "Preserve state",
             "__pi_compact_instructions_end__",
-            "__pi_autocheckpoint_done__ path=/remote/home/repo/work/log/checkpoints/demo.md",
+            "__pi_autocheckpoint_done__ path=/remote/home/repo/work/log/checkpoints/missing-demo.md",
           ].join("\n"),
         },
       ],
@@ -66,8 +58,6 @@ test("handleAssistantMessageEnd starts compaction synchronously in headless mode
 
   assert.deepEqual(events.map(([name]) => name), [
     "pushDebug",
-    "isFreshCheckpointFile",
-    "pushDebug",
     "ensureCompactionLock",
     "setLastHandledFooter",
     "pushDebug",
@@ -77,8 +67,8 @@ test("handleAssistantMessageEnd starts compaction synchronously in headless mode
     "setCheckpointCycleActive",
     "startCompaction",
   ]);
-  assert.equal(events[1][1], "/remote/home/repo/work/log/checkpoints/demo.md");
-  assert.equal(events[10][1], "/remote/home/repo/work/log/checkpoints/demo.md");
+  assert.equal(events[1][1], "/remote/home/repo/work/log/checkpoints/missing-demo.md");
+  assert.equal(events[8][1], "/remote/home/repo/work/log/checkpoints/missing-demo.md");
 });
 
 test("handleAssistantMessageEnd drops deferred TUI compaction when ctx becomes stale", async () => {

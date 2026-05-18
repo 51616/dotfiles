@@ -3,14 +3,17 @@ import {
   AUTOCHECKPOINT_DONE_MARKER,
   COMPACTION_INSTR_BEGIN,
 } from "../../lib/autockpt/autockpt-markers.ts";
-import { assistantTextFromContent, parseCheckpointFooter } from "../../lib/autockpt/autockpt-footer-guards.ts";
+import {
+  assistantTextFromContent,
+  isLikelyCheckpointPath,
+  parseCheckpointFooter,
+} from "../../lib/autockpt/autockpt-footer-guards.ts";
 import {
   markFooterHandled,
   shouldSkipDuplicateFooter,
   type FooterHandledRecord,
 } from "../../lib/autockpt/autockpt-footer-dedupe.ts";
 import type { AutoKickController } from "./self-checkpointing-auto-kick.ts";
-import type { CheckpointProbe } from "./self-checkpointing-checkpoint-probe.ts";
 import { isContextUsageAtOrAboveThreshold } from "../../lib/autockpt/autockpt-threshold.ts";
 
 export type FooterHandlerDeps = {
@@ -28,9 +31,7 @@ export type FooterHandlerDeps = {
   getThresholdPercent: () => number;
   getThresholdTokens: () => number;
 
-  maxCheckpointAgeMs: number;
   footerDedupeWindowMs: number;
-  checkpointProbe: CheckpointProbe;
 
   ensureCompactionLock: (ctx: ExtensionContext, checkpointPath: string) => boolean;
 
@@ -42,7 +43,7 @@ export type FooterHandlerDeps = {
 
   updateArmedStatus: (ctx: ExtensionContext) => void;
 
-  // Called after a footer was validated (may do compaction + resume).
+  // Called after a syntactically valid footer was accepted (may do compaction + resume).
   startCompaction: (
     ctx: ExtensionContext,
     checkpointPath: string,
@@ -84,20 +85,10 @@ export function handleAssistantMessageEnd(
 
   const parsed = parseCheckpointFooter(text, 8000);
 
-  // If the assistant emitted the done marker but omitted `path=...`, try to infer the
-  // newest checkpoint file. This keeps the system resilient to minor LLM formatting slips.
-  let checkpointPath = parsed?.checkpointPath ?? "";
+  const checkpointPath = parsed?.checkpointPath ?? "";
   const compactionInstructions = parsed?.compactionInstructions ?? "";
 
-  if (!checkpointPath && sawDoneMarker) {
-    const inferred = deps.checkpointProbe.inferLatestCheckpointPath(deps.maxCheckpointAgeMs);
-    if (inferred) {
-      checkpointPath = inferred;
-      deps.pushDebug(ctx, `message_end: footer missing path; inferred checkpointPath=${checkpointPath}`);
-    }
-  }
-
-  if (!checkpointPath) {
+  if (!checkpointPath || !isLikelyCheckpointPath(checkpointPath)) {
     // Only log if it *looks* like the assistant tried to emit the footer.
     if (deps.isDebugEnabled() && (text.includes(COMPACTION_INSTR_BEGIN) || sawDoneMarker)) {
       const lastLine = text.trimEnd().split("\n").slice(-1)[0] ?? "";
@@ -119,18 +110,7 @@ export function handleAssistantMessageEnd(
     return;
   }
 
-  deps.pushDebug(ctx, `message_end: validating checkpoint path=${checkpointPath}`);
-  const checkpointFresh = deps.checkpointProbe.isFreshCheckpointFile(checkpointPath, deps.maxCheckpointAgeMs);
-  deps.pushDebug(ctx, `message_end: checkpoint probe fresh=${checkpointFresh} path=${checkpointPath}`);
-
-  if (!checkpointFresh) {
-    if (deps.autoKick.isInFlight()) {
-      deps.autoKick.clearInFlight(ctx, `checkpoint_invalid:${checkpointPath}`);
-      deps.updateArmedStatus(ctx);
-    }
-
-    return;
-  }
+  deps.pushDebug(ctx, `message_end: footer path accepted without file probe path=${checkpointPath}`);
 
   const nowMs = Date.now();
   if (
