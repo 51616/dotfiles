@@ -174,7 +174,8 @@ test("continuation messages include objective, budget, audit progress, and guard
 
   const initial = buildInitialGoalMessage(goal);
   assert.match(initial, /^Objective:\nfinish the migration/m);
-  assert.match(initial, /Do not stop until everything is complete, test, and verified\. Write your findings and progress down as you go\./);
+  assert.doesNotMatch(initial, /Do not stop until everything is complete, test, and verified/);
+  assert.match(initial, /Instructions:\n- Inspect the current session and repo state before changing files\./);
   assert.doesNotMatch(initial, /Budget\/progress/);
   assert.doesNotMatch(initial, /completion is checked by later external audits/);
   assert.doesNotMatch(initial, /budget-limited, or the user clears the goal/);
