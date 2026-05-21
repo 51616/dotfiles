@@ -16,6 +16,14 @@ import {
   type PiSshConnection,
 } from "./lib/pi-ssh-session-runtime.ts";
 import {
+  buildReusablePiSshRuntimeKey,
+  clearReusablePiSshRuntime,
+  shouldKeepReusablePiSshRuntime,
+  storeReusablePiSshRuntime,
+  takeReusablePiSshRuntime,
+  type ReusablePiSshRuntime,
+} from "./lib/pi-ssh-runtime-cache.ts";
+import {
   PROMPT_CONTEXT_END_MARKER,
   PROMPT_CONTEXT_STATUS_MARKER,
   injectPromptContextFile,
@@ -68,6 +76,8 @@ interface RemotePromptContextState {
   file: PromptContextFile | null;
   warning?: string;
 }
+
+type ReusableSshRuntime = ReusablePiSshRuntime<SshConnection, RemoteTransport, RemotePromptContextState>;
 
 type StartupNoticeTone = "info" | "warning";
 
@@ -1419,9 +1429,10 @@ export default function piSshExtension(pi: ExtensionAPI): void {
   });
 
   let connection: SshConnection | null = null;
-  let transport: SshTransport | null = null;
+  let transport: RemoteTransport | null = null;
   let activeSession: ReturnType<typeof createPiSshSession> | null = null;
   let remotePromptContext: RemotePromptContextState = { file: null };
+  let currentRuntimeCacheKey: string | null = null;
   let remoteFooterCwd: string | null = null;
   let activeUiContext: ExtensionContext | null = null;
   const footerRenderListeners = new Set<() => void>();
@@ -1567,45 +1578,83 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     const flag = pi.getFlag("ssh") as string | undefined;
-    if (!flag) return;
+    if (!flag) {
+      currentRuntimeCacheKey = null;
+      await clearReusablePiSshRuntime();
+      clearPublishedPiSshSession();
+      return;
+    }
 
     try {
       const rawPort = (pi.getFlag("port") as string | undefined) ?? (pi.getFlag("ssh-port") as string | undefined);
       const port = parseSshPort(rawPort);
-      connection = await resolveSshConnection(flag, localCwd, localHome, port);
+      const runtimeCacheKey = buildReusablePiSshRuntimeKey({ sshFlag: flag, port, localCwd, localHome });
+      const canReuseRuntime = shouldKeepReusablePiSshRuntime(event.reason);
+      let reusedRuntime = false;
+      currentRuntimeCacheKey = runtimeCacheKey;
+
+      if (canReuseRuntime) {
+        const reusableRuntime = takeReusablePiSshRuntime<SshConnection, RemoteTransport, RemotePromptContextState>(runtimeCacheKey);
+        if (reusableRuntime) {
+          connection = reusableRuntime.connection;
+          transport = reusableRuntime.transport;
+          activeSession = reusableRuntime.session;
+          remotePromptContext = reusableRuntime.remotePromptContext;
+          publishActivePiSshSession(activeSession);
+          reusedRuntime = true;
+          logPiSshDebug("runtime.reused", { reason: event.reason, remote: connection.remote, port: connection.port });
+        } else {
+          await clearReusablePiSshRuntime();
+        }
+      } else {
+        await clearReusablePiSshRuntime();
+      }
+
+      if (!connection || !transport || !activeSession) {
+        connection = await resolveSshConnection(flag, localCwd, localHome, port);
+        const createdConnection = connection;
+        transport = new SshTransport(createdConnection);
+        const createdTransport = transport;
+        activeSession = createPiSshSession({
+          connection: createdConnection,
+          transport: createdTransport,
+          execCapture: (command, options) => sshCapture(createdConnection.remote, createdConnection.port, command, options),
+          execText: async (command, options) => {
+            try {
+              const result = await createdTransport.execText(command, {
+                timeout: typeof options?.timeoutSeconds === "number" ? options.timeoutSeconds : undefined,
+                signal: options?.signal,
+              });
+              return {
+                ...result,
+                timedOut: false,
+                aborted: false,
+              };
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              if (message === "aborted") {
+                return { output: "", exitCode: null, timedOut: false, aborted: true };
+              }
+              if (message.startsWith("timeout:")) {
+                return { output: "", exitCode: null, timedOut: true, aborted: false };
+              }
+              throw error;
+            }
+          },
+        });
+        publishActivePiSshSession(activeSession);
+        logPiSshDebug("runtime.created", { reason: event.reason, remote: connection.remote, port: connection.port });
+      }
+
       const sessionConnection = connection;
-      transport = new SshTransport(sessionConnection);
-      const sessionTransport = transport;
-      activeSession = createPiSshSession({
-        connection: sessionConnection,
-        transport: sessionTransport,
-        execCapture: (command, options) => sshCapture(sessionConnection.remote, sessionConnection.port, command, options),
-        execText: async (command, options) => {
-          try {
-            const result = await sessionTransport.execText(command, {
-              timeout: typeof options?.timeoutSeconds === "number" ? options.timeoutSeconds : undefined,
-              signal: options?.signal,
-            });
-            return {
-              ...result,
-              timedOut: false,
-              aborted: false,
-            };
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (message === "aborted") {
-              return { output: "", exitCode: null, timedOut: false, aborted: true };
-            }
-            if (message.startsWith("timeout:")) {
-              return { output: "", exitCode: null, timedOut: true, aborted: false };
-            }
-            throw error;
-          }
-        },
-      });
-      publishActivePiSshSession(activeSession);
+      const session = activeSession;
+      if (!sessionConnection || !session) {
+        throw new Error("Remote SSH transport is not available");
+      }
+
+      publishActivePiSshSession(session);
       try {
         await resolveActivePiSshRepoIdentity(ctx.sessionManager.getCwd());
       } catch (error) {
@@ -1615,13 +1664,13 @@ export default function piSshExtension(pi: ExtensionAPI): void {
         });
       }
       activeUiContext = ctx.hasUI ? ctx : null;
-      remoteFooterCwd = mapLocalPathToRemote(ctx.sessionManager.getCwd(), connection);
-      installRemoteFooter(ctx, connection);
-      publishRemoteFooterState(connection, ctx);
-      remotePromptContext = await loadRemotePromptContext(connection);
-      const enabledMessage = `pi-ssh enabled: ${connection.remote}:${remoteFooterCwd} (port ${connection.port})`;
+      remoteFooterCwd = mapLocalPathToRemote(ctx.sessionManager.getCwd(), sessionConnection);
+      installRemoteFooter(ctx, sessionConnection);
+      publishRemoteFooterState(sessionConnection, ctx);
+      remotePromptContext = await loadRemotePromptContext(sessionConnection);
+      const enabledMessage = `pi-ssh ${reusedRuntime ? "reused" : "enabled"}: ${sessionConnection.remote}:${remoteFooterCwd} (port ${sessionConnection.port})`;
       if (ctx.hasUI) {
-        publishStartupNotice(buildStartupNoticeEntries(connection, remoteFooterCwd, remotePromptContext), ctx);
+        publishStartupNotice(buildStartupNoticeEntries(sessionConnection, remoteFooterCwd, remotePromptContext), ctx);
       } else {
         console.log(enabledMessage);
         if (remotePromptContext.file) {
@@ -1635,7 +1684,9 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       const message = error instanceof Error ? error.message : String(error);
       connection = null;
       activeSession = null;
+      currentRuntimeCacheKey = null;
       clearPublishedPiSshSession();
+      await clearReusablePiSshRuntime();
       remotePromptContext = { file: null };
       remoteFooterCwd = null;
       activeUiContext = null;
@@ -1658,14 +1709,35 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("session_shutdown", async (_event, ctx) => {
+  pi.on("session_shutdown", async (event, ctx) => {
+    const reusableRuntime: ReusableSshRuntime | null =
+      shouldKeepReusablePiSshRuntime(event.reason) && currentRuntimeCacheKey && connection && transport && activeSession
+        ? {
+            cacheKey: currentRuntimeCacheKey,
+            connection,
+            transport,
+            session: activeSession,
+            remotePromptContext,
+          }
+        : null;
+    const transportToDispose = reusableRuntime ? null : transport;
+
+    if (reusableRuntime) {
+      await storeReusablePiSshRuntime(reusableRuntime);
+      logPiSshDebug("runtime.cached", { reason: event.reason, remote: reusableRuntime.connection.remote, port: reusableRuntime.connection.port });
+    } else {
+      clearPublishedPiSshSession();
+      clearPiSshFooterSnapshot();
+      await clearReusablePiSshRuntime();
+    }
+
     connection = null;
+    transport = null;
     activeSession = null;
-    clearPublishedPiSshSession();
+    currentRuntimeCacheKey = null;
     remotePromptContext = { file: null };
     remoteFooterCwd = null;
     activeUiContext = null;
-    clearPiSshFooterSnapshot();
     requestTuiBrokerFooterRefresh();
     notifyFooterRenderListeners();
     if (ctx.hasUI) {
@@ -1674,9 +1746,8 @@ export default function piSshExtension(pi: ExtensionAPI): void {
       }
       ctx.ui.setStatus("pi-ssh", undefined);
     }
-    if (transport) {
-      await transport.dispose();
-      transport = null;
+    if (transportToDispose) {
+      await transportToDispose.dispose();
     }
   });
 

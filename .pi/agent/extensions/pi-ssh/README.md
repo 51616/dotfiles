@@ -26,6 +26,7 @@ This is useful when:
   - `edit`
   - `bash`
 - SSH connection multiplexing (`ControlMaster`/`ControlPersist`) for faster repeated tool calls
+- SSH runtime reuse across `/new`, `/resume`, and `/fork` session replacement without reconnecting
 - Persistent remote shell session for bash commands
   - uses your remote account's configured login shell (for example zsh)
   - environment persists across commands (for example `export TEST=123`)
@@ -125,6 +126,7 @@ The helper uploads `scripts/pi-ssh-logger.remote.sh`, backs up the existing remo
 - Remote prompt-context loading is high-trust. If the remote workspace is not trusted, do not point `pi-ssh` at it.
 - Canonical `skill://...` handling now lives in the separate `skill-uri` extension so the same skill interface works in both local and SSH sessions.
 - `pi-ssh` publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`.
+- `pi-ssh` keeps the active SSH runtime in a process-local cache while pi replaces sessions for `/new`, `/resume`, and `/fork`; `/reload`, quit, failed setup, or a changed SSH target disposes it cleanly.
 - `skill-uri`, `self-checkpointing`, and `pi-diff-review-*` consume that session directly for remote workspace ops, remote diff inspection, local staged editor flows, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
 - Consumers that need SSH repo identity should use the shared `resolveActivePiSshRepoIdentity(localCwd)` helper instead of doing ad hoc late `session.repoRoot(...)` lookups. That helper caches the resolved remote repo root for the active session and preserves SSH-specific failures instead of masking them as local fallback behavior.
 - The shared session helpers currently assume `git` is present for `repoRoot()` and `python3` or `python` is present for `stat()`.
