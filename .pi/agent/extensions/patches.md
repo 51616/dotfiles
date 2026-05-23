@@ -54,14 +54,14 @@ What this restores:
 This is the important **extension-only / package-side** patch for the `pi-fff` + `tui-broker` pair.
 
 Current active package target:
-- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.6.4`)
+- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.7.1`)
 
 Legacy package repo target:
 - `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff` (`0.2.4`; kept because old installs may still use it)
 
 Source of truth:
 - `~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py`
-- `~/vault/.pi/scripts/pi/patches/ff-labs-pi-fff-broker-interop-v0.6.4.patch`
+- `~/vault/.pi/scripts/pi/patches/ff-labs-pi-fff-broker-interop-v0.7.1.patch`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.md`
 - `~/vault/.pi/scripts/pi/patches/pi-fff-broker-interop-v0.2.4.patch`
