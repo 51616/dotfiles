@@ -24,11 +24,11 @@ There are three different kinds of local patch state here.
 ### 1) activity-block core patch stack
 
 Current default target:
-- `pi-mono v0.70.0`
+- `earendil-works/pi-mono v0.75.5`
 
 Source of truth:
-- `~/.pi/agent/extensions/activity-block/patches/v0.70.0/README.md`
-- `~/.pi/agent/extensions/activity-block/patches/v0.70.0/pi-core-local-extension-seams.patch`
+- `~/.pi/agent/extensions/activity-block/patches/v0.75.5/README.md`
+- `~/.pi/agent/extensions/activity-block/patches/v0.75.5/pi-core-local-extension-seams.patch`
 
 Apply order:
 1. `pi-core-local-extension-seams.patch`
@@ -54,14 +54,14 @@ What this restores:
 This is the important **extension-only / package-side** patch for the `pi-fff` + `tui-broker` pair.
 
 Current active package target:
-- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.7.1`)
+- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.8.1`)
 
 Legacy package repo target:
 - `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff` (`0.2.4`; kept because old installs may still use it)
 
 Source of truth:
 - `~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py`
-- `~/vault/.pi/scripts/pi/patches/ff-labs-pi-fff-broker-interop-v0.7.1.patch`
+- `~/vault/.pi/scripts/pi/patches/ff-labs-pi-fff-broker-interop-v0.8.1.patch`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py`
 - `~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.md`
 - `~/vault/.pi/scripts/pi/patches/pi-fff-broker-interop-v0.2.4.patch`
