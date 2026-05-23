@@ -486,52 +486,94 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 _pi_path_only_complete() {
-  local current before search_dir typed selected candidate candidate_path preview_prefix insert_prefix
-  local -a raw_candidates path_candidates
+  local current before search_dir typed selected candidate candidate_path preview_prefix selected_path selected_dir
+  local command_word word directory_only=0 force_fzf=0
+  local -a command_words raw_candidates path_candidates
+
+  command_words=(${(z)LBUFFER})
+  for word in "${command_words[@]}"; do
+    case "$word" in
+      command|builtin|exec|noglob|nocorrect|*=*) continue ;;
+      *) command_word="$word"; break ;;
+    esac
+  done
+  case "$command_word" in
+    cd|chdir|pushd|t|rmdir) directory_only=1 ;;
+    *) [[ "${_comps[$command_word]-}" == "_cd" ]] && directory_only=1 ;;
+  esac
 
   current="${LBUFFER##*[[:space:]]}"
   before="${LBUFFER[1,$(( ${#LBUFFER} - ${#current} ))]}"
 
-  if [[ "$current" == */* ]]; then
-    search_dir="${current:h}"
-    [[ "$search_dir" == "." ]] && search_dir=""
-    if [[ -n "$search_dir" && -d "$search_dir" ]]; then
-      raw_candidates=("$search_dir"/*(N))
-    fi
-    typed="${current:t}"
-  else
-    raw_candidates=(*(N))
-    typed="$current"
-  fi
+  while true; do
+    raw_candidates=()
+    path_candidates=()
 
-  for candidate_path in "${raw_candidates[@]}"; do
-    candidate="${candidate_path:t}"
-    [[ -d "$candidate_path" ]] && candidate+="/"
-    if [[ -z "$typed" || "${(L)candidate}" == *"${(L)typed}"* ]]; then
-      path_candidates+=("$candidate")
+    if [[ "$current" == */ ]]; then
+      search_dir="${current%/}"
+      [[ -z "$search_dir" && "$current" == "/" ]] && search_dir="/"
+      typed=""
+      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
+        raw_candidates=("$search_dir"/*(N))
+      fi
+    elif [[ "$current" == */* ]]; then
+      search_dir="${current:h}"
+      [[ "$search_dir" == "." ]] && search_dir=""
+      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
+        raw_candidates=("$search_dir"/*(N))
+      fi
+      typed="${current:t}"
+    else
+      search_dir=""
+      raw_candidates=(*(N))
+      typed="$current"
     fi
-  done
 
-  (( ${#path_candidates} )) || return 1
-  if (( ${#path_candidates} == 1 )); then
-    selected="${path_candidates[1]}"
-  else
-    preview_prefix="${search_dir:+$search_dir/}"
-    selected=$(
-      printf '%s\n' "${path_candidates[@]}" |
-        fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" \
-          --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
-    ) || {
+    for candidate_path in "${raw_candidates[@]}"; do
+      (( directory_only )) && [[ ! -d "$candidate_path" ]] && continue
+      candidate="${candidate_path:t}"
+      [[ -d "$candidate_path" ]] && candidate+="/"
+      if [[ -z "$typed" || "${(L)candidate}" == *"${(L)typed}"* ]]; then
+        path_candidates+=("$candidate")
+      fi
+    done
+
+    if (( ! ${#path_candidates} )); then
       zle reset-prompt
       zle -R
+      (( force_fzf )) && return 0
       return 1
-    }
-  fi
+    fi
 
-  insert_prefix="${search_dir:+$search_dir/}"
-  LBUFFER="${before}${insert_prefix}${(q)selected}"
-  zle reset-prompt
-  zle -R
+    if (( ${#path_candidates} == 1 && ! force_fzf )); then
+      selected="${path_candidates[1]}"
+    else
+      preview_prefix="${search_dir:+$search_dir/}"
+      selected=$(
+        printf '%s\n' "${path_candidates[@]}" |
+          fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" \
+            --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
+      ) || {
+        zle reset-prompt
+        zle -R
+        (( force_fzf )) && return 0
+        return 1
+      }
+    fi
+
+    selected_path="${search_dir:+$search_dir/}${selected}"
+    selected_dir="${selected_path%/}"
+    LBUFFER="${before}${(q)selected_path}"
+    zle reset-prompt
+    zle -R
+
+    if [[ "$selected" == */ && -d "$selected_dir" ]]; then
+      current="$selected_path"
+      force_fzf=1
+      continue
+    fi
+    return 0
+  done
 }
 zle -N pi-path-only-complete _pi_path_only_complete
 
