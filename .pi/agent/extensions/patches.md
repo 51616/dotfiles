@@ -53,8 +53,9 @@ What this restores:
 
 This is the important **extension-only / package-side** patch for the `pi-fff` + `tui-broker` pair.
 
-Current active package target:
-- `/home/tan/.nvm/versions/node/v25.7.0/lib/node_modules/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.8.1`)
+Current active package targets:
+- `$(npm root -g)/@ff-labs/pi-fff` (`npm:@ff-labs/pi-fff`, currently `0.8.1`)
+- `~/.pi/agent/npm/node_modules/@ff-labs/pi-fff` when pi has installed the package into its agent package cache
 
 Legacy package repo target:
 - `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff` (`0.2.4`; kept because old installs may still use it)
@@ -69,18 +70,24 @@ Source of truth:
 Safe check:
 ```bash
 python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py check
+if [ -d ~/.pi/agent/npm/node_modules/@ff-labs/pi-fff ]; then
+  python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py check --package-root ~/.pi/agent/npm/node_modules/@ff-labs/pi-fff
+fi
 python3 ~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py check
 ```
 
 Actual apply:
 ```bash
 python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py apply
+if [ -d ~/.pi/agent/npm/node_modules/@ff-labs/pi-fff ]; then
+  python3 ~/vault/.pi/scripts/pi/reapply-ff-labs-pi-fff-broker-patch.py apply --package-root ~/.pi/agent/npm/node_modules/@ff-labs/pi-fff
+fi
 python3 ~/vault/.pi/scripts/pi/reapply-pi-fff-broker-patch.py apply
 ```
 
 What this restores:
 - `tui-broker` remains the canonical editor owner
-- current `@ff-labs/pi-fff` contributes through `ctx.ui.addAutocompleteProvider(...)` instead of replacing the editor
+- every discovered current `@ff-labs/pi-fff` package root contributes through `ctx.ui.addAutocompleteProvider(...)` instead of replacing the editor
 - legacy `pi-fff` contributes only an autocomplete wrapper through broker hooks when broker is active
 - the context-usage meter and broker-owned editor border stay visible
 
