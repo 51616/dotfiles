@@ -54,6 +54,14 @@ Overrides pi's compaction provider path to use low reasoning while showing the f
 
 Entrypoint: [[low-effort-compaction/index.ts]].
 
+## quota-footer
+
+Owns Codex quota snapshot parsing and the compact quota meter. In the brokered TUI it contributes through the `tui-broker` footer right-status slot; without the broker it falls back to `ctx.ui.setStatus()`.
+
+See also [[quota-footer]].
+
+Entrypoint: [[quota-footer/index.ts]].
+
 ## pi-diff-review-tui
 
 Owns the interactive diff-review overlay and related TUI surfaces for human-in-the-loop patch review.

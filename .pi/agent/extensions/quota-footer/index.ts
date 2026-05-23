@@ -3,6 +3,12 @@ import {
   formatQuotaStatus,
   readLatestCodexSessionRateLimits,
 } from "./lib/quota-footer.ts";
+import {
+  isTuiBrokerInstalled,
+  registerTuiBrokerFooterRightStatusProvider,
+  requestTuiBrokerFooterRefresh,
+  unregisterTuiBrokerFooterRightStatusProvider,
+} from "../tui-broker/lib/runtime.ts";
 
 const STATUS_KEY = "quota-footer";
 const POLL_INTERVAL_MS = 60_000;
@@ -11,6 +17,19 @@ let activeCtx: ExtensionContext | null = null;
 let refreshInFlight = false;
 let interval: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
+let latestQuotaStatus: string | undefined;
+
+function publishQuotaStatus(ctx: ExtensionContext, text: string | undefined): void {
+  latestQuotaStatus = text;
+
+  if (isTuiBrokerInstalled()) {
+    ctx.ui.setStatus(STATUS_KEY, undefined);
+    requestTuiBrokerFooterRefresh();
+    return;
+  }
+
+  ctx.ui.setStatus(STATUS_KEY, text);
+}
 
 async function refreshQuotaStatus(): Promise<void> {
   const ctx = activeCtx;
@@ -22,11 +41,11 @@ async function refreshQuotaStatus(): Promise<void> {
   try {
     const snapshot = await readLatestCodexSessionRateLimits();
     if (refreshGeneration === generation) {
-      ctx.ui.setStatus(STATUS_KEY, formatQuotaStatus(snapshot));
+      publishQuotaStatus(ctx, formatQuotaStatus(snapshot));
     }
   } catch {
     if (refreshGeneration === generation) {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
+      publishQuotaStatus(ctx, undefined);
     }
   } finally {
     refreshInFlight = false;
@@ -36,6 +55,14 @@ async function refreshQuotaStatus(): Promise<void> {
 function startQuotaFooter(ctx: ExtensionContext): void {
   activeCtx = ctx;
   generation += 1;
+  latestQuotaStatus = undefined;
+  ctx.ui.setStatus(STATUS_KEY, undefined);
+  requestTuiBrokerFooterRefresh();
+
+  registerTuiBrokerFooterRightStatusProvider(STATUS_KEY, () => {
+    if (!latestQuotaStatus) return null;
+    return { text: latestQuotaStatus, priority: 100 };
+  });
 
   if (interval) clearInterval(interval);
   interval = setInterval(() => {
@@ -53,6 +80,10 @@ function stopQuotaFooter(): void {
 
   if (interval) clearInterval(interval);
   interval = undefined;
+
+  latestQuotaStatus = undefined;
+  unregisterTuiBrokerFooterRightStatusProvider(STATUS_KEY);
+  requestTuiBrokerFooterRefresh();
 
   if (ctx?.hasUI) {
     ctx.ui.setStatus(STATUS_KEY, undefined);

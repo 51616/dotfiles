@@ -36,7 +36,7 @@ test("renderProgressBar keeps a fixed compact ASCII width", () => {
 test("formatQuotaStatus keeps both quota bars on one compact footer line", () => {
   const status = formatQuotaStatus(snapshot(34, 12), NOW_MS);
 
-  assert.equal(status, "q 5h [##---]34% wk [#----]12%");
+  assert.equal(status, "5h [##---]34% wk [#----]12%");
   assert.equal(status.includes("\n"), false);
   assert.ok(status.length <= 40, `status is too wide: ${status.length}`);
 });
@@ -55,7 +55,7 @@ test("normalizeQuotaSnapshot accepts Codex session-log snake_case windows", () =
 
   assert.equal(normalized?.primary?.usedPercent, 34);
   assert.equal(normalized?.secondary?.windowMinutes, 10080);
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), "q 5h [##---]34% wk [#----]12%");
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), "5h [##---]34% wk [#----]12%");
 });
 
 test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
@@ -66,7 +66,7 @@ test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
     planType: "pro",
   }, NOW_MS);
 
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), "q 5h [###--]51% wk [#----]3%");
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), "5h [###--]51% wk [#----]3%");
 });
 
 test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
@@ -86,7 +86,7 @@ test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
 
   const parsed = parseQuotaSnapshotFromJsonLine(line, NOW_MS - 1000);
   assert.equal(parsed?.observedAtMs, NOW_MS);
-  assert.equal(formatQuotaStatus(parsed, NOW_MS), "q 5h [##---]34% wk [#----]12%");
+  assert.equal(formatQuotaStatus(parsed, NOW_MS), "5h [##---]34% wk [#----]12%");
 });
 
 test("readLatestCodexSessionRateLimits scans newest session tails first", async () => {
@@ -122,7 +122,7 @@ test("readLatestCodexSessionRateLimits scans newest session tails first", async 
 
   try {
     const latest = await readLatestCodexSessionRateLimits({ codexHome });
-    assert.equal(formatQuotaStatus(latest, NOW_MS), "q 5h [##---]34% wk [#----]12%");
+    assert.equal(formatQuotaStatus(latest, NOW_MS), "5h [##---]34% wk [#----]12%");
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

@@ -14,6 +14,7 @@ import {
   registerTuiBrokerEditorTopRightStatusProvider,
   registerTuiBrokerFooterModelEffortSuffixProvider,
   registerTuiBrokerFooterPathProvider,
+  registerTuiBrokerFooterRightStatusProvider,
   requestTuiBrokerEditorReinstall,
   unregisterTuiBrokerAutocompleteProviderWrapper,
 } from "../lib/runtime.ts";
@@ -497,6 +498,48 @@ test("tui-broker renders registered footer effort suffixes next to the thinking 
   });
   assert.deepEqual(snapshot.footerModelEffortSuffixKeys, ["test-effort-suffix"]);
   assert.deepEqual(snapshot.footerModelEffortSuffixes, ["review"]);
+});
+
+test("tui-broker right-aligns registered footer right statuses", async () => {
+  __resetTuiBrokerRuntimeForTests();
+  __resetGoalRuntimeStoreForTests();
+
+  registerTuiBrokerFooterRightStatusProvider("quota-footer", () => ({
+    text: "5h [#----]9% wk [###--]56%",
+    priority: 100,
+  }));
+
+  const pi = createFakePi();
+  tuiBroker(pi);
+
+  const ctx = createFakeCtx();
+  for (const handler of pi.events.get("session_start") ?? []) {
+    await handler({}, ctx);
+  }
+
+  const footerFactory = ctx.calls.find((entry) => entry.type === "footer")?.value;
+  assert.equal(typeof footerFactory, "function");
+
+  const footer = footerFactory(
+    { requestRender() {} },
+    {
+      fg: (_color, text) => text,
+      bold: (text) => text,
+    },
+    {
+      getGitBranch: () => "ignored-local-branch",
+      getExtensionStatuses: () => new Map([["goal", "goal active"]]),
+      onBranchChange: () => () => {},
+    },
+  );
+
+  const lines = footer.render(60);
+  assert.equal(lines.length, 2);
+  assert.equal(lines[1], `goal active${" ".repeat(23)}5h [#----]9% wk [###--]56%`);
+
+  const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
+  assert.deepEqual(snapshot.footerRightStatusKeys, ["quota-footer"]);
+  assert.deepEqual(snapshot.footerRightStatuses, ["5h [#----]9% wk [###--]56%"]);
 });
 
 test("tui-broker uses the highest-priority footer path contributor without losing its own layout", async () => {

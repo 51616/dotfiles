@@ -283,6 +283,6 @@ export function formatQuotaStatus(
   if (!quotaSnapshotIsFresh(snapshot, nowMs)) return "quota stale";
 
   const width = options.barWidth ?? DEFAULT_BAR_WIDTH;
-  const status = `q ${formatQuotaWindow("5h", snapshot.primary, width)} ${formatQuotaWindow("wk", snapshot.secondary, width)}`;
+  const status = `${formatQuotaWindow("5h", snapshot.primary, width)} ${formatQuotaWindow("wk", snapshot.secondary, width)}`;
   return snapshot.rateLimitReachedType ? `${status} !` : status;
 }

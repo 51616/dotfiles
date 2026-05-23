@@ -9,6 +9,7 @@ It renders the lean footer layout, the editor-bottom context meter, and the shar
 It exposes a neutral contribution registry in [[tui-broker/lib/runtime.ts]] so other extensions can contribute:
 - footer path labels
 - model-effort suffixes rendered beside the reasoning level
+- right-aligned footer statuses for compact meters
 - editor badges, including optional badge-owned editor border color overrides
 - editor top-right statuses
 - autocomplete-provider wrappers
@@ -22,6 +23,8 @@ The canonical implementation lives in [[tui-broker/index.ts]]. Shared formatting
 ## Contracts
 
 The footer keeps the folder-glyph cwd / session-name line and preserves extension status lines from `ctx.ui.setStatus()`.
+
+Registered footer right statuses share the status line but are padded to the far right, so compact meters such as quota usage do not shift the left status text.
 
 The right side of the footer identifies model and reasoning effort as `󰚩 <display-model> · 󰧑 <display-thinking-level>` for reasoning-capable models, and `󰚩 <display-model>` otherwise. Registered model-effort suffixes render immediately after the thinking level, such as `󰚩 GPT-5.4 · 󰧑 High (review)`, and are ignored for non-reasoning model labels.
 
@@ -37,6 +40,7 @@ Current contributors:
 - `goal` contributes the red bold `─ ⟐ PURSUING GOAL` badge while a goal is active
 - `snippets` contributes the active snippet badge
 - `git-state` contributes the Git working-tree meter in the editor top-right border
+- `quota-footer` contributes the Codex quota meter in the footer right-status slot
 - `pi-ssh` contributes the footer path label while SSH is active
 - `pi-fff` contributes an autocomplete-provider wrapper instead of taking editor ownership
 

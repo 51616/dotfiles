@@ -11,6 +11,7 @@ import {
   buildEditorBorderBadgeText,
   buildEditorTopBorderLine,
   buildModelEffortLabel,
+  buildSingleLineFooter,
   getContextUsageHighlightAnsiCodes,
   sanitizeStatusText,
 } from "./lib/layout.ts";
@@ -21,6 +22,7 @@ import {
   getTuiBrokerEditorTopRightStatuses,
   getTuiBrokerFooterModelEffortSuffixes,
   getTuiBrokerFooterPath,
+  getTuiBrokerFooterRightStatuses,
   getTuiBrokerRuntimeSnapshot,
   markTuiBrokerInstalled,
   setTuiBrokerEditorRefreshHandler,
@@ -416,15 +418,20 @@ export default function tuiBroker(pi: ExtensionAPI) {
           lines.push(colorizeFooterLine(theme, pwd, modelLineText, width));
 
           const extensionStatuses = footerData.getExtensionStatuses();
-          if (extensionStatuses.size > 0) {
-            const statusLine = Array.from(extensionStatuses.entries())
-              .sort(([left], [right]) => left.localeCompare(right))
-              .map(([, text]) => sanitizeStatusText(text))
-              .filter(Boolean)
-              .join(" ");
-            if (statusLine) {
-              lines.push(theme.fg("dim", truncateToWidth(statusLine, width, "...")));
-            }
+          const leftStatusLine = Array.from(extensionStatuses.entries())
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([, text]) => sanitizeStatusText(text))
+            .filter(Boolean)
+            .join(" ");
+          const rightStatusLine = getTuiBrokerFooterRightStatuses()
+            .map((entry) => sanitizeStatusText(entry.text))
+            .filter(Boolean)
+            .join(" ");
+          const statusLine = rightStatusLine
+            ? buildSingleLineFooter(leftStatusLine, rightStatusLine, width)
+            : truncateToWidth(leftStatusLine, width, "...");
+          if (statusLine.trim()) {
+            lines.push(theme.fg("dim", statusLine));
           }
 
           return lines;

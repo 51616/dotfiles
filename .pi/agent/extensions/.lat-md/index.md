@@ -11,6 +11,7 @@ Installable extension folders under `.pi/extensions/` are expected to be symlink
 - [[command-context-for-tools]] — session-control hooks exposed on plain tool contexts
 - [[goal]] — bounded autonomous follow-up loop behavior
 - [[git-state]] — live Git working-tree meter for the editor top-right border
+- [[quota-footer]] — Codex quota parsing and compact footer meter
 - [[pi-diff-review-tui]] — interactive diff-review overlay entrypoint
 - [[pi-diff-review-turn-tracker]] — per-turn capture for diff-review evidence
 - [[pi-instance-manager]] — coordination invariants for session-scoped runtime state
