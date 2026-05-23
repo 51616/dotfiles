@@ -456,8 +456,8 @@ zstyle ':completion:*:git-checkout:*' sort false
 zstyle ':completion:*:descriptions' format '[%d]'
 # set list-colors to enable filename colorizing
 zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
-# If normal prefix completion finds nothing, allow substring filename matches.
-zstyle ':completion:*' matcher-list '' 'l:|=* r:|=*'
+# If normal prefix completion finds nothing, allow case-insensitive substring matches.
+zstyle ':completion:*' matcher-list '' 'm:{[:lower:][:upper:]}={[:upper:][:lower:]} l:|=* r:|=*'
 # force zsh not to show completion menu, which allows fzf-tab to capture the unambiguous prefix
 zstyle ':completion:*' menu no
 # switch group using `<` and `>`
