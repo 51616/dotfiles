@@ -486,44 +486,56 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 _pi_path_only_complete() {
-  local matcher='m:{[:lower:][:upper:]}={[:upper:][:lower:]} l:|=* r:|=*'
-  local search_dir
-  local -a path_candidates
-  local ret
+  local search_dir typed selected candidate candidate_path preview_prefix
+  local -a raw_candidates path_candidates
 
   if [[ "$PREFIX" == */* ]]; then
     search_dir="${PREFIX:h}"
     [[ "$search_dir" == "." ]] && search_dir=""
     if [[ -n "$search_dir" && -d "$search_dir" ]]; then
-      path_candidates=("$search_dir"/*(N:t))
+      raw_candidates=("$search_dir"/*(N))
     fi
+    typed="${PREFIX:t}"
   else
-    path_candidates=(*(N))
+    raw_candidates=(*(N))
+    typed="$PREFIX"
   fi
 
+  for candidate_path in "${raw_candidates[@]}"; do
+    candidate="${candidate_path:t}"
+    [[ -d "$candidate_path" ]] && candidate+="/"
+    if [[ -z "$typed" || "${(L)candidate}" == *"${(L)typed}"* ]]; then
+      path_candidates+=("$candidate")
+    fi
+  done
+
   (( ${#path_candidates} )) || return 1
-  if [[ -n "$search_dir" ]]; then
-    compadd -f -p "$search_dir/" -M "$matcher" -- "${path_candidates[@]}"
-    ret=$?
+  if (( ${#path_candidates} == 1 )); then
+    selected="${path_candidates[1]}"
   else
-    compadd -f -M "$matcher" -- "${path_candidates[@]}"
-    ret=$?
+    preview_prefix="${search_dir:+$search_dir/}"
+    selected=$(
+      printf '%s\n' "${path_candidates[@]}" |
+        fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" \
+          --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
+    ) || return 1
   fi
-  compstate[list]=force
-  compstate[insert]=menu
-  return ret
+
+  if [[ -n "$search_dir" ]]; then
+    compadd -f -U -p "$search_dir/" -- "$selected"
+    return
+  fi
+  compadd -f -U -- "$selected"
 }
 zle -C pi-path-only-complete complete-word _pi_path_only_complete
 
-_pi_full_completion_widget=expand-or-complete
 (( ${+functions[disable-fzf-tab]} )) && disable-fzf-tab
+bindkey '^I' expand-or-complete
+(( ${+functions[enable-fzf-tab]} )) && enable-fzf-tab
+_pi_full_completion_widget=expand-or-complete
+(( ${+widgets[fzf-tab-complete]} )) && _pi_full_completion_widget=fzf-tab-complete
 for keymap in emacs viins; do
   bindkey -M "$keymap" '^I' pi-path-only-complete
-  [[ -n ${terminfo[kcbt]} ]] && bindkey -M "$keymap" "${terminfo[kcbt]}" "$_pi_full_completion_widget"
-  bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
-done
-(( ${+functions[enable-fzf-tab]} )) && enable-fzf-tab
-for keymap in emacs viins; do
   [[ -n ${terminfo[kcbt]} ]] && bindkey -M "$keymap" "${terminfo[kcbt]}" "$_pi_full_completion_widget"
   bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
 done
