@@ -489,6 +489,7 @@ _pi_path_only_complete() {
   local matcher='m:{[:lower:][:upper:]}={[:upper:][:lower:]} l:|=* r:|=*'
   local search_dir
   local -a path_candidates
+  local ret
 
   if [[ "$PREFIX" == */* ]]; then
     search_dir="${PREFIX:h}"
@@ -503,16 +504,26 @@ _pi_path_only_complete() {
   (( ${#path_candidates} )) || return 1
   if [[ -n "$search_dir" ]]; then
     compadd -f -p "$search_dir/" -M "$matcher" -- "${path_candidates[@]}"
-    return
+    ret=$?
+  else
+    compadd -f -M "$matcher" -- "${path_candidates[@]}"
+    ret=$?
   fi
-  compadd -f -M "$matcher" -- "${path_candidates[@]}"
+  compstate[list]=force
+  compstate[insert]=menu
+  return ret
 }
 zle -C pi-path-only-complete complete-word _pi_path_only_complete
 
-_pi_full_completion_widget=complete-word
-(( ${+widgets[fzf-completion]} )) && _pi_full_completion_widget=fzf-completion
+_pi_full_completion_widget=expand-or-complete
+(( ${+functions[disable-fzf-tab]} )) && disable-fzf-tab
 for keymap in emacs viins; do
   bindkey -M "$keymap" '^I' pi-path-only-complete
+  [[ -n ${terminfo[kcbt]} ]] && bindkey -M "$keymap" "${terminfo[kcbt]}" "$_pi_full_completion_widget"
+  bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
+done
+(( ${+functions[enable-fzf-tab]} )) && enable-fzf-tab
+for keymap in emacs viins; do
   [[ -n ${terminfo[kcbt]} ]] && bindkey -M "$keymap" "${terminfo[kcbt]}" "$_pi_full_completion_widget"
   bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
 done
