@@ -518,15 +518,22 @@ _pi_path_only_complete() {
       fi
     elif [[ "$current" == */* ]]; then
       search_dir="${current:h}"
-      [[ "$search_dir" == "." ]] && search_dir=""
-      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
-        raw_candidates=("$search_dir"/*(N))
-      fi
       typed="${current:t}"
+      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
+        if [[ "$typed" == .* ]]; then
+          raw_candidates=("$search_dir"/.*(N))
+        else
+          raw_candidates=("$search_dir"/*(N))
+        fi
+      fi
     else
       search_dir=""
-      raw_candidates=(*(N))
       typed="$current"
+      if [[ "$typed" == .* ]]; then
+        raw_candidates=(.*(N))
+      else
+        raw_candidates=(*(N))
+      fi
     fi
 
     for candidate_path in "${raw_candidates[@]}"; do
