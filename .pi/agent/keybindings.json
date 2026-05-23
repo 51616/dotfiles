@@ -1,3 +1,4 @@
 {
-  "app.model.cycleBackward": "ctrl+alt+["
+  "app.model.cycleBackward": "ctrl+alt+[",
+  "tui.input.newLine": ["shift+enter", "ctrl+j"]
 }
