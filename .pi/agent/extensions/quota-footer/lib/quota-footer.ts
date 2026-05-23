@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +14,7 @@ export type QuotaSnapshot = {
   secondary: QuotaWindow | null;
   planType: string | null;
   rateLimitReachedType: string | null;
-  source: "codex-session-log";
+  source: "codex-session-log" | "codex-app-server";
   observedAtMs: number;
 };
 
@@ -22,6 +23,15 @@ export type ReadQuotaOptions = {
   maxFiles?: number;
   tailBytes?: number;
 };
+
+export type ReadCodexAppServerQuotaOptions = {
+  codexBinary?: string;
+  codexHome?: string;
+  timeoutMs?: number;
+  observedAtMs?: number;
+};
+
+export type ReadCurrentQuotaOptions = ReadQuotaOptions & ReadCodexAppServerQuotaOptions;
 
 export type FormatQuotaOptions = {
   barWidth?: number;
@@ -37,6 +47,7 @@ type SessionCandidate = {
 const DEFAULT_BAR_WIDTH = 6;
 const DEFAULT_MAX_SESSION_FILES = 80;
 const DEFAULT_TAIL_BYTES = 1024 * 1024;
+const DEFAULT_APP_SERVER_TIMEOUT_MS = 8_000;
 const FALLBACK_FRESH_MS = 10 * 60 * 1000;
 const BAR_CHAR = "━";
 const BAR_FILLED_COLOR = "#a6adc8";
@@ -135,6 +146,7 @@ function firstObject(value: unknown): JsonObject | null {
 export function normalizeQuotaSnapshot(
   value: unknown,
   observedAtMs: number,
+  sourceName: QuotaSnapshot["source"] = "codex-session-log",
 ): QuotaSnapshot | null {
   const root = firstObject(value);
   if (!root) return null;
@@ -151,7 +163,7 @@ export function normalizeQuotaSnapshot(
     secondary,
     planType: readString(source, ["planType", "plan_type"]),
     rateLimitReachedType: readString(source, ["rateLimitReachedType", "rate_limit_reached_type"]),
-    source: "codex-session-log",
+    source: sourceName,
     observedAtMs,
   };
 }
@@ -183,6 +195,31 @@ export function parseLatestQuotaSnapshotFromText(text: string, fallbackObservedA
     if (snapshot) return snapshot;
   }
   return null;
+}
+
+function selectCodexRateLimits(value: unknown): unknown {
+  if (!isObject(value)) return value;
+
+  const byLimitId = value.rateLimitsByLimitId ?? value.rate_limits_by_limit_id;
+  if (isObject(byLimitId) && byLimitId.codex !== undefined) return byLimitId.codex;
+
+  return value.rateLimits ?? value.rate_limits ?? value;
+}
+
+function parseCodexAppServerRateLimitsResponse(
+  line: string,
+  responseId: number,
+  observedAtMs: number,
+): QuotaSnapshot | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+
+  if (!isObject(parsed) || parsed.id !== responseId || parsed.result === undefined) return null;
+  return normalizeQuotaSnapshot(selectCodexRateLimits(parsed.result), observedAtMs, "codex-app-server");
 }
 
 async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
@@ -246,6 +283,82 @@ export async function readLatestCodexSessionRateLimits(options: ReadQuotaOptions
   }
 
   return null;
+}
+
+export async function readCodexAppServerRateLimits(
+  options: ReadCodexAppServerQuotaOptions = {},
+): Promise<QuotaSnapshot | null> {
+  const codexBinary = options.codexBinary ?? process.env.CODEX_BINARY ?? "codex";
+  const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_APP_SERVER_TIMEOUT_MS);
+  const observedAtMs = options.observedAtMs ?? Date.now();
+  const responseId = 2;
+  const env = options.codexHome
+    ? { ...process.env, CODEX_HOME: options.codexHome }
+    : process.env;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdoutBuffer = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const child = spawn(codexBinary, ["app-server", "--listen", "stdio://"], {
+      env,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+
+    function finish(snapshot: QuotaSnapshot | null): void {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      child.stdin?.destroy();
+      child.kill();
+      resolve(snapshot);
+    }
+
+    timer = setTimeout(() => {
+      finish(null);
+    }, timeoutMs);
+    timer.unref?.();
+
+    child.on("error", () => {
+      finish(null);
+    });
+    child.on("exit", () => {
+      finish(null);
+    });
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      let newlineIndex = stdoutBuffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = stdoutBuffer.slice(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        const snapshot = parseCodexAppServerRateLimitsResponse(line, responseId, observedAtMs);
+        if (snapshot) {
+          finish(snapshot);
+          return;
+        }
+        newlineIndex = stdoutBuffer.indexOf("\n");
+      }
+    });
+
+    child.stdin?.write(`${JSON.stringify({
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "pi-quota-footer", version: "0" },
+        capabilities: { experimentalApi: true },
+      },
+    })}\n${JSON.stringify({ id: responseId, method: "account/rateLimits/read", params: null })}\n`);
+  });
+}
+
+export async function readCurrentCodexRateLimits(options: ReadCurrentQuotaOptions = {}): Promise<QuotaSnapshot | null> {
+  const nowMs = options.observedAtMs ?? Date.now();
+  const latestLogSnapshot = await readLatestCodexSessionRateLimits(options);
+  if (latestLogSnapshot && quotaSnapshotIsFresh(latestLogSnapshot, nowMs)) return latestLogSnapshot;
+
+  return (await readCodexAppServerRateLimits({ ...options, observedAtMs: nowMs })) ?? latestLogSnapshot;
 }
 
 function clampPercent(value: number): number {

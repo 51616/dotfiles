@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   formatQuotaStatus,
-  readLatestCodexSessionRateLimits,
+  readCurrentCodexRateLimits,
 } from "./lib/quota-footer.ts";
 import {
   isTuiBrokerInstalled,
@@ -39,7 +39,7 @@ async function refreshQuotaStatus(): Promise<void> {
   const refreshGeneration = generation;
 
   try {
-    const snapshot = await readLatestCodexSessionRateLimits();
+    const snapshot = await readCurrentCodexRateLimits();
     if (refreshGeneration === generation) {
       publishQuotaStatus(ctx, formatQuotaStatus(snapshot));
     }

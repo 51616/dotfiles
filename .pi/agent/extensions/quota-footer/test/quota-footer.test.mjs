@@ -7,6 +7,8 @@ import {
   formatQuotaStatus,
   normalizeQuotaSnapshot,
   parseQuotaSnapshotFromJsonLine,
+  readCodexAppServerRateLimits,
+  readCurrentCodexRateLimits,
   readLatestCodexSessionRateLimits,
   renderProgressBar,
 } from "../lib/quota-footer.ts";
@@ -46,6 +48,13 @@ function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RE
     source: "codex-session-log",
     observedAtMs: NOW_MS,
   };
+}
+
+function writeFakeCodexAppServer(tempDir, response) {
+  const fakeCodex = path.join(tempDir, "fake-codex.mjs");
+  fs.writeFileSync(fakeCodex, `#!/usr/bin/env node\nimport readline from "node:readline";\nconst response = ${JSON.stringify(response)};\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on("line", (line) => {\n  const message = JSON.parse(line);\n  if (message.method === "initialize") {\n    console.log(JSON.stringify({ id: message.id, result: {} }));\n  }\n  if (message.method === "account/rateLimits/read") {\n    console.log(JSON.stringify({ id: message.id, result: response }));\n    process.exit(0);\n  }\n});\n`);
+  fs.chmodSync(fakeCodex, 0o755);
+  return fakeCodex;
 }
 
 test("renderProgressBar keeps a fixed compact colorized width", () => {
@@ -95,6 +104,37 @@ test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
   }, NOW_MS);
 
   assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(49, 3, 97, 5));
+});
+
+test("readCodexAppServerRateLimits requests a fresh account snapshot", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-quota-app-server-"));
+  const fakeCodex = writeFakeCodexAppServer(tempDir, {
+    rateLimits: snapshot(90, 80),
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: "codex",
+        primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: FUTURE_RESET },
+        secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: FUTURE_RESET + 3600 },
+        planType: "pro",
+        rateLimitReachedType: null,
+      },
+    },
+  });
+
+  try {
+    const latest = await readCodexAppServerRateLimits({
+      codexBinary: fakeCodex,
+      observedAtMs: NOW_MS,
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(latest?.source, "codex-app-server");
+    assert.equal(latest?.primary?.usedPercent, 20);
+    assert.equal(latest?.secondary?.usedPercent, 40);
+    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(80, 5, 60, 4));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
@@ -151,6 +191,50 @@ test("readLatestCodexSessionRateLimits scans newest session tails first", async 
   try {
     const latest = await readLatestCodexSessionRateLimits({ codexHome });
     assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(66, 4, 88, 5));
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("readCurrentCodexRateLimits falls back to app-server when session logs are stale", async () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-quota-current-"));
+  const sessionDir = path.join(codexHome, "sessions", "2026", "05", "23");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  const staleReset = Math.floor(NOW_MS / 1000) - 1;
+  const staleFile = path.join(sessionDir, "stale.jsonl");
+  fs.writeFileSync(staleFile, `${JSON.stringify({
+    timestamp: "2026-05-23T00:00:00.000Z",
+    payload: {
+      type: "token_count",
+      rate_limits: {
+        primary: { used_percent: 90, window_minutes: 300, resets_at: staleReset },
+        secondary: { used_percent: 80, window_minutes: 10080, resets_at: FUTURE_RESET + 3600 },
+      },
+    },
+  })}\n`);
+  const fakeCodex = writeFakeCodexAppServer(codexHome, {
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: "codex",
+        primary: { usedPercent: 2, windowDurationMins: 300, resetsAt: FUTURE_RESET },
+        secondary: { usedPercent: 59, windowDurationMins: 10080, resetsAt: FUTURE_RESET + 3600 },
+        planType: "pro",
+        rateLimitReachedType: null,
+      },
+    },
+  });
+
+  try {
+    const latest = await readCurrentCodexRateLimits({
+      codexBinary: fakeCodex,
+      codexHome,
+      observedAtMs: NOW_MS,
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(latest?.source, "codex-app-server");
+    assert.equal(latest?.primary?.usedPercent, 2);
+    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(98, 5, 41, 2));
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
