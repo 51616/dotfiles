@@ -545,9 +545,10 @@ _pi_path_only_complete() {
       return 1
     fi
 
-    if (( ${#path_candidates} == 1 && ! force_fzf )); then
+    if (( ${#path_candidates} == 1 )); then
       selected="${path_candidates[1]}"
       selected_key=""
+      (( force_fzf )) && selected_key="tab"
     else
       preview_prefix="${search_dir:+$search_dir/}"
       selection=$(
