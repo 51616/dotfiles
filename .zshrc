@@ -485,6 +485,40 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
+_pi_path_only_complete() {
+  local matcher='m:{[:lower:][:upper:]}={[:upper:][:lower:]} l:|=* r:|=*'
+  local search_dir
+  local -a path_candidates
+
+  if [[ "$PREFIX" == */* ]]; then
+    search_dir="${PREFIX:h}"
+    [[ "$search_dir" == "." ]] && search_dir=""
+    if [[ -n "$search_dir" && -d "$search_dir" ]]; then
+      path_candidates=("$search_dir"/*(N:t))
+    fi
+  else
+    path_candidates=(*(N))
+  fi
+
+  (( ${#path_candidates} )) || return 1
+  if [[ -n "$search_dir" ]]; then
+    compadd -f -p "$search_dir/" -M "$matcher" -- "${path_candidates[@]}"
+    return
+  fi
+  compadd -f -M "$matcher" -- "${path_candidates[@]}"
+}
+zle -C pi-path-only-complete complete-word _pi_path_only_complete
+
+_pi_full_completion_widget=complete-word
+(( ${+widgets[fzf-completion]} )) && _pi_full_completion_widget=fzf-completion
+for keymap in emacs viins; do
+  bindkey -M "$keymap" '^I' pi-path-only-complete
+  [[ -n ${terminfo[kcbt]} ]] && bindkey -M "$keymap" "${terminfo[kcbt]}" "$_pi_full_completion_widget"
+  bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
+done
+unset _pi_full_completion_widget
+
+
 fzf-history-widget() {
    local selected num
    setopt localoptions noglobsubst noposixbuiltins pipefail 2> /dev/null
