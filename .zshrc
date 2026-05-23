@@ -487,7 +487,7 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 _pi_path_only_complete() {
   local current before search_dir typed selected candidate candidate_path preview_prefix selected_path selected_dir
-  local command_word word directory_only=0 force_fzf=0
+  local command_word word selection selected_key directory_only=0 force_fzf=0 continue_requested=0
   local -a command_words raw_candidates path_candidates
 
   command_words=(${(z)LBUFFER})
@@ -547,11 +547,12 @@ _pi_path_only_complete() {
 
     if (( ${#path_candidates} == 1 && ! force_fzf )); then
       selected="${path_candidates[1]}"
+      selected_key=""
     else
       preview_prefix="${search_dir:+$search_dir/}"
-      selected=$(
+      selection=$(
         printf '%s\n' "${path_candidates[@]}" |
-          fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" \
+          fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" --expect=tab,enter \
             --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
       ) || {
         zle reset-prompt
@@ -559,6 +560,10 @@ _pi_path_only_complete() {
         (( force_fzf )) && return 0
         return 1
       }
+      selected_key="${selection%%$'\n'*}"
+      selected="${selection#*$'\n'}"
+      [[ "$selection" != *$'\n'* ]] && selected_key="enter"
+      [[ -n "$selected" ]] || return 1
     fi
 
     selected_path="${search_dir:+$search_dir/}${selected}"
@@ -567,7 +572,9 @@ _pi_path_only_complete() {
     zle reset-prompt
     zle -R
 
-    if [[ "$selected" == */ && -d "$selected_dir" ]]; then
+    continue_requested=0
+    [[ "$selected_key" == "tab" ]] && continue_requested=1
+    if (( continue_requested )) && [[ "$selected" == */ && -d "$selected_dir" ]]; then
       current="$selected_path"
       force_fzf=1
       continue
