@@ -292,10 +292,10 @@ export function quotaSnapshotIsFresh(snapshot: QuotaSnapshot, nowMs: number): bo
 }
 
 function formatQuotaWindow(label: string, window: QuotaWindow, width: number): string {
-  const percent = Math.round(clampPercent(window.usedPercent));
-  const prefix = ansiTrueColor(`${label} [`, TEXT_COLOR);
-  const suffix = ansiTrueColor(`] ${percent}%`, TEXT_COLOR);
-  return `${prefix}${renderProgressBar(percent, width)}${suffix}`;
+  const availablePercent = Math.round(100 - clampPercent(window.usedPercent));
+  const prefix = ansiTrueColor(`${label} `, TEXT_COLOR);
+  const suffix = ansiTrueColor(` ${availablePercent}%`, TEXT_COLOR);
+  return `${prefix}${renderProgressBar(availablePercent, width)}${suffix}`;
 }
 
 export function formatQuotaStatus(

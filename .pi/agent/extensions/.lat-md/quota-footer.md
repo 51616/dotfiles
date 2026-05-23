@@ -10,9 +10,9 @@ The canonical parser and formatter live in [[quota-footer/lib/quota-footer.ts]].
 
 ## Contracts
 
-The visible footer label is `5h [━━━━━━━━━━] 100% · weekly [━━━━━━━━━━] 100%` with no leading `q` prefix.
+The visible footer label is `5h ━━━━━━━━━━ 100% · weekly ━━━━━━━━━━ 100%` with no leading `q` prefix or brackets.
 
-The bars use one horizontal glyph with light gray filled cells and dark gray remaining cells, and stay fixed-width so the footer can reserve a stable right-aligned slot.
+The percentage and filled bar cells show quota still available. The bars use one horizontal glyph with light gray available cells and dark gray consumed cells, and stay fixed-width so the footer can reserve a stable right-aligned slot.
 
 When `tui-broker` is installed, `quota-footer` contributes through the broker footer right-status registry and explicitly clears its `ctx.ui.setStatus()` slot to avoid duplicate quota text. Without the broker, it falls back to the normal `ctx.ui.setStatus("quota-footer", text)` path.
 
