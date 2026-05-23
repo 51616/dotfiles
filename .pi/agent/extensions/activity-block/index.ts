@@ -12,6 +12,12 @@ import type {
 	ToolExecutionUpdateEvent,
 	TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
+import {
+	getActivityBlockMessageDetails,
+	mergeRecoveredToolHistory,
+	reconstructSnapshotsFromTranscript,
+	type ActivityBlockMessageDetails,
+} from "./lib/activity-block-history.ts";
 import { ActivityBlockMessageComponent, isExpandedThinkingShown, type ToolHistoryViewMode } from "./lib/activity-block-widget.ts";
 import {
 	applyMessageUpdate,
@@ -52,10 +58,7 @@ type HistoricalTranscriptMode = {
 	thinking?: "show" | "collapse" | "hide";
 };
 
-type ActivityBlockMessageDetails = {
-	turnId: string;
-	turnDisplayId: string;
-};
+type TranscriptViewMode = "block" | "default";
 
 type TranscriptModeCapableUI = ExtensionContext["ui"] & {
 	setLiveTranscriptMode?: (mode?: LiveTranscriptMode) => void;
@@ -77,6 +80,7 @@ class ActivityBlockController {
 	private toolHistoryViewMode: ToolHistoryViewMode = "latest";
 	private thinkingExpanded = false;
 	private zenMode = false;
+	private transcriptViewMode: TranscriptViewMode = "block";
 	private uiContext: ExtensionContext | undefined;
 	private turnCounter = 0;
 	private compactionCount = 0;
@@ -104,16 +108,30 @@ class ActivityBlockController {
 		this.turnCounter = 0;
 		this.compactionCount = 0;
 		this.awaitingQueuedTurnStart = false;
+		const reconstructedSnapshots = reconstructSnapshotsFromTranscript(entries, MESSAGE_TYPE);
+		for (const [turnId, snapshot] of reconstructedSnapshots) {
+			this.persistedSnapshots.set(turnId, snapshot);
+			this.turnCounter = Math.max(this.turnCounter, deriveTurnCounter(turnId));
+		}
 		for (const entry of entries) {
 			if (entry.type === "compaction") {
 				this.compactionCount += 1;
 				continue;
 			}
-			if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
-			const data = entry.data as PersistedActivityBlockState | undefined;
-			if (!data?.turnId || !data.snapshot) continue;
-			this.persistedSnapshots.set(data.turnId, data.snapshot);
-			this.turnCounter = Math.max(this.turnCounter, deriveTurnCounter(data.turnId));
+			const details = getActivityBlockMessageDetails(entry, MESSAGE_TYPE);
+			if (details) {
+				this.turnCounter = Math.max(this.turnCounter, deriveTurnCounter(details.turnId));
+				continue;
+			}
+			if (entry.type === "custom" && entry.customType === STATE_TYPE) {
+				const data = entry.data as PersistedActivityBlockState | undefined;
+				if (!data?.turnId || !data.snapshot) continue;
+				this.persistedSnapshots.set(
+					data.turnId,
+					mergeRecoveredToolHistory(data.snapshot, reconstructedSnapshots.get(data.turnId)),
+				);
+				this.turnCounter = Math.max(this.turnCounter, deriveTurnCounter(data.turnId));
+			}
 		}
 	}
 
@@ -129,6 +147,10 @@ class ActivityBlockController {
 		completed?: PersistedActivityBlockState;
 	} {
 		this.attach(ctx);
+		if (this.transcriptViewMode === "default") {
+			this.clearTranscriptModes(ctx);
+			return {};
+		}
 
 		let completed: PersistedActivityBlockState | undefined;
 		if (hasTriggerMessages && this.activeTurn?.messageInserted === false) {
@@ -268,7 +290,7 @@ class ActivityBlockController {
 	}
 
 	shouldHideTurn(turnId: string | undefined): boolean {
-		return this.zenMode && turnId !== undefined;
+		return this.transcriptViewMode === "default" || (this.zenMode && turnId !== undefined);
 	}
 
 	getCompactionCount(): number {
@@ -328,6 +350,16 @@ class ActivityBlockController {
 		return this.setZenMode(!this.zenMode, ctx);
 	}
 
+	setTranscriptViewMode(nextMode: TranscriptViewMode, ctx?: ExtensionContext): TranscriptViewMode {
+		if (ctx) {
+			this.attach(ctx);
+		}
+		this.transcriptViewMode = nextMode;
+		this.applyCurrentTranscriptMode(ctx ?? this.uiContext);
+		this.refreshStatus();
+		return this.transcriptViewMode;
+	}
+
 	private getLatestVisibleSnapshot(): ActivityBlockSnapshot | undefined {
 		if (this.activeTurn) {
 			return getActivityBlockSnapshot(this.activeTurn.state);
@@ -366,7 +398,11 @@ class ActivityBlockController {
 		this.activeTurn = activeTurn;
 		this.syncContextUsage(ctx);
 		this.startTokenRefresh();
-		this.enableTranscriptMode(ctx);
+		if (this.transcriptViewMode === "block") {
+			this.enableTranscriptMode(ctx);
+		} else {
+			this.clearTranscriptModes(ctx);
+		}
 		this.refreshStatus();
 		return activeTurn;
 	}
@@ -415,6 +451,19 @@ class ActivityBlockController {
 		if (!ctx?.hasUI) return;
 		const ui = ctx.ui as TranscriptModeCapableUI;
 		ui.setHistoricalTranscriptMode?.({ toolRows: "hide", thinking: "hide" });
+	}
+
+	applyCurrentTranscriptMode(ctx: ExtensionContext | undefined): void {
+		if (this.transcriptViewMode === "default") {
+			this.clearTranscriptModes(ctx);
+			return;
+		}
+		this.applyHistoricalTranscriptMode(ctx);
+		if (this.activeTurn) {
+			this.enableTranscriptMode(ctx);
+		} else {
+			this.disableLiveTranscriptMode(ctx);
+		}
 	}
 
 	private disableLiveTranscriptMode(ctx: ExtensionContext | undefined): void {
@@ -514,6 +563,13 @@ function parseZenModeCommand(args: string): boolean | "toggle" | undefined {
 	return undefined;
 }
 
+function parseTranscriptViewModeCommand(args: string): TranscriptViewMode | undefined {
+	const command = args.trim().toLowerCase().replace(/\s+/g, " ");
+	if (command === "mode default" || command === "view default" || command === "default" || command === "default view") return "default";
+	if (command === "mode block" || command === "view block" || command === "block" || command === "block view" || command === "activity block") return "block";
+	return undefined;
+}
+
 export function getNextToolHistoryViewMode(
 	currentMode: ToolHistoryViewMode,
 	_totalTools: number,
@@ -544,8 +600,16 @@ export default function activityBlockExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("activity-block", {
-		description: "Cycle tool history view: latest, 5 latest, all. Use latest, recent, all, or zen [on|off]. Thinking text stays on /activity-block-thinking or ctrl+alt+t.",
+		description: "Cycle tool history view: latest, 5 latest, all. Use latest, recent, all, mode block|default, or zen [on|off]. Thinking text stays on /activity-block-thinking or ctrl+alt+t.",
 		handler: async (args, ctx) => {
+			const viewMode = parseTranscriptViewModeCommand(args);
+			if (viewMode) {
+				controller.setTranscriptViewMode(viewMode, ctx);
+				if (ctx.hasUI) {
+					ctx.ui.notify(viewMode === "block" ? "Activity block view enabled." : "Default pi tool-call view enabled.", "info");
+				}
+				return;
+			}
 			const zenCommand = parseZenModeCommand(args);
 			if (zenCommand !== undefined) {
 				const enabled = zenCommand === "toggle" ? controller.toggleZenMode(ctx) : controller.setZenMode(zenCommand, ctx);
@@ -604,9 +668,7 @@ export default function activityBlockExtension(pi: ExtensionAPI): void {
 		controller.hydrateFromEntries(ctx.sessionManager.getBranch());
 		controller.setToolHistoryViewMode(controller.getToolHistoryViewMode(), ctx);
 		controller.toggleThinkingExpanded(ctx, controller.getThinkingExpanded());
-		controller.applyHistoricalTranscriptMode(ctx);
-		const ui = ctx.ui as TranscriptModeCapableUI;
-		ui.setLiveTranscriptMode?.(undefined);
+		controller.applyCurrentTranscriptMode(ctx);
 	});
 
 	pi.on("context", async (event) => {
@@ -681,7 +743,7 @@ export default function activityBlockExtension(pi: ExtensionAPI): void {
 	pi.on("session_compact", async (_event, ctx) => {
 		controller.attach(ctx);
 		controller.hydrateFromEntries(ctx.sessionManager.getBranch());
-		controller.applyHistoricalTranscriptMode(ctx);
+		controller.applyCurrentTranscriptMode(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {

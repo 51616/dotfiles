@@ -21,8 +21,10 @@ These are the behaviors the extension must keep stable when the live summary UX 
 - keep a stable local per-session turn identity in message details/state so repeated similar turns stay distinguishable without showing a visible `Turn #X` line inside the block
 - own the block-local tool-history view toggle (`latest -> recent -> all`), including command/shortcut affordances and line budgeting
 - support a global zen mode from `/activity-block zen [on|off]` or `ctrl+alt+z` that hides activity blocks entirely while the mode is enabled so the stock pi working spinner stays visible during the run; activating it should toast a message that includes `Zen mode`
+- support a runtime transcript view mode from `/activity-block mode block|default`; `block` claims live and historical transcript ownership, while `default` clears transcript suppression and hides activity-block messages so pi core renders its normal tool-call transcript without restarting the session
 - request the Phase 2 transcript-mode seams when available so inline tool rows, replayed tool rows, the separate working spinner row, and thinking placeholders are absorbed into the block
 - keep historical transcript suppression active across completed turns so the block remains the canonical transcript surface after the assistant finishes
+- reconstruct historical activity-block snapshots from resumed session transcript entries when the saved `activity-block-state` entry is missing or has stale empty tool rows, so `/resume` can still show prior tool calls inside the block
 - keep the saved core patch notes in `activity-block/README.md` and `activity-block/patches/` aligned with the extension’s real dependency on pi core changes
 
 ## Invariants
@@ -45,6 +47,7 @@ These constraints keep the block honest and prevent it from becoming another noi
 - tool counts stay honest for sequential and parallel tool execution
 - even in expanded mode, the block stays bounded and shows excerpts rather than a full transcript
 - if the core transcript-mode seams are unavailable, the block still works as a Phase 1 summary surface but replayed history falls back to default pi rendering
+- default transcript view mode intentionally clears historical transcript suppression; switching back to block mode reapplies suppression for future rendering but does not erase core-rendered rows already shown while default mode was active
 
 ## Change guidance
 
@@ -53,6 +56,7 @@ Use this map to avoid fixing only the rendered block text while leaving the even
 - Change the reducer/summary logic in `activity-block/lib/activity-block-state.ts` when counts, failure suffixes, tool prioritization, recent thinking excerpts, tool preview payloads, or frozen terminal timing are wrong.
 - Change line budgeting, compact/expanded allocation, truncation, markdown rendering, spacing, per-state colors, or tool-history-only rendering in `activity-block/lib/activity-block-widget.ts` when narrow terminals overflow, the block grows too tall, thinking expansion shows the wrong payload, row spacing regresses, or thoughts leak back into the tool list.
 - Change `activity-block/index.ts` when the toggle command/shortcut wiring, periodic context-usage refresh, block-spawn timing, zen-mode hiding/toast behavior, run-lifecycle behavior, or `Esc` abort handling is wrong.
+- Change `activity-block/lib/activity-block-history.ts` when `/resume` fails to recover tool rows from historical assistant `toolCall` messages and matching `toolResult` messages, or when persisted snapshots need merge/backfill behavior.
 - If tool rows suddenly reappear when the assistant finishes, inspect `activity-block/index.ts` turn-finish cleanup first; clearing historical transcript mode on `agent_end` triggers an interactive-mode transcript rebuild.
 - If the block stops suppressing live or replayed tool rows, or stops collapsing thinking, inspect the canonical pi core seams in `~/research/pi-mono/packages/coding-agent/src/modes/interactive/interactive-mode.ts`.
 

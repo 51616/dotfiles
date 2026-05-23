@@ -4,6 +4,15 @@ import assert from "node:assert/strict";
 import stripAnsi from "strip-ansi";
 import activityBlockExtension from "../activity-block/index.ts";
 
+const theme = {
+  bold: (text) => text,
+  fg: (_name, text) => text,
+  bg: (_name, text) => text,
+  italic: (text) => text,
+  underline: (text) => text,
+  strikethrough: (text) => text,
+};
+
 function makePiStub() {
   const handlers = new Map();
   const renderers = new Map();
@@ -350,6 +359,173 @@ test("activity-block resume continues the persisted turn counter", async () => {
   const turn = await triggerTurnResponse(handlers, ctx, "after resume");
 
   assert.equal(turn?.message?.details?.turnDisplayId, "8");
+});
+
+test("activity-block resume reconstructs historical tool rows when snapshot state is missing", async () => {
+  const { pi, handlers, renderers } = makePiStub();
+  const details = { turnId: "turn-100-1", turnDisplayId: "1" };
+  const persistedEntries = [
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "inspect" }], timestamp: 100 },
+    },
+    {
+      type: "custom_message",
+      customType: "activity-block-turn",
+      content: "activity block",
+      display: true,
+      details,
+      timestamp: "2026-05-23T00:00:01.000Z",
+    },
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "README.md", offset: 1, limit: 10 } }],
+        stopReason: "toolUse",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        api: "anthropic-messages",
+        provider: "faux",
+        model: "faux-model",
+        timestamp: 200,
+      },
+    },
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "hello" }],
+        isError: false,
+        timestamp: 300,
+      },
+    },
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:04.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        api: "anthropic-messages",
+        provider: "faux",
+        model: "faux-model",
+        timestamp: 400,
+      },
+    },
+  ];
+  const { ctx } = makeCtx(persistedEntries);
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const renderer = renderers.get("activity-block-turn");
+  const component = renderer({ details }, {}, theme);
+  const rendered = component.render(80).map((line) => stripAnsi(line));
+
+  assert.ok(rendered.some((line) => line.includes("✓ read README.md:1-10")));
+  assert.ok(rendered.some((line) => line.includes("1 tool calls")));
+
+  const nextTurn = await triggerTurnResponse(handlers, ctx, "after resume");
+  assert.equal(nextTurn?.message?.details?.turnDisplayId, "2");
+});
+
+test("activity-block resume recovers tool rows when persisted snapshot has stale empty tools", async () => {
+  const { pi, handlers, renderers } = makePiStub();
+  const details = { turnId: "turn-100-1", turnDisplayId: "1" };
+  const persistedEntries = [
+    {
+      type: "custom_message",
+      customType: "activity-block-turn",
+      content: "activity block",
+      display: true,
+      details,
+      timestamp: "2026-05-23T00:00:01.000Z",
+    },
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: { command: "printf hi" } }],
+        stopReason: "toolUse",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        api: "anthropic-messages",
+        provider: "faux",
+        model: "faux-model",
+        timestamp: 200,
+      },
+    },
+    {
+      type: "message",
+      timestamp: "2026-05-23T00:00:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        content: [{ type: "text", text: "hi" }],
+        isError: false,
+        timestamp: 300,
+      },
+    },
+    {
+      type: "custom",
+      customType: "activity-block-state",
+      data: {
+        turnId: "turn-100-1",
+        snapshot: {
+          runState: "complete",
+          startedAt: 100,
+          endedAt: 400,
+          finalLabel: "Completed",
+          latestThinking: "",
+          latestThinkingFull: "",
+          thinkingSummaries: [],
+          isResponding: false,
+          tools: [],
+          totalTools: 0,
+          activeTools: 0,
+          completedTools: 0,
+          failedTools: 0,
+        },
+      },
+      timestamp: "2026-05-23T00:00:05.000Z",
+    },
+  ];
+  const { ctx } = makeCtx(persistedEntries);
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const renderer = renderers.get("activity-block-turn");
+  const component = renderer({ details }, {}, theme);
+  const rendered = component.render(80).map((line) => stripAnsi(line));
+
+  assert.ok(rendered.some((line) => line.includes("✓ $ printf hi")));
+  assert.ok(rendered.some((line) => line.includes("1 tool calls")));
+});
+
+test("activity-block mode default restores core transcript modes and stops inserting new blocks", async () => {
+  const { pi, handlers, commands } = makePiStub();
+  const { ctx, counts } = makeCtx();
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  await commands.get("activity-block").handler("mode default", ctx);
+
+  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }, undefined]);
+  assert.deepEqual(counts().liveModes, [undefined, undefined]);
+  assert.equal(await triggerTurnResponse(handlers, ctx, "default view"), undefined);
+
+  await commands.get("activity-block").handler("mode block", ctx);
+  const turn = await triggerTurnResponse(handlers, ctx, "block view");
+
+  assert.equal(turn?.message?.details?.turnDisplayId, "1");
+  assert.deepEqual(counts().historicalModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide" }]);
+  assert.deepEqual(counts().liveModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
 });
 
 test("activity-block keeps only the thinking expansion control", () => {

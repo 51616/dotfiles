@@ -90,6 +90,9 @@ Current extension-side presentation expectations:
 - compact mode shows only the header/first line of the latest thinking text; the thinking body opens only in the block-local thinking-expanded view
 - the latest three tool actions stay visible while newer thinking updates arrive, with the most recent action shown first instead of being flushed out by the thinking update
 - the block should never show multiple visible thinking bodies at once
+- `/activity-block mode default` clears live and historical transcript suppression and hides activity-block messages so pi core's normal tool-call transcript is visible without restarting; `/activity-block mode block` reapplies activity-block transcript ownership for later turns
+- `/activity-block zen on` only hides the activity block while keeping block transcript ownership; it is not a replacement for default transcript mode
+- resumed sessions reconstruct missing or stale historical block snapshots from assistant `toolCall` messages and matching `toolResult` messages, so previous tool rows remain visible even when `activity-block-state` was not appended before shutdown
 
 Extension-side lifecycle note:
 - keep historical transcript suppression enabled for the whole interactive session once the extension claims transcript ownership
