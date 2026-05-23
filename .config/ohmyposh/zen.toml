@@ -75,22 +75,27 @@ newline = true
   revert_icon = "\uf0e2 "
   tag_icon = "\uf412 "
 
+[[blocks]]
+type = "prompt"
+alignment = "right"
+filler = "<#575757,transparent>·</>"
   [[blocks.segments]]
   type = 'executiontime'
   style = 'plain'
   foreground = '#86865f'
   background = 'transparent'
-  template = ' {{ .FormattedMs }} '
+  template = ' {{ .FormattedMs }}'
 
     [blocks.segments.properties]
     threshold = 5000
     style = 'round'
 
+
   [[blocks.segments]]
   type = "text"
   style = "plain"
   foreground = "#d6ae87"
-  template = "{{ .UserName }}@{{ .HostName }} "
+  template = " {{ .UserName }}@{{ .HostName }}"
 
 [[blocks]]
 type = 'prompt'

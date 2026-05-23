@@ -317,6 +317,21 @@ precmd_functions+=(_fix_cursor)
 
 eval "$(oh-my-posh init zsh --config $HOME/.config/ohmyposh/zen.toml)"
 
+_pi_omp_redraw_prompt_on_resize() {
+  (( ${+functions[_omp_get_prompt]} )) || return 0
+  [[ -o zle ]] || return 0
+
+  # The Oh My Posh filler depends on terminal width; recompute it after resize.
+  eval "$(_omp_get_prompt primary --eval)"
+  zle reset-prompt 2>/dev/null
+  zle -R 2>/dev/null
+}
+
+TRAPWINCH() {
+  _pi_omp_redraw_prompt_on_resize
+  return 0
+}
+
 # fix no match problem
 unsetopt nomatch
 
