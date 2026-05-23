@@ -38,6 +38,9 @@ const DEFAULT_BAR_WIDTH = 5;
 const DEFAULT_MAX_SESSION_FILES = 80;
 const DEFAULT_TAIL_BYTES = 1024 * 1024;
 const FALLBACK_FRESH_MS = 10 * 60 * 1000;
+const PARTIAL_BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"] as const;
+const EMPTY_BLOCK = "░";
+const FULL_BLOCK = "█";
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -251,8 +254,19 @@ function clampPercent(value: number): number {
 export function renderProgressBar(usedPercent: number, width = DEFAULT_BAR_WIDTH): string {
   const barWidth = Math.max(1, Math.floor(width));
   const clampedPercent = clampPercent(usedPercent);
-  const filled = clampedPercent === 0 ? 0 : Math.max(1, Math.round((clampedPercent / 100) * barWidth));
-  return `${"#".repeat(filled)}${"-".repeat(barWidth - filled)}`;
+  const maxUnits = barWidth * 8;
+  const roundedUnits = Math.round((clampedPercent / 100) * maxUnits);
+  const visibleUnits =
+    clampedPercent === 0
+      ? 0
+      : clampedPercent === 100
+        ? maxUnits
+        : Math.max(1, Math.min(maxUnits - 1, roundedUnits));
+  const fullBlocks = Math.floor(visibleUnits / 8);
+  const partialUnits = visibleUnits % 8;
+  const partialBlock = PARTIAL_BLOCKS[partialUnits] ?? "";
+  const emptyBlocks = Math.max(0, barWidth - fullBlocks - (partialUnits > 0 ? 1 : 0));
+  return `${FULL_BLOCK.repeat(fullBlocks)}${partialBlock}${EMPTY_BLOCK.repeat(emptyBlocks)}`;
 }
 
 function windowIsFresh(window: QuotaWindow, observedAtMs: number, nowMs: number): boolean {
@@ -283,6 +297,6 @@ export function formatQuotaStatus(
   if (!quotaSnapshotIsFresh(snapshot, nowMs)) return "quota stale";
 
   const width = options.barWidth ?? DEFAULT_BAR_WIDTH;
-  const status = `${formatQuotaWindow("5h", snapshot.primary, width)} ${formatQuotaWindow("wk", snapshot.secondary, width)}`;
+  const status = `${formatQuotaWindow("5h", snapshot.primary, width)} · ${formatQuotaWindow("weekly", snapshot.secondary, width)}`;
   return snapshot.rateLimitReachedType ? `${status} !` : status;
 }
