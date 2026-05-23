@@ -10,9 +10,9 @@ usage() {
 Usage: new-track.sh --desc "<description>" [--type feature|bug|chore|refactor] [--root <path>]
 
 Creates a new Conductor-style track:
-  conductor/tracks/<track_id>/{spec.md,plan.md,resume.md,metadata.json,index.md}
+  .conductor/tracks/<track_id>/{spec.md,plan.md,resume.md,metadata.json,index.md}
 And appends an entry to:
-  conductor/tracks.md
+  .conductor/tracks.md
 
 Track id format (default): <slug>_YYYYMMDD
 EOF
@@ -42,17 +42,17 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 
 ROOT="$(cd -- "$ROOT" >/dev/null 2>&1 && pwd)" || usage_die "root not found: $ROOT"
 
-if [[ ! -d "$ROOT/conductor/tracks" ]]; then
-  usage_die "missing $ROOT/conductor/tracks (run setup.sh first)"
+if [[ ! -d "$ROOT/.conductor/tracks" ]]; then
+  usage_die "missing $ROOT/.conductor/tracks (run setup.sh first)"
 fi
 
 slug="$(slugify "$DESC")"
 datepart="$(date +%Y%m%d)"
 track_id="${slug}_${datepart}"
-track_dir="$ROOT/conductor/tracks/$track_id"
+track_dir="$ROOT/.conductor/tracks/$track_id"
 
 if [[ -e "$track_dir" ]]; then
-  usage_die "track already exists: conductor/tracks/$track_id"
+  usage_die "track already exists: .conductor/tracks/$track_id"
 fi
 
 mkdir -p "$track_dir"
@@ -97,7 +97,7 @@ cat >"$track_dir/index.md" <<EOF
 - [Evidence (optional)](./evidence/)
 EOF
 
-tracks_file="$ROOT/conductor/tracks.md"
+tracks_file="$ROOT/.conductor/tracks.md"
 
 if [[ ! -f "$tracks_file" ]]; then
   mkdir -p "$(dirname -- "$tracks_file")"

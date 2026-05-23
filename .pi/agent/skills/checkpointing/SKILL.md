@@ -2,7 +2,6 @@
 name: checkpointing
 description: |
   Use when: work is multi-step/long-horizon, interruption risk is high, OR when the [autockpt] directive appears.
-  Outputs: a reconstructable checkpoint note under /tmp/pi-work/checkpoints/; when triggered by [autockpt], also emit the compaction footer so the extension can compact+resume.
 ---
 
 # checkpointing
@@ -45,3 +44,8 @@ For a consistent filename + template copy, run the helper script from this skill
 ```bash
 bash scripts/new-checkpoint.sh <slug>
 ```
+
+## Verification
+
+- Confirm the checkpoint file exists and includes resume context, concrete artifacts, next steps, and verification instructions.
+- If the checkpoint came from a Conductor track, confirm `conductor/tracks/<track_id>/resume.md` matches the checkpoint state.

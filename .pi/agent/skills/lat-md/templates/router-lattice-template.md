@@ -2,7 +2,7 @@
 
 <Short description of what this root lattice owns: usually vault-wide maps, cross-cutting rules, and pointers to nested lattices.>
 
-> Canonical lattice content belongs in `lat-md/`, with `lat-md/index.md` as the root document.
+> Canonical lattice content belongs in `.lat-md/`, with `.lat-md/index.md` as the root document.
 
 ## Scope
 
@@ -13,8 +13,8 @@
 <One-sentence ownership summary.>
 
 Primary docs:
-- [`../path/to/nested/lat-md/index.md`](../path/to/nested/lat-md/index.md)
-- [`../path/to/nested/lat-md/<main-doc>.md`](../path/to/nested/lat-md/<main-doc>.md)
+- [`../path/to/nested/.lat-md/index.md`](../path/to/nested/.lat-md/index.md)
+- [`../path/to/nested/.lat-md/<main-doc>.md`](../path/to/nested/.lat-md/<main-doc>.md)
 
 ## <Root-level entrypoint or cross-cutting rule>
 

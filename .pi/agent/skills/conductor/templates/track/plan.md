@@ -24,13 +24,13 @@ Append entries as you go. Suggested format:
 <minimal excerpt here>
 ```
 
-## Evidence (optional, Showboat — milestone-only)
+## Evidence (optional, milestone-only)
 
-If you want reproducible proof-of-work, keep a Showboat demo doc at:
+If you want reproducible proof-of-work, keep concise evidence notes under:
 
-- `./evidence/showboat.md`
+- `./evidence/`
 
-Default (Option A): capture only key checkpoints:
+Capture only key checkpoints:
 - baseline/setup established
 - problem reproduced (failing test / failing command output)
 - fix applied
@@ -45,9 +45,9 @@ Default (Option A): capture only key checkpoints:
 ## Phase 2: Behavior-driven implementation
 - [ ] Task: Identify the next behavior slice from the approved scenarios and name the exact files/modules expected to change
 - [ ] Task: Write failing tests first when feasible for the current behavior slice (only tests that prove an approved behavior; no testing for its own sake)
-- [ ] Task: Link each new/changed test to an approved behavior/scenario (record mapping in Change evidence; when `lat.md/` exists, prefer `@lat:` refs to a test-spec section per the `lat-md` skill)
+- [ ] Task: Link each new/changed test to an approved behavior/scenario (record mapping in Change evidence; when `.lat-md/` exists, prefer `@lat:` refs to a test-spec section per the `lat-md` skill)
 - [ ] Task: Implement the minimum change needed to satisfy the approved behavior; name the function/class/entrypoint being changed when known
-- [ ] Task (when `lat.md/` exists): Update the relevant `lat.md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
+- [ ] Task (when `.lat-md/` exists): Update the relevant `.lat-md/` sections and add/adjust `@lat:` anchors near touched entrypoints (follow the `lat-md` skill)
 - [ ] Task: Update **Change evidence** (paths + snippets) for this behavior slice
 - [ ] Task: Refactor while preserving the approved behavior and keeping tests green
 - [ ] Task: Repeat for remaining behavior slices
@@ -55,9 +55,9 @@ Default (Option A): capture only key checkpoints:
 ## Phase 3: Verification
 - [ ] Task: Run targeted automated verification for touched behavior slices
 - [ ] Task: Run the smallest meaningful repo checks (tests / lint / typecheck / build) for touched areas
-- [ ] Task (when `lat.md/` exists): Run `lat check` (use `lat --dir <subproject-root> check` when working in a subtree that has its own `lat.md/`; follow the `lat-md` skill)
+- [ ] Task (when `.lat-md/` exists): Run `lat check` (use `lat --dir <subproject-root> check` when working in a subtree that has its own `.lat-md/`; follow the `lat-md` skill)
 - [ ] Task: Perform manual verification for user-visible or operational behavior (if relevant)
-- [ ] Task (optional): If `./evidence/showboat.md` exists, run `uvx showboat verify ./evidence/showboat.md` (or `showboat verify ...`)
+- [ ] Task (optional): If evidence artifacts exist, verify they still match the final commands/results and update stale excerpts.
 
 ## Phase 4: Review
 - [ ] Task: Review implementation against the approved `spec.md` behaviors and scenarios
@@ -70,9 +70,9 @@ Default (Option A): capture only key checkpoints:
 
 ## Phase 5: Completion sync
 - [ ] Task: Ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
-- [ ] Task (when `lat.md/` exists): Append/update test specs in `lat.md/tests.md` (or the relevant module’s `lat.md/tests.md`) and ensure each new/changed test has a corresponding `@lat:` reference (follow the `lat-md` skill)
+- [ ] Task (when `.lat-md/` exists): Append/update test specs in `.lat-md/tests.md` (or the relevant module’s `.lat-md/tests.md`) and ensure each new/changed test has a corresponding `@lat:` reference (follow the `lat-md` skill)
 - [ ] Task: Best-effort sync project docs (`project.md`, `tech-stack.md`, `workflow.md`) if the track changed them
-- [ ] Task: Mark track complete in `conductor/tracks.md`
+- [ ] Task: Mark track complete in `.conductor/tracks.md`
 
 ## Notes
 - 

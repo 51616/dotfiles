@@ -11,9 +11,9 @@ Usage: setup.sh [--root <path>] [--force]
 Scaffold Conductor-style context files in a target repo.
 
 Creates (under <root>):
-  conductor/{index.md,project.md,project-guidelines.md,tech-stack.md,workflow.md,tracks.md}
-  conductor/tracks/
-  conductor/code_styleguides/
+  .conductor/{index.md,project.md,project-guidelines.md,tech-stack.md,workflow.md,tracks.md}
+  .conductor/tracks/
+  .conductor/code_styleguides/
 EOF
 }
 
@@ -41,7 +41,7 @@ ROOT="$(cd -- "$ROOT" >/dev/null 2>&1 && pwd)" || usage_die "root not found: $RO
 
 TDIR="$(templates_dir)"
 
-mkdir -p "$ROOT/conductor/tracks" "$ROOT/conductor/code_styleguides"
+mkdir -p "$ROOT/.conductor/tracks" "$ROOT/.conductor/code_styleguides"
 
 copy_tpl() {
   local src_rel="$1"
@@ -61,15 +61,15 @@ copy_tpl() {
   echo "write: $dst_rel"
 }
 
-copy_tpl "index.md" "conductor/index.md"
-copy_tpl "project.md" "conductor/project.md"
-copy_tpl "project-guidelines.md" "conductor/project-guidelines.md"
-copy_tpl "tech-stack.md" "conductor/tech-stack.md"
-copy_tpl "workflow.md" "conductor/workflow.md"
-copy_tpl "tracks.md" "conductor/tracks.md"
+copy_tpl "index.md" ".conductor/index.md"
+copy_tpl "project.md" ".conductor/project.md"
+copy_tpl "project-guidelines.md" ".conductor/project-guidelines.md"
+copy_tpl "tech-stack.md" ".conductor/tech-stack.md"
+copy_tpl "workflow.md" ".conductor/workflow.md"
+copy_tpl "tracks.md" ".conductor/tracks.md"
 
-copy_tpl "code_styleguides/general.md" "conductor/code_styleguides/general.md"
-copy_tpl "code_styleguides/python.md" "conductor/code_styleguides/python.md"
-copy_tpl "code_styleguides/typescript.md" "conductor/code_styleguides/typescript.md"
+copy_tpl "code_styleguides/general.md" ".conductor/code_styleguides/general.md"
+copy_tpl "code_styleguides/python.md" ".conductor/code_styleguides/python.md"
+copy_tpl "code_styleguides/typescript.md" ".conductor/code_styleguides/typescript.md"
 
-echo "ok: Conductor scaffold created under: $ROOT/conductor"
+echo "ok: Conductor scaffold created under: $ROOT/.conductor"

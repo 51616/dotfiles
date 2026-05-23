@@ -2,7 +2,7 @@
 
 ## Guiding principles
 
-1. **The plan is the source of truth.** Work is tracked in `conductor/tracks/<track_id>/plan.md`.
+1. **The plan is the source of truth.** Work is tracked in `.conductor/tracks/<track_id>/plan.md`.
 2. **The approved spec is the behavior contract.** `spec.md` defines the acceptance criteria, expected behaviors, and scenarios that implementation must satisfy.
 3. **Behavior first, tests second, code third.** Tests should prove the approved behaviors rather than just exercise code paths.
 4. **Prefer small, reviewable slices.** Keep diffs tight; don’t mix unrelated changes.
@@ -82,4 +82,4 @@ Before marking a track complete:
 - ensure `spec.md`, `plan.md`, and `resume.md` reflect final reality
 - best-effort sync `project.md`, `tech-stack.md`, and `workflow.md` if the completed track materially changed them
 - run the project verification gate / final repo checks as appropriate
-- update `conductor/tracks.md` from `[~]` to `[x]`
+- update `.conductor/tracks.md` from `[~]` to `[x]`

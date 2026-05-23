@@ -4,9 +4,9 @@ Use this pattern when a repo has one top-level map plus subtrees that own their 
 
 ## Shape
 
-- `lat-md/` at repo root for cross-cutting maps and root-level anchors
-- nested lattices like `subproject/lat-md/` for subtree-owned architecture and contracts
-- inside each `lat-md/`, keep the canonical root content in `index.md`
+- `.lat-md/` at repo root for cross-cutting maps and root-level anchors
+- nested lattices like `subproject/.lat-md/` for subtree-owned architecture and contracts
+- inside each `.lat-md/`, keep the canonical root content in `index.md`
 - normal markdown links from the root lattice into the nested lattice docs
 
 ## Why

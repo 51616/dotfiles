@@ -27,10 +27,10 @@ done
 
 ROOT="$(cd -- "$ROOT" >/dev/null 2>&1 && pwd)" || { echo "root not found: $ROOT" >&2; exit 2; }
 
-tracks="$ROOT/conductor/tracks.md"
+tracks="$ROOT/.conductor/tracks.md"
 
 if [[ ! -f "$tracks" ]]; then
-  echo "Conductor not set up (missing conductor/tracks.md)." >&2
+  echo "Conductor not set up (missing .conductor/tracks.md)." >&2
   exit 1
 fi
 

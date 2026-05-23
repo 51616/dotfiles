@@ -1,8 +1,7 @@
 ---
 name: codex-image-gen
 description: |
-  Use when: Tan wants pi to generate, edit, or concept raster images through Codex, especially frontend/UI visual design references, website/app mockups, hero images, product visuals, illustrations, sprites, or image-backed design inspiration. Trigger on requests like "generate an image", "make a mockup", "design a web UI", "design a Catppuccin-themed web UI", "create a visual reference", or "generate a UI image then turn it into HTML".
-  Don’t use when: the task is only to inspect an existing local image (use `codex-look-at`), browse online design references (use `codex-browse`), use Gemini Stitch as the primary UI designer (use `gemini-stitch`), or create/edit deterministic SVG/vector/code-native assets that should stay in the repo’s existing design system.
+  Use when: Tan wants pi to generate, edit, or concept raster images through Codex, especially frontend/UI visual design references, website/app mockups, hero images, product visuals, illustrations, sprites, diagrams, or image-backed design inspiration. Trigger on requests like "generate an image", "make a mockup", "design a web UI", "design a Catppuccin-themed web UI", "create a visual reference", or "generate a UI image then turn it into HTML".
   Outputs: Codex CLI uses native image generation, saves verified image artifacts to a concrete output directory, and for frontend UI tasks can also produce a standardized `DESIGN.md`, visual description, and static HTML/CSS skeleton derived from the generated image.
 ---
 

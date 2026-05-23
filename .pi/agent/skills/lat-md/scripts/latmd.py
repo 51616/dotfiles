@@ -27,10 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog='bash <run-lat.sh>',
         formatter_class=formatter,
         description=(
-            'Navigate and validate lattices stored under lat-md/.\n\n'
+            'Navigate and validate lattices stored under .lat-md/.\n\n'
             'A lattice is a small markdown graph that explains ownership, boundaries,\n'
             'invariants, and code links. An owner root is the directory that directly\n'
-            'contains a lat-md/ folder, for example ., .pi/scripts, or src. If you\n'
+            'contains a .lat-md/ folder, for example ., .pi/scripts, or src. If you\n'
             'omit owner_root, this tool assumes `.`.'
         ),
         epilog=(
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  sections   validate section summaries and first paragraphs'
         ),
     )
-    check.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    check.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     check.add_argument('mode', nargs='?', choices=('all', 'md', 'code-refs', 'index', 'sections'), default='all', help='which validation pass to run')
     check.set_defaults(needs_context=True)
 
@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=formatter,
         help='validate every lattice under a repo root',
         description=(
-            'Discover every lat-md/ directory under a target root and validate each\n'
+            'Discover every .lat-md/ directory under a target root and validate each\n'
             'owner root in one Python process. This avoids reparsing repo-wide\n'
             'lattice state once per owner root.'
         ),
@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  bash <run-lat.sh> check-all --verbose .'
         ),
     )
-    check_all.add_argument('target_root', nargs='?', default='.', help='repo or subtree to search for lat-md/ directories; defaults to .')
+    check_all.add_argument('target_root', nargs='?', default='.', help='repo or subtree to search for .lat-md/ directories; defaults to .')
     check_all.add_argument('--verbose', action='store_true', help='print full check output for successful lattices too')
     check_all.set_defaults(needs_context=False)
 
@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  bash <run-lat.sh> locate "slash-command-rpc#Discord parity wrappers"'
         ),
     )
-    locate.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    locate.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     locate.add_argument('query', help='section id fragment, heading name, or short path')
     locate.set_defaults(needs_context=True)
 
@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  bash <run-lat.sh> .pi/scripts section ".pi/scripts/health-checks#Health checks"'
         ),
     )
-    section.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    section.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     section.add_argument('query', help='exact or near-match section id')
     section.set_defaults(needs_context=True)
 
@@ -146,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  bash <run-lat.sh> .pi/scripts refs "health-checks#Change guidance" --scope md'
         ),
     )
-    refs.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    refs.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     refs.add_argument('query', help='section id or source target like src/app.py#MyClass')
     refs.add_argument('--scope', choices=('md', 'code', 'md+code'), default='md+code', help='search markdown refs, code refs, or both')
     refs.set_defaults(needs_context=True)
@@ -157,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
         help='alias for refs',
         description='Alias for `refs`.',
     )
-    ref.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    ref.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     ref.add_argument('query', help='section id or source target like src/app.py#MyClass')
     ref.add_argument('--scope', choices=('md', 'code', 'md+code'), default='md+code', help='search markdown refs, code refs, or both')
     ref.set_defaults(needs_context=True)
@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  printf "See [[vault]] and [[scripts]]\\n" | bash <run-lat.sh> expand --stdin'
         ),
     )
-    expand.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target lat-md/ folder; defaults to .')
+    expand.add_argument('owner_root', nargs='?', default='.', help='directory that owns the target .lat-md/ folder; defaults to .')
     expand.add_argument('text', nargs='?', help='text containing one or more [[refs]]')
     expand.add_argument('--stdin', action='store_true', help='read input text from stdin instead of an argument')
     expand.set_defaults(needs_context=True)
@@ -198,9 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser(
         'init',
         formatter_class=formatter,
-        help='create a new lat-md/ root',
+        help='create a new .lat-md/ root',
         description=(
-            'Create lat-md/index.md under an owner root. This gives you the minimal\n'
+            'Create .lat-md/index.md under an owner root. This gives you the minimal\n'
             'starting point for a new lattice.'
         ),
         epilog=(
@@ -210,8 +210,8 @@ def build_parser() -> argparse.ArgumentParser:
             '  bash <run-lat.sh> init --force'
         ),
     )
-    init.add_argument('owner_root', nargs='?', default='.', help='directory where lat-md/ should be created; defaults to .')
-    init.add_argument('--force', action='store_true', help='overwrite lat-md/index.md with the router template')
+    init.add_argument('owner_root', nargs='?', default='.', help='directory where .lat-md/ should be created; defaults to .')
+    init.add_argument('--force', action='store_true', help='overwrite .lat-md/index.md with the router template')
     init.set_defaults(needs_context=False)
 
     return parser
@@ -230,7 +230,10 @@ def run(argv: list[str]) -> int:
     filtered_argv = [arg for arg in argv if arg != '--no-color']
     args = parser.parse_args(filtered_argv)
     try:
-        ctx = load_context(Path(args.owner_root).resolve()) if getattr(args, 'needs_context', True) else None
+        ctx = None
+        if getattr(args, 'needs_context', True):
+            include_all_sections = not (args.command == 'check' and args.mode in {'index', 'sections'})
+            ctx = load_context(Path(args.owner_root).resolve(), include_all_sections=include_all_sections)
         if args.command == 'check':
             return cmd_check(ctx, args.mode)
         if args.command == 'check-all':

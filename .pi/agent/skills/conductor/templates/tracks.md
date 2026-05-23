@@ -1,6 +1,6 @@
 # Project Tracks
 
-This file tracks major units of work (**tracks**). Each track has its own folder under `conductor/tracks/` with:
+This file tracks major units of work (**tracks**). Each track has its own folder under `.conductor/tracks/` with:
 - `spec.md` (approved requirements + behavior contract)
 - `plan.md` (phases/tasks checklist)
 - `resume.md` (read first when resuming / compacting)

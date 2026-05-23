@@ -1,6 +1,9 @@
 ---
 name: pi-slash-commands
-description: Let pi run the same commands that pi-discord-bot exposes (/new /resume /model /session /compact /reload) plus pi’s tool-oriented `/tree` flow from natural language, preferring the in-session `pi_slash` extension tool.
+description: |
+  Use when: Tan asks in natural language for pi to run supported slash commands: `/new`, `/resume`, `/model`, `/session`, `/tree`, `/compact`, or `/reload`.
+  Don’t use when: the requested command is outside this exact set; answer directly or use the relevant skill instead.
+  Outputs: the matching slash command is executed through `pi_slash` when safe, or confirmation is requested first for `/compact`, `/new`, and `/resume`.
 ---
 
 # pi-slash-commands
@@ -116,3 +119,8 @@ If `pi_slash` is unavailable, use these wrappers (they mirror the Discord comman
 - `/tree`     → no safe headless parity wrapper yet; require the in-session `pi_slash` tool
 
 Warning: RPC fallback operates on session files and may not affect an already-running interactive pi TUI session the way the extension tool does.
+
+## Verification
+
+- After `/model`, `/session`, `/tree`, or `/reload`, report the returned tool output or observable state change.
+- After confirmed `/compact`, `/new`, or `/resume`, confirm the command was accepted or report the exact failure.

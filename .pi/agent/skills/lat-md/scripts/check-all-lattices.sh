@@ -15,7 +15,7 @@ Usage:
 Replace `<check-all-lattices.sh>` with a repo-local wrapper or the shared helper
 at `.pi/skills/lat-md/scripts/check-all-lattices.sh`.
 
-Run the shared lattice check for every discovered `lat-md/` directory under the
+Run the shared lattice check for every discovered `.lat-md/` directory under the
 target repo, using the correct owning project root for each lattice.
 
 Options:

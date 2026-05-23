@@ -94,12 +94,12 @@ discover_lattice_dirs() {
       -name .pytest_cache -o \
       -name .mypy_cache \
     \) -prune -o \
-    -type d -name 'lat-md' -print | sort
+    -type d -name '.lat-md' -print | sort
 }
 
 print_lattice_files() {
   local owner_root="$1"
-  local lattice_dir="$owner_root/lat-md"
+  local lattice_dir="$owner_root/.lat-md"
 
   if [[ ! -d "$lattice_dir" ]]; then
     return
@@ -225,9 +225,9 @@ else
   for owner_root in "${owner_roots[@]}"; do
     rel_owner="$(rel_path "$owner_root")"
     if [[ "$rel_owner" == '.' ]]; then
-      echo '- . -> lat-md/'
+      echo '- . -> .lat-md/'
     else
-      echo "- $rel_owner -> $rel_owner/lat-md/"
+      echo "- $rel_owner -> $rel_owner/.lat-md/"
     fi
     echo '  files:'
     print_lattice_files "$owner_root"

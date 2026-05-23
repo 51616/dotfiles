@@ -54,9 +54,9 @@ Track id: `<track_id>`
 ## Verification commands
 (Record exact commands from the repo root or specify the working directory.)
 - 
-- (optional) `uvx showboat verify ./evidence/showboat.md` (when the demo doc exists)
+- (optional) verify any files under `./evidence/` still match the final commands/results
 
-## lat.md drift checks (when used by the repo)
+## .lat-md drift checks (when used by the repo)
 - Last run:
 - Commands (examples):
   - `lat check`

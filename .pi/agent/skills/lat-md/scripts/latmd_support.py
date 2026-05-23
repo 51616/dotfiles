@@ -19,6 +19,7 @@ PRUNE_DIRS = {
     '__pycache__',
     '.pytest_cache',
     '.mypy_cache',
+    '.ruff_cache',
     '.idea',
     '.vscode',
     '.cursor',
@@ -26,7 +27,17 @@ PRUNE_DIRS = {
     '.codex',
     '.opencode',
     '.pi/extensions.bak',
+    '.wandb',
+    'wandb',
+    'tmp',
+    'data',
+    'train_outputs',
+    'train_outputs.bak',
+    'train_outputs2.bak',
+    'slurm_logs',
+    'eval_results',
 }
+PRUNE_DIR_PREFIXES = ('train_outputs',)
 SOURCE_EXTENSIONS = {
     '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts',
     '.py', '.rs', '.go', '.c', '.h', '.cpp', '.cc', '.hpp',
@@ -122,7 +133,7 @@ def full_end_line(section: Section) -> int:
     return full_end_line(section.children[-1]) if section.children else section.end_line
 
 
-def find_repo_root(start: Path) -> Path:
+def git_repo_root(start: Path) -> Path | None:
     try:
         out = subprocess.run(
             ['git', '-C', str(start), 'rev-parse', '--show-toplevel'],
@@ -130,57 +141,140 @@ def find_repo_root(start: Path) -> Path:
             capture_output=True,
             text=True,
         )
-        return Path(out.stdout.strip()).resolve()
     except Exception:
-        current = start.resolve()
-        best = current
-        while True:
-            if (current / 'lat-md').is_dir():
-                best = current
-            parent = current.parent
-            if parent == current:
-                return best
-            current = parent
+        return None
+    root = out.stdout.strip()
+    return Path(root).resolve() if root else None
 
 
-def list_lattice_dirs(repo_root: Path) -> list[Path]:
-    repo_root = repo_root.resolve()
+def find_repo_root(start: Path) -> Path:
+    git_root = git_repo_root(start)
+    if git_root is not None:
+        return git_root
+    current = start.resolve()
+    best = current
+    while True:
+        if (current / '.lat-md').is_dir():
+            best = current
+        parent = current.parent
+        if parent == current:
+            return best
+        current = parent
+
+
+def path_is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+# Keep git discovery primary; raw walks can explode in ignored experiment artifact trees.
+def git_file_paths(search_root: Path) -> list[Path] | None:
+    search_root = search_root.resolve()
+    repo_root = git_repo_root(search_root)
+    if repo_root is None:
+        return None
+    try:
+        search_rel = search_root.relative_to(repo_root)
+    except ValueError:
+        return None
+    search_text = '' if str(search_rel) == '.' else search_rel.as_posix()
+    pathspec = search_text or '.'
+    try:
+        out = subprocess.run(
+            ['git', '-C', str(repo_root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', pathspec],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as exc:
+        raise LatError(f'git ls-files failed for {search_root}: {exc}') from exc
+
+    files: dict[Path, None] = {}
+    for rel_text in out.stdout.split('\0'):
+        if not rel_text:
+            continue
+        if search_text and rel_text != search_text and not rel_text.startswith(f'{search_text}/'):
+            continue
+        file_path = repo_root / rel_text
+        if file_path.is_file():
+            files[file_path] = None
+    return sorted(files, key=lambda path: path.as_posix())
+
+
+def should_prune_dir(name: str, rel_path: str) -> bool:
+    if name in PRUNE_DIRS or rel_path in PRUNE_DIRS:
+        return True
+    return any(name.startswith(prefix) for prefix in PRUNE_DIR_PREFIXES)
+
+
+def lattice_dir_from_file(file_path: Path) -> Path | None:
+    parts = file_path.parts
+    try:
+        lattice_index = parts.index('.lat-md')
+    except ValueError:
+        return None
+    return Path(*parts[:lattice_index + 1]).resolve()
+
+
+def list_lattice_dirs(search_root: Path) -> list[Path]:
+    search_root = search_root.resolve()
+    git_files = git_file_paths(search_root)
+    if git_files is not None:
+        results = {
+            lattice_dir
+            for file_path in git_files
+            if (lattice_dir := lattice_dir_from_file(file_path)) is not None
+        }
+        return sorted(results, key=lambda path: path.as_posix())
+
     results: list[Path] = []
-    for current, dirs, _files in os.walk(repo_root):
+    for current, dirs, _files in os.walk(search_root, followlinks=False):
         current_path = Path(current)
-        rel_path = current_path.relative_to(repo_root)
+        rel_path = current_path.relative_to(search_root)
         rel_text = '' if str(rel_path) == '.' else rel_path.as_posix()
+        has_lattice = '.lat-md' in dirs
         kept_dirs: list[str] = []
         for name in dirs:
             child_rel = f'{rel_text}/{name}'.strip('/')
-            child_path = current_path / name
-            if child_rel in PRUNE_DIRS or name in PRUNE_DIRS:
+            if should_prune_dir(name, child_rel):
                 continue
-            if child_path.is_symlink():
-                try:
-                    child_path.resolve().relative_to(repo_root)
-                except ValueError:
-                    continue
+            if name == '.lat-md':
+                has_lattice = True
+                continue
             kept_dirs.append(name)
         dirs[:] = sorted(kept_dirs)
-        if 'lat-md' in dirs:
-            results.append((current_path / 'lat-md').resolve())
-    return sorted(results)
+        if has_lattice:
+            results.append((current_path / '.lat-md').resolve())
+    return sorted(results, key=lambda path: path.as_posix())
 
 
 def list_lattice_files(lattice_dir: Path) -> list[Path]:
+    lattice_dir = lattice_dir.resolve()
+    git_files = git_file_paths(lattice_dir)
+    if git_files is not None:
+        return sorted((path.resolve() for path in git_files if path.suffix.lower() == '.md'), key=lambda path: path.as_posix())
+
     files: list[Path] = []
-    for current, dirs, filenames in os.walk(lattice_dir):
-        dirs[:] = sorted(dirs)
+    for current, dirs, filenames in os.walk(lattice_dir, followlinks=False):
+        current_path = Path(current)
+        rel_path = current_path.relative_to(lattice_dir)
+        rel_text = '' if str(rel_path) == '.' else rel_path.as_posix()
+        dirs[:] = sorted(
+            name for name in dirs
+            if not should_prune_dir(name, f'{rel_text}/{name}'.strip('/'))
+        )
         for name in sorted(filenames):
             if name.endswith('.md'):
-                files.append((Path(current) / name).resolve())
-    return sorted(files)
+                files.append((current_path / name).resolve())
+    return sorted(files, key=lambda path: path.as_posix())
 
 
 def lattice_file_id(repo_root: Path, file_path: Path) -> str:
     rel_path = file_path.resolve().relative_to(repo_root).as_posix()
-    stem = rel_path[len('lat-md/'):] if rel_path.startswith('lat-md/') else rel_path.replace('/lat-md/', '/', 1)
+    stem = rel_path[len('.lat-md/'):] if rel_path.startswith('.lat-md/') else rel_path.replace('/.lat-md/', '/', 1)
     return stem[:-3] if stem.endswith('.md') else stem
 
 
@@ -553,10 +647,22 @@ def find_sections(sections: list[Section], query: str) -> list[SectionMatch]:
 
 
 def all_lattice_files(repo_root: Path) -> list[Path]:
+    repo_root = repo_root.resolve()
+    git_files = git_file_paths(repo_root)
+    if git_files is not None:
+        return sorted(
+            (
+                path.resolve()
+                for path in git_files
+                if path.suffix.lower() == '.md' and lattice_dir_from_file(path) is not None
+            ),
+            key=lambda path: path.as_posix(),
+        )
+
     files: list[Path] = []
     for lattice_dir in list_lattice_dirs(repo_root):
         files.extend(list_lattice_files(lattice_dir))
-    return sorted(files)
+    return sorted(files, key=lambda path: path.as_posix())
 
 
 def is_source_target(repo_root: Path, target: str) -> bool:
@@ -579,8 +685,52 @@ def source_ref_matches(query: str, target: str) -> bool:
     return target_lower == query_lower
 
 
-def scan_code_refs(root: Path, *, exclude_nested: bool = True) -> list[CodeRef]:
+def is_source_file(file_path: Path) -> bool:
+    return file_path.suffix.lower() in SOURCE_EXTENSIONS
+
+
+def path_is_under_any(path: Path, roots: set[Path]) -> bool:
+    return any(path_is_relative_to(path, root) for root in roots)
+
+
+def source_files(root: Path, nested_owner_roots: set[Path]) -> list[Path]:
+    git_files = git_file_paths(root)
+    if git_files is not None:
+        return sorted(
+            (
+                path
+                for path in git_files
+                if is_source_file(path)
+                and '.lat-md' not in path.parts
+                and not path_is_under_any(path, nested_owner_roots)
+            ),
+            key=lambda path: path.as_posix(),
+        )
+
+    files: list[Path] = []
+    for current, dirs, filenames in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        rel_current = '' if current_path == root else current_path.relative_to(root).as_posix()
+        filtered_dirs: list[str] = []
+        for name in dirs:
+            child = current_path / name
+            child_rel = f'{rel_current}/{name}'.strip('/')
+            if should_prune_dir(name, child_rel):
+                continue
+            if name == '.lat-md' or child in nested_owner_roots:
+                continue
+            filtered_dirs.append(name)
+        dirs[:] = sorted(filtered_dirs)
+        for name in sorted(filenames):
+            file_path = current_path / name
+            if is_source_file(file_path):
+                files.append(file_path)
+    return sorted(files, key=lambda path: path.as_posix())
+
+
+def scan_code_refs(root: Path, *, exclude_nested: bool = True, repo_root: Path | None = None) -> list[CodeRef]:
     root = root.resolve()
+    rel_base = repo_root.resolve() if repo_root is not None else root
     nested_owner_roots: set[Path] = set()
     if exclude_nested:
         nested_owner_roots = {
@@ -589,40 +739,32 @@ def scan_code_refs(root: Path, *, exclude_nested: bool = True) -> list[CodeRef]:
             if lattice_dir.parent != root
         }
     refs: list[CodeRef] = []
-    for current, dirs, files in os.walk(root):
-        current_path = Path(current)
-        rel_current = '' if current_path == root else current_path.relative_to(root).as_posix()
-        filtered_dirs: list[str] = []
-        for name in dirs:
-            child = current_path / name
-            child_rel = f'{rel_current}/{name}'.strip('/')
-            if child_rel in PRUNE_DIRS or name in PRUNE_DIRS:
-                continue
-            if child.name == 'lat-md' or child in nested_owner_roots:
-                continue
-            if child.is_symlink() and child.resolve() in nested_owner_roots:
-                continue
-            filtered_dirs.append(name)
-        dirs[:] = sorted(filtered_dirs)
-        for name in sorted(files):
-            file_path = current_path / name
-            suffix = file_path.suffix.lower()
-            if suffix == '.md' or suffix not in SOURCE_EXTENSIONS:
-                continue
-            try:
-                lines = file_path.read_text(encoding='utf-8').splitlines()
-            except UnicodeDecodeError:
-                lines = file_path.read_text(encoding='utf-8', errors='ignore').splitlines()
-            rel_path = file_path.relative_to(root).as_posix()
-            for line_no, line in enumerate(lines, start=1):
-                for match in CODE_REF_RE.finditer(line):
-                    refs.append(CodeRef(target=match.group(1), file=rel_path, line=line_no))
+    for file_path in source_files(root, nested_owner_roots):
+        try:
+            lines = file_path.read_text(encoding='utf-8').splitlines()
+        except UnicodeDecodeError:
+            lines = file_path.read_text(encoding='utf-8', errors='ignore').splitlines()
+        except OSError:
+            continue
+        try:
+            rel_path = file_path.resolve().relative_to(rel_base).as_posix()
+        except ValueError:
+            rel_path = file_path.resolve().as_posix()
+        for line_no, line in enumerate(lines, start=1):
+            for match in CODE_REF_RE.finditer(line):
+                refs.append(CodeRef(target=match.group(1), file=rel_path, line=line_no))
     return refs
 
 
-def load_context(owner_root: Path, *, repo_root: Path | None = None, all_sections: list[Section] | None = None) -> Context:
+def load_context(
+    owner_root: Path,
+    *,
+    repo_root: Path | None = None,
+    all_sections: list[Section] | None = None,
+    include_all_sections: bool = True,
+) -> Context:
     owner_root = owner_root.resolve()
-    lattice_dir = owner_root / 'lat-md'
+    lattice_dir = owner_root / '.lat-md'
     if not lattice_dir.is_dir():
         raise LatError(f'Missing lattice directory: {lattice_dir}')
     index_path = lattice_dir / 'index.md'
@@ -630,11 +772,16 @@ def load_context(owner_root: Path, *, repo_root: Path | None = None, all_section
         raise LatError(f'Missing lattice root document: {index_path}')
     repo_root = repo_root.resolve() if repo_root is not None else find_repo_root(owner_root)
     local_files = list_lattice_files(lattice_dir)
+    if index_path.resolve() not in {path.resolve() for path in local_files}:
+        raise LatError(
+            f'Lattice root document is not visible to lat-md discovery: {index_path}. '
+            'In git repos, track it or unignore it.'
+        )
     local_sections: list[Section] = []
     for file_path in local_files:
         local_sections.extend(parse_sections(repo_root, owner_root, lattice_dir, file_path))
     if all_sections is None:
-        all_sections = load_all_sections(repo_root)
+        all_sections = load_all_sections(repo_root) if include_all_sections else local_sections
     flat = flatten_sections(all_sections)
     local_flat = flatten_sections(local_sections)
     return Context(

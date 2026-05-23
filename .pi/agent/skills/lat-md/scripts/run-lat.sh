@@ -15,14 +15,14 @@ Replace `<run-lat.sh>` with a repo-local wrapper or the shared helper at
 
 If owner-root is omitted, it defaults to `.`.
 
-Work with lattices stored under lat-md/.
+Work with lattices stored under .lat-md/.
 
 What this tool is for:
   A lattice is a small markdown graph that explains architecture, ownership,
   boundaries, invariants, and links back to code.
 
 What "owner-root" means:
-  The directory that directly contains a lat-md/ folder.
+  The directory that directly contains a .lat-md/ folder.
   Common examples in this repo are:
     .
     .pi/scripts
@@ -44,7 +44,7 @@ Commands:
   ref      alias for refs
   expand   resolve [[wiki refs]] inside free text
   gen      print a starter template
-  init     create a new lat-md/ root
+  init     create a new .lat-md/ root
 
 Examples:
   bash <run-lat.sh> check --no-color

@@ -30,8 +30,9 @@ Examples:
 Notes:
 - Skill names should be hyphen-case.
 - This creates: SKILL.md, templates/, examples/, scripts/.
+- Replace generated __FILL_ME__ markers before using the skill.
 - Run validation afterwards:
-    python3 scripts/quick_validate.py <skill-dir>
+    python scripts/quick_validate.py <skill-dir>
 USAGE
 }
 
@@ -61,8 +62,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! "$NAME" =~ ^[a-z0-9-]+$ ]]; then
-  echo "Skill name must be hyphen-case: $NAME" >&2
+if [[ ! "$NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+  echo "Skill name must be hyphen-case without leading/trailing/doubled hyphens: $NAME" >&2
   exit 2
 fi
 
@@ -116,35 +117,25 @@ fi
 
 mkdir -p "$SKILL_DIR" "$SKILL_DIR/templates" "$SKILL_DIR/examples" "$SKILL_DIR/scripts"
 
-# Initialize SKILL.md from template, replacing placeholders.
-python3 - <<PY
-from pathlib import Path
-
-name = "${NAME}"
-tpl = Path("${TEMPLATE_DIR}/SKILL.md.template").read_text(encoding="utf-8")
-text = tpl.replace("<skill-name>", name)
-# Avoid leaving angle brackets in frontmatter.
-text = text.replace("<concrete trigger(s)>", "...")
-text = text.replace("<common confusion>", "...")
-text = text.replace("<other-skill>", "...")
-text = text.replace("<alternative>", "...")
-text = text.replace("<artifacts + success criteria>", "...")
-Path("${SKILL_DIR}/SKILL.md").write_text(text, encoding="utf-8")
-PY
+python "${SCRIPT_DIR}/render_skill_template.py" \
+  --template "${TEMPLATE_DIR}/SKILL.md.template" \
+  --output "${SKILL_DIR}/SKILL.md" \
+  --name "${NAME}"
 
 chmod 644 "$SKILL_DIR/SKILL.md" 2>/dev/null || true
 
 LINK_PATH=""
+LINK_STATUS="none"
 if [[ "$NO_LINK" -eq 0 && -n "${VAULT_ROOT}" && -d "${VAULT_ROOT}/.pi/skills" ]]; then
   LINK_PATH="${VAULT_ROOT}/.pi/skills/${NAME}"
 
-  if [[ -e "${LINK_PATH}" ]]; then
-    echo "Note: vault link path already exists, not touching: ${LINK_PATH}" >&2
+  if [[ "${SKILL_DIR}" == "${LINK_PATH}" ]]; then
+    LINK_STATUS="direct"
+  elif [[ -e "${LINK_PATH}" || -L "${LINK_PATH}" ]]; then
+    LINK_STATUS="existing"
   else
-    # Only link when the skill was created outside the vault skills dir.
-    if [[ "${SKILL_DIR}" != "${LINK_PATH}" ]]; then
-      ln -s "${SKILL_DIR}" "${LINK_PATH}"
-    fi
+    ln -s "${SKILL_DIR}" "${LINK_PATH}"
+    LINK_STATUS="created"
   fi
 fi
 
@@ -153,10 +144,21 @@ Created skill:
   ${SKILL_DIR}
 
 Next:
-  python3 "${SCRIPT_DIR}/quick_validate.py" "${SKILL_DIR}"
+  1) Replace __FILL_ME__ markers in ${SKILL_DIR}/SKILL.md
+  2) python "${SCRIPT_DIR}/quick_validate.py" "${SKILL_DIR}"
 MSG
 
-if [[ -n "${LINK_PATH}" ]]; then
-  echo "Vault link (if created):"
-  echo "  ${LINK_PATH}"
-fi
+case "$LINK_STATUS" in
+  created)
+    echo "Vault symlink created:"
+    echo "  ${LINK_PATH}"
+    ;;
+  existing)
+    echo "Vault path already exists, not touched:"
+    echo "  ${LINK_PATH}"
+    ;;
+  direct)
+    echo "Vault skill:"
+    echo "  ${LINK_PATH}"
+    ;;
+esac

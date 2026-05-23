@@ -51,18 +51,18 @@ def cmd_gen(target: str) -> int:
 
 
 def cmd_init(owner_root: Path, force: bool) -> int:
-    lat_dir = owner_root / 'lat-md'
+    lat_dir = owner_root / '.lat-md'
     index_path = lat_dir / 'index.md'
     lat_dir.mkdir(parents=True, exist_ok=True)
     template_path = Path(__file__).resolve().parent.parent / 'templates' / 'router-lattice-template.md'
     template = template_path.read_text(encoding='utf-8')
     if index_path.exists() and not force:
-        print(f'lat-md/ already exists at {lat_dir}')
+        print(f'.lat-md/ already exists at {lat_dir}')
         print(f'Kept existing {index_path}')
         return 0
     index_path.write_text(template, encoding='utf-8')
     print(f'Initialized {index_path}')
-    print('Edit lat-md/index.md, then run the local check helpers.')
+    print('Edit .lat-md/index.md, then run the local check helpers.')
     return 0
 
 
@@ -73,7 +73,7 @@ def cmd_check(ctx: Context, mode: str) -> int:
     section_errors = check_sections(ctx) if mode in {'all', 'sections'} else []
 
     if mode == 'all':
-        print(f'Scanned {len(ctx.local_files)} markdown files in {rel(ctx.owner_root, ctx.repo_root)}/lat-md')
+        print(f'Scanned {len(ctx.local_files)} markdown files in {rel(ctx.owner_root, ctx.repo_root)}/.lat-md')
     total = len(md_errors) + len(code_errors) + len(index_errors) + len(section_errors)
     for group in (md_errors, code_errors, index_errors, section_errors):
         if group:
@@ -102,7 +102,7 @@ def cmd_check_all(target_root: Path, verbose: bool) -> int:
     owner_roots = unique_owner_roots(list_lattice_dirs(target_root))
     owner_roots.sort(key=lambda path: (path != target_root, rel_path(path, target_root)))
     if not owner_roots:
-        print(f'No lat-md directories found under {rel_path(target_root, target_root)}')
+        print(f'No .lat-md directories found under {rel_path(target_root, target_root)}')
         return 1
 
     all_sections = load_all_sections(repo_root)
@@ -113,7 +113,7 @@ def cmd_check_all(target_root: Path, verbose: bool) -> int:
     fail_count = 0
     for owner_root in owner_roots:
         rel_owner = rel_path(owner_root, target_root)
-        rel_lattice = 'lat-md/' if rel_owner == '.' else f'{rel_owner}/lat-md/'
+        rel_lattice = '.lat-md/' if rel_owner == '.' else f'{rel_owner}/.lat-md/'
         print(f'[lat-check] {rel_owner} -> {rel_lattice}')
 
         output_buffer = io.StringIO()
@@ -516,7 +516,7 @@ def validate_source_target(repo_root: Path, target: str) -> str | None:
 def check_code_refs(ctx: Context) -> list[str]:
     errors: list[str] = []
     mentioned_sections: set[str] = set()
-    for ref in scan_code_refs(ctx.owner_root):
+    for ref in scan_code_refs(ctx.owner_root, repo_root=ctx.repo_root):
         resolved = resolve_ctx_ref(ctx, ref.target)
         if resolved.ambiguous:
             errors.append(format_error(ctx.repo_root / ref.file, ref.line, f'@lat: [[{ref.target}]] — ambiguous reference'))
@@ -577,7 +577,7 @@ def check_index(ctx: Context) -> list[str]:
 
 
 def display_dir(directory: str) -> str:
-    return 'lat-md/' if not directory else f'lat-md/{directory}/'
+    return '.lat-md/' if not directory else f'.lat-md/{directory}/'
 
 
 def parse_index_entries(text: str) -> set[str]:

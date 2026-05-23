@@ -20,9 +20,9 @@ Do not resume existing tracks unless explicitly asked.
 
 Before setup or track planning, audit the repo to infer the current reality.
 
-If the repo contains a `lat.md/` knowledge graph, use it as the default “what is this system and why?” reference. Prefer `lat locate`, `lat section`, and `lat refs` to navigate, and update `lat.md/` when you discover drift.
+If the repo contains a `.lat-md/` knowledge graph, use it as the default “what is this system and why?” reference. Prefer `lat locate`, `lat section`, and `lat refs` to navigate, and update `.lat-md/` when you discover drift.
 
-When editing `lat.md/` files, defer to the `lat-md` skill for authoring rules and drift checks, including the `index.md` root-file convention and the current `lat.md` symlink requirement.
+When editing `.lat-md/` files, defer to the `lat-md` skill for authoring rules and drift checks, including the `index.md` root-file convention.
 Do not rely on semantic search (`lat search`) in the Conductor flow for now.
 
 Inspect enough to answer the important questions, preferring high-signal files first:
@@ -30,7 +30,7 @@ Inspect enough to answer the important questions, preferring high-signal files f
 - dependency manifests / lockfiles
 - source layout / major entrypoints
 - test layout and test tooling
-- existing `conductor/` docs if present
+- existing `.conductor/` docs if present
 
 From the audit, infer:
 - project summary / purpose
@@ -49,16 +49,16 @@ Rule:
 1. Run scaffolding script (from anywhere):
    - `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/setup.sh" --root /path/to/repo`
 2. Use the audit to draft/fill:
-   - `conductor/project.md`
-   - `conductor/project-guidelines.md` (optional, but useful for user-facing projects)
-   - `conductor/tech-stack.md`
-   - `conductor/workflow.md`
-3. If the repo uses `lat.md/`, ensure the lattice has an explicit test-spec file:
-   - `lat.md/tests.md` with frontmatter `require-code-mention: true`
+   - `.conductor/project.md`
+   - `.conductor/project-guidelines.md` (optional, but useful for user-facing projects)
+   - `.conductor/tech-stack.md`
+   - `.conductor/workflow.md`
+3. If the repo uses `.lat-md/`, ensure the lattice has an explicit test-spec file:
+   - `.lat-md/tests.md` with frontmatter `require-code-mention: true`
 
    This makes test/spec drift mechanically detectable via `lat check code-refs`. Defer to the `lat-md` skill for the exact structure and authoring rules.
 4. Confirm inferred answers with the user, then ask only for missing/ambiguous decisions.
-5. Ensure `conductor/index.md` and `conductor/tracks.md` exist.
+5. Ensure `.conductor/index.md` and `.conductor/tracks.md` exist.
 
 This is a structured intake, not a vague “interview briefly”.
 
@@ -128,16 +128,16 @@ The review stage is also non-interactive by default. The agent should fix straig
 
 Implementation should be non-interactive once it starts.
 
-Loop tasks in `conductor/tracks/<track_id>/plan.md`:
-- when starting a work session (especially after `/new`), read `conductor/tracks/<track_id>/resume.md` first
+Loop tasks in `.conductor/tracks/<track_id>/plan.md`:
+- when starting a work session (especially after `/new`), read `.conductor/tracks/<track_id>/resume.md` first
 - map the current task back to the approved behaviors/scenarios in `spec.md`
 - mark the current task `[~]` before starting
 - write tests first **when feasible**, using the approved behaviors/scenarios as the source of truth
 - do not write tests “for the sake of testing”: every new/changed test must directly prove one of the approved behaviors/scenarios in `spec.md` (if it doesn’t map, delete or rewrite it)
 - maintain explicit traceability between tests and spec behaviors:
   - for each spec scenario you implement, record which test(s) prove it (file + test name) in `plan.md` Change evidence and/or `resume.md`
-  - when the repo uses `lat.md/`, tighten the link by writing/maintaining test-spec sections in `lat.md/tests.md` (or a module’s own `lat.md/tests.md` if the repo is structured that way) and adding `@lat:` comments next to the tests that implement them; defer to the `lat-md` skill for the exact authoring rules and required `lat check` gates
-- if the repo uses `lat.md/`, keep it in sync during implementation; defer to the `lat-md` skill for the exact conventions and required checks
+  - when the repo uses `.lat-md/`, tighten the link by writing/maintaining test-spec sections in `.lat-md/tests.md` (or a module’s own `.lat-md/tests.md` if the repo is structured that way) and adding `@lat:` comments next to the tests that implement them; defer to the `lat-md` skill for the exact authoring rules and required `lat check` gates
+- if the repo uses `.lat-md/`, keep it in sync during implementation; defer to the `lat-md` skill for the exact conventions and required checks
 - if tests-first is not feasible, record why and define another verification method before coding
 - implement the smallest code change that satisfies the approved behavior
 - run the smallest meaningful verification command(s)
@@ -145,31 +145,29 @@ Loop tasks in `conductor/tracks/<track_id>/plan.md`:
 - mark `[x]` when done
 - after each meaningful work chunk (and always before stopping / at each user return point), update `resume.md` with the new current state + decisions + next steps + exact verification commands
 
-#### Evidence (optional, milestone-only): Showboat
+#### Evidence (optional, milestone-only)
 
-If the track benefits from **reproducible proof-of-work** (especially for tricky CLI workflows, ops changes, or anything you’ll want to re-check later), maintain a Showboat demo doc inside the track:
+If the track benefits from reproducible proof-of-work (especially for tricky CLI workflows, ops changes, or anything you’ll want to re-check later), maintain concise evidence notes inside the track:
 
-- `conductor/tracks/<track_id>/evidence/showboat.md`
+- `.conductor/tracks/<track_id>/evidence/`
 
-Use the `showboat-demo` skill.
-
-Default (Option A): capture **key checkpoints only** (don’t try to record every command):
+Capture key checkpoints only; don’t try to record every command:
 - baseline/setup established
 - problem reproduced (failing test / failing command output)
 - fix applied (the smallest commands that prove the change)
 - final verification (tests/lint/build + any relevant manual checks)
 
-Treat `showboat verify` as part of Phase 3 (Verification) when the demo exists.
+Treat evidence checks as part of Phase 3 (Verification) when evidence artifacts exist.
 
 Keep progress and track status **continuously** updated (not just at the end):
 
-- `conductor/tracks.md` is the repo-level dashboard. Update it whenever the track changes state:
+- `.conductor/tracks.md` is the repo-level dashboard. Update it whenever the track changes state:
   - `[ ]` → `[~]` as soon as you start work on the track (**spec drafting counts**)
   - keep `[~]` during planning + implementation + review fixups
   - `[~]` → `[x]` only after verification **and** completion sync are done
-- `conductor/tracks/<track_id>/plan.md`: keep one active item marked `[~]`, tick `[x]` as tasks complete
-- `conductor/tracks/<track_id>/resume.md`: keep it current enough that a fresh session can resume without rereading chat history
-- `conductor/tracks/<track_id>/metadata.json` (optional but recommended): update `status` + `updated_at` when state changes
+- `.conductor/tracks/<track_id>/plan.md`: keep one active item marked `[~]`, tick `[x]` as tasks complete
+- `.conductor/tracks/<track_id>/resume.md`: keep it current enough that a fresh session can resume without rereading chat history
+- `.conductor/tracks/<track_id>/metadata.json` (optional but recommended): update `status` + `updated_at` when state changes
 
 
 ### 6) Review before completion sync
@@ -179,7 +177,7 @@ After implementation is done, run a lightweight review gate before marking the t
 Use `codex-review` explicitly as the default second-opinion reviewer for this stage. Give it the minimum high-signal context needed to review precisely: the relevant `spec.md`, `plan.md`, `resume.md`, the touched paths, and the `plan.md` Change evidence snippets. Use 25 minute-timeout (1500 seconds) by default for the review.
 
 Example:
-- `codex-review.sh "Review conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, tests that don’t map to approved behaviors/scenarios, missing tests where behaviors lack proof, and weak verification."`
+- `codex-review.sh "Review .conductor/tracks/<track_id>/{spec.md,plan.md,resume.md} plus the touched files and Change evidence. Look for correctness issues, scope drift, tests that don’t map to approved behaviors/scenarios, missing tests where behaviors lack proof, and weak verification."`
 
 The review should be driven by the approved `spec.md` and `plan.md`, not by random style nitpicking. Check:
 - behavior/spec compliance
@@ -187,7 +185,7 @@ The review should be driven by the approved `spec.md` and `plan.md`, not by rand
 - whether tests and verification actually prove the approved behavior
 - whether every new/changed test maps to an approved behavior/scenario (no “testing for its own sake”)
 - whether every approved behavior/scenario has at least one concrete proof (test and/or explicit manual/ops verification) and that proof is recorded
-- if the repo uses `lat.md/`, that `lat check` passes for the relevant project root(s)
+- if the repo uses `.lat-md/`, that `lat check` passes for the relevant project root(s)
 - whether `plan.md` contains sufficient **Change evidence** (paths + snippets) for precise review
 - obvious correctness, maintainability, safety, and observability issues
 - which docs now need sync
@@ -204,13 +202,13 @@ Keep this stage mostly agent-driven and non-interactive. The user should see the
 At track completion, do a best-effort sync so the repo does not lie about current reality.
 
 Review and update as needed:
-- `conductor/project.md`
-- `conductor/tech-stack.md`
-- `conductor/workflow.md` (only if process assumptions materially changed)
+- `.conductor/project.md`
+- `.conductor/tech-stack.md`
+- `.conductor/workflow.md` (only if process assumptions materially changed)
 - the track docs for final consistency
 - `resume.md` so the terminal state is clear
-- if the repo uses `lat.md/`, update the relevant sections and ensure `lat check` passes (defer to the `lat-md` skill)
-- if the repo uses `lat.md/`, append/update test specs in `lat.md/tests.md` (or the relevant module’s `lat.md/tests.md`) so that the tests you added/changed have explicit spec sections, and ensure `lat check code-refs` enforces coverage
+- if the repo uses `.lat-md/`, update the relevant sections and ensure `lat check` passes (defer to the `lat-md` skill)
+- if the repo uses `.lat-md/`, append/update test specs in `.lat-md/tests.md` (or the relevant module’s `.lat-md/tests.md`) so that the tests you added/changed have explicit spec sections, and ensure `lat check code-refs` enforces coverage
 
 Keep this practical. The goal is to leave accurate docs behind, not to create ritual.
 
@@ -238,11 +236,11 @@ Scripts:
 In any scratch repo:
 1. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/setup.sh" --root /path/to/repo`
 2. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/new-track.sh" --root /path/to/repo --desc "Test track" --type chore`
-3. Inspect `conductor/project.md`, `conductor/tracks.md`, and `conductor/tracks/<track_id>/{spec.md,plan.md,resume.md}` to confirm the new sections are present.
+3. Inspect `.conductor/project.md`, `.conductor/tracks.md`, and `.conductor/tracks/<track_id>/{spec.md,plan.md,resume.md}` to confirm the new sections are present.
 4. `bash "$PI_VAULT_ROOT/.pi/skills/conductor/scripts/status.sh" --root /path/to/repo`
 
 You should see:
-- `conductor/index.md`, `conductor/tracks.md`, `conductor/project.md`, `conductor/tech-stack.md`, `conductor/workflow.md`
-- `conductor/tracks/<track_id>/{spec.md,plan.md,resume.md,metadata.json,index.md}`
+- `.conductor/index.md`, `.conductor/tracks.md`, `.conductor/project.md`, `.conductor/tech-stack.md`, `.conductor/workflow.md`
+- `.conductor/tracks/<track_id>/{spec.md,plan.md,resume.md,metadata.json,index.md}`
 
 based on: https://developers.googleblog.com/conductor-introducing-context-driven-development-for-gemini-cli/

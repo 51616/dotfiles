@@ -32,13 +32,13 @@ def test_check_accepts_aliased_wiki_links(tmp_path: Path) -> None:
     owner_root = write_lattice(
         tmp_path,
         {
-            'lat-md/index.md': '''
+            '.lat-md/index.md': '''
                 # Index
                 This is the root lattice.
 
                 See [[foo#Section|the foo section]].
             ''',
-            'lat-md/foo.md': '''
+            '.lat-md/foo.md': '''
                 # Section
                 This section exists.
             ''',
@@ -55,7 +55,7 @@ def test_expand_preserves_aliases_when_resolving_refs(tmp_path: Path) -> None:
     owner_root = write_lattice(
         tmp_path,
         {
-            'lat-md/index.md': '''
+            '.lat-md/index.md': '''
                 # Index
                 This is the root lattice.
 
@@ -76,18 +76,18 @@ def test_section_rejects_ambiguous_heading_only_queries(tmp_path: Path) -> None:
     owner_root = write_lattice(
         tmp_path,
         {
-            'lat-md/index.md': '''
+            '.lat-md/index.md': '''
                 # Index
                 This is the root lattice.
             ''',
-            'lat-md/alpha.md': '''
+            '.lat-md/alpha.md': '''
                 # Alpha
                 Alpha owns one subtree.
 
                 ## Change guidance
                 Update alpha carefully.
             ''',
-            'lat-md/beta.md': '''
+            '.lat-md/beta.md': '''
                 # Beta
                 Beta owns another subtree.
 
@@ -109,18 +109,18 @@ def test_refs_rejects_ambiguous_heading_only_queries(tmp_path: Path) -> None:
     owner_root = write_lattice(
         tmp_path,
         {
-            'lat-md/index.md': '''
+            '.lat-md/index.md': '''
                 # Index
                 This is the root lattice.
             ''',
-            'lat-md/alpha.md': '''
+            '.lat-md/alpha.md': '''
                 # Alpha
                 Alpha owns one subtree.
 
                 ## Change guidance
                 Update alpha carefully.
             ''',
-            'lat-md/beta.md': '''
+            '.lat-md/beta.md': '''
                 # Beta
                 Beta owns another subtree.
 
@@ -142,13 +142,13 @@ def test_check_all_validates_nested_lattices_in_one_command(tmp_path: Path) -> N
     owner_root = write_lattice(
         tmp_path,
         {
-            'lat-md/index.md': '''
+            '.lat-md/index.md': '''
                 # Index
                 This is the root lattice.
 
                 See [[tools/index#Tools]].
             ''',
-            'tools/lat-md/index.md': '''
+            'tools/.lat-md/index.md': '''
                 # Tools
                 This nested lattice owns tool docs.
 
@@ -160,6 +160,57 @@ def test_check_all_validates_nested_lattices_in_one_command(tmp_path: Path) -> N
     result = run_latmd('check-all', str(owner_root))
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert '[lat-check] . -> lat-md/' in result.stdout
-    assert '[lat-check] tools -> tools/lat-md/' in result.stdout
+    assert '[lat-check] . -> .lat-md/' in result.stdout
+    assert '[lat-check] tools -> tools/.lat-md/' in result.stdout
     assert '[lat-check] summary: 2 passed, 0 failed' in result.stdout
+
+
+def test_git_discovery_respects_gitignore_for_lattices_and_code_refs(tmp_path: Path) -> None:
+    owner_root = write_lattice(
+        tmp_path,
+        {
+            '.gitignore': '''
+                ignored_artifacts/
+            ''',
+            '.lat-md/index.md': '''
+                # Index
+                This is the root lattice.
+            ''',
+            'ignored_artifacts/.lat-md/index.md': '''
+                # Ignored
+            ''',
+            'ignored_artifacts/bad.py': '''
+                # @lat: [[missing#Missing]]
+            ''',
+        },
+    )
+    subprocess.run(['git', 'init'], cwd=owner_root, text=True, capture_output=True, check=True)
+
+    result = run_latmd('check-all', str(owner_root))
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert '[lat-check] . -> .lat-md/' in result.stdout
+    assert 'ignored_artifacts' not in result.stdout + result.stderr
+    assert '[lat-check] summary: 1 passed, 0 failed' in result.stdout
+
+
+def test_fallback_discovery_prunes_artifact_dirs(tmp_path: Path) -> None:
+    owner_root = write_lattice(
+        tmp_path,
+        {
+            '.lat-md/index.md': '''
+                # Index
+                This is the root lattice.
+            ''',
+            'tmp/.lat-md/index.md': '''
+                # Ignored tmp lattice
+            ''',
+        },
+    )
+
+    result = run_latmd('check-all', str(owner_root))
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert '[lat-check] . -> .lat-md/' in result.stdout
+    assert 'tmp -> tmp/.lat-md/' not in result.stdout
+    assert '[lat-check] summary: 1 passed, 0 failed' in result.stdout

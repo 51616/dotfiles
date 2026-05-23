@@ -10,7 +10,7 @@ description: |
   - User shares an alphaxiv URL (e.g. `alphaxiv.org/overview/2401.12345`)
 ---
 
-# AlphaXiv Paper Lookup
+# alphaxiv-paper-lookup
 
 Look up any arxiv paper on alphaxiv.org to get a structured AI-generated overview. This is faster and more reliable than trying to read a raw PDF.
 
@@ -96,4 +96,9 @@ It prints a single JSON object containing both `paper` and `overview`, with retr
 - No authentication required — these are public endpoints.
 - AlphaXiv currently appears to be **IPv4-only** (no AAAA). Avoid `curl -6`.
 - Replace `en` with a language code (`fr`, `de`, `es`, `zh`, `ja`, `ar`, `hi`, `pt`) for translated overviews.
+
+## Verification
+
+- Confirm the AlphaXiv response contains either `intermediateReport`, `summary`, or `overview` before using it as the paper explanation.
+- If using the helper script, confirm it exits successfully and writes a JSON object with both `paper` and `overview` keys.
 

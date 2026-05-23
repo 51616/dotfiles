@@ -1,17 +1,17 @@
 ---
 name: lat-md
 description: |
-  Use when: creating, editing, or reviewing a repo’s `lat-md/` lattice docs or `@lat:` anchors. Also use when a refactor, new entrypoint, new artifact contract, or new legacy/deprecated boundary has made the lattice vague or stale and you want it brought back in sync with the code.
-  Outputs: updated `lat-md/` docs in the correct owning directory or thin root `lat-md/`, updated `@lat:` anchors when behavior or ownership changed, exact wiki links that resolve, and a verification step using the shared `scripts/run-lat.sh` helper.
+  Use when: creating, editing, or reviewing a repo’s `.lat-md/` lattice docs or `@lat:` anchors. Also use when a refactor, new entrypoint, new artifact contract, or new legacy/deprecated boundary has made the lattice vague or stale and you want it brought back in sync with the code.
+  Outputs: updated `.lat-md/` docs in the correct owning directory or thin root `.lat-md/`, updated `@lat:` anchors when behavior or ownership changed, exact wiki links that resolve, and a verification step using the shared `scripts/run-lat.sh` helper.
 ---
 
 # lat-md
 
-This skill covers how we use `lat-md/` in a repo: section structure, link conventions, and the drift checks that keep docs and code aligned.
+This skill covers how we use `.lat-md/` in a repo: section structure, link conventions, and the drift checks that keep docs and code aligned.
 
-Lattices should be distributed under owning directories. Put local docs next to the code or docs they describe, such as `src/lat-md/`, `scripts/lat-md/`, `tests/lat-md/`, `docs/lat-md/`, or `webui/lat-md/`. Keep the root `lat-md/` thin and limited to cross-cutting repo concepts like top-level maps and workflows.
+Lattices should be distributed under owning directories. Put local docs next to the code or docs they describe, such as `src/.lat-md/`, `scripts/.lat-md/`, `tests/.lat-md/`, `docs/.lat-md/`, or `webui/.lat-md/`. Keep the root `.lat-md/` thin and limited to cross-cutting repo concepts like top-level maps and workflows.
 
-Wiki links resolve logically across nested lattices. For example, `[[src/index#Package boundaries]]` should resolve to `src/lat-md/index.md`, and `[[workflows#Training workflow]]` should resolve to `lat-md/workflows.md`.
+Wiki links resolve logically across nested lattices. For example, `[[src/index#Package boundaries]]` should resolve to `src/.lat-md/index.md`, and `[[workflows#Training workflow]]` should resolve to `.lat-md/workflows.md`.
 
 ## Write tight lattices
 
@@ -28,14 +28,14 @@ Good lattice prose is short and sharp. It should help a later session answer “
 
 ## Core workflow
 
-When working in a repo that contains one or more `lat-md/` directories:
+When working in a repo that contains one or more `.lat-md/` directories:
 
 1. Audit the owning code first.
    - Read the current lattice file.
    - Inspect the real entrypoints, exports, and docstrings in the owning directory.
    - Search for existing `@lat:` anchors before changing headings that code references.
-2. Update the relevant `lat-md/*.md` files in the owning directory.
-3. Keep the root `lat-md/` thin. Only add cross-cutting repo docs there.
+2. Update the relevant `.lat-md/*.md` files in the owning directory.
+3. Keep the root `.lat-md/` thin. Only add cross-cutting repo docs there.
 4. Preserve or deliberately migrate heading names that existing `@lat:` anchors depend on.
 5. Anchor implementation back to concepts when needed:
    - JS/TS/etc: `// @lat: [[file#Heading]]`
@@ -83,7 +83,7 @@ You can also link to code symbols for supported languages:
 - `[[src/foo.ts#myFunction]]`
 - `[[src/app.py#MyClass#method]]`
 
-## What belongs in `lat-md/`
+## What belongs in `.lat-md/`
 
 Write what and why: responsibilities, boundaries, invariants, ownership, artifact contracts, and fail-fast behavior. Do not duplicate code.
 
@@ -98,6 +98,11 @@ Bad:
 - code walkthroughs
 - TODO dumps
 - vague summaries that do not name the canonical implementation
-- stacking subsystem docs under root `lat-md/` when they belong under an owning directory
+- stacking subsystem docs under root `.lat-md/` when they belong under an owning directory
 - tests without an approved behavior or scenario backing them
+
+## Verification
+
+- Run `bash .pi/skills/lat-md/scripts/run-lat.sh [owner-root] check all` for the touched owner root, or the closest available `check` subset when a full check is not applicable.
+- Confirm wiki links resolve and every changed `@lat:` anchor points to an existing heading.
 
