@@ -97,6 +97,8 @@ SAVEHIST=$HISTSIZE
 
 # Appends every command to the history file once it is executed
 setopt inc_append_history
+# Entering a directory path as a command changes into it, matching OMZ behavior.
+setopt auto_cd
 
 if [ -f ~/.bash_profile ]; then 
     . ~/.bash_profile;
