@@ -320,8 +320,28 @@ unsetopt nomatch
 
 # NVM
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+# Keep node/npm available without paying nvm's startup cost in every shell.
+_nvm_default_bins=("$NVM_DIR"/versions/node/v*/bin(N-/On[1]))
+if (( ${#_nvm_default_bins} )); then
+  case ":$PATH:" in
+    *":${_nvm_default_bins[1]}:"*) :;;
+    *) export PATH="${_nvm_default_bins[1]}:$PATH";;
+  esac
+  export NVM_BIN="${_nvm_default_bins[1]}"
+  export NVM_INC="${_nvm_default_bins[1]:h}/include/node"
+fi
+unset _nvm_default_bins
+
+_nvm_load() {
+  [ -s "$NVM_DIR/nvm.sh" ] || return 127
+  unset -f nvm _nvm_load
+  . "$NVM_DIR/nvm.sh"
+  [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+}
+
+nvm() {
+  _nvm_load && nvm "$@"
+}
 
 # golang
 # export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
