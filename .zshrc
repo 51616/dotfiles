@@ -486,19 +486,22 @@ zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 _pi_path_only_complete() {
-  local search_dir typed selected candidate candidate_path preview_prefix
+  local current before search_dir typed selected candidate candidate_path preview_prefix insert_prefix
   local -a raw_candidates path_candidates
 
-  if [[ "$PREFIX" == */* ]]; then
-    search_dir="${PREFIX:h}"
+  current="${LBUFFER##*[[:space:]]}"
+  before="${LBUFFER[1,$(( ${#LBUFFER} - ${#current} ))]}"
+
+  if [[ "$current" == */* ]]; then
+    search_dir="${current:h}"
     [[ "$search_dir" == "." ]] && search_dir=""
     if [[ -n "$search_dir" && -d "$search_dir" ]]; then
       raw_candidates=("$search_dir"/*(N))
     fi
-    typed="${PREFIX:t}"
+    typed="${current:t}"
   else
     raw_candidates=(*(N))
-    typed="$PREFIX"
+    typed="$current"
   fi
 
   for candidate_path in "${raw_candidates[@]}"; do
@@ -518,16 +521,19 @@ _pi_path_only_complete() {
       printf '%s\n' "${path_candidates[@]}" |
         fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" \
           --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
-    ) || return 1
+    ) || {
+      zle reset-prompt
+      zle -R
+      return 1
+    }
   fi
 
-  if [[ -n "$search_dir" ]]; then
-    compadd -f -U -p "$search_dir/" -- "$selected"
-    return
-  fi
-  compadd -f -U -- "$selected"
+  insert_prefix="${search_dir:+$search_dir/}"
+  LBUFFER="${before}${insert_prefix}${(q)selected}"
+  zle reset-prompt
+  zle -R
 }
-zle -C pi-path-only-complete complete-word _pi_path_only_complete
+zle -N pi-path-only-complete _pi_path_only_complete
 
 (( ${+functions[disable-fzf-tab]} )) && disable-fzf-tab
 bindkey '^I' expand-or-complete
