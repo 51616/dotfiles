@@ -59,6 +59,10 @@ export const REGRESSION_MATRIX = {
     "pi-ssh/test/footer.test.mjs",
     "pi-ssh/test/remote-context.test.mjs",
   ],
+  "quota-footer": [
+    "test/runtime-entrypoint-imports.test.mjs",
+    "quota-footer/test/quota-footer.test.mjs",
+  ],
   "self-checkpointing": [
     "test/self-checkpointing-entrypoint.test.mjs",
     "self-checkpointing/test/compaction-ui.test.mjs",
