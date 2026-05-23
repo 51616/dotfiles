@@ -7,6 +7,7 @@ import {
   buildEditorTopBorderLine,
   buildModelEffortLabel,
   buildSingleLineFooter,
+  buildSingleLineFooterPreservingAnsi,
   formatModelIdForDisplay,
   formatThinkingLevelForDisplay,
   formatTokens,
@@ -14,6 +15,12 @@ import {
   getContextUsageHighlightLevel,
   sanitizeStatusText,
 } from "../lib/layout.ts";
+
+const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+
+function stripAnsi(text) {
+  return text.replace(ANSI_REGEX, "");
+}
 
 test("formatTokens keeps small and large counts readable", () => {
   assert.equal(formatTokens(999), "999");
@@ -80,6 +87,14 @@ test("buildSingleLineFooter keeps model label right-aligned", () => {
     buildSingleLineFooter("/a/very/long/path/that/needs/truncation", "󰚩 GPT-5.4 · 󰧑 High", 30),
     "/a/very/... 󰚩 GPT-5.4 · 󰧑 High",
   );
+});
+
+test("buildSingleLineFooterPreservingAnsi keeps colored right text right-aligned", () => {
+  const coloredRight = "\x1b[38;2;166;173;200m5h [━━━━━━━━━━] 9%\x1b[0m";
+  const line = buildSingleLineFooterPreservingAnsi("goal active", coloredRight, 40);
+
+  assert.equal(stripAnsi(line), `goal active${" ".repeat(11)}5h [━━━━━━━━━━] 9%`);
+  assert.ok(line.includes("\x1b[38;2;166;173;200m"));
 });
 
 test("sanitizeStatusText flattens control characters", () => {

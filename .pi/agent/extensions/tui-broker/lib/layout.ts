@@ -214,3 +214,21 @@ export function buildSingleLineFooter(left: string, right: string, width: number
 
   return `${normalizedLeft}${padding}${normalizedRight}`;
 }
+
+export function buildSingleLineFooterPreservingAnsi(left: string, right: string, width: number): string {
+  if (width <= 0) return "";
+
+  const normalizedRight = truncateToWidth(right, width, "");
+  const rightWidth = visibleWidth(normalizedRight);
+  if (rightWidth >= width) {
+    return normalizedRight;
+  }
+
+  const availableLeft = Math.max(0, width - rightWidth - 1);
+  const normalizedLeft = availableLeft > 0 ? truncateToWidth(left, availableLeft, "...") : "";
+  const leftWidth = visibleWidth(normalizedLeft);
+  const paddingWidth = Math.max(1, width - leftWidth - rightWidth);
+  const padding = " ".repeat(paddingWidth);
+
+  return `${normalizedLeft}${padding}${normalizedRight}`;
+}

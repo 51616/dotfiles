@@ -34,13 +34,15 @@ type SessionCandidate = {
   mtimeMs: number;
 };
 
-const DEFAULT_BAR_WIDTH = 5;
+const DEFAULT_BAR_WIDTH = 10;
 const DEFAULT_MAX_SESSION_FILES = 80;
 const DEFAULT_TAIL_BYTES = 1024 * 1024;
 const FALLBACK_FRESH_MS = 10 * 60 * 1000;
-const PARTIAL_BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"] as const;
-const EMPTY_BLOCK = "░";
-const FULL_BLOCK = "█";
+const BAR_CHAR = "━";
+const BAR_FILLED_COLOR = "#a6adc8";
+const BAR_EMPTY_COLOR = "#45475a";
+const TEXT_COLOR = "#6c7086";
+const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -251,22 +253,29 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function ansiTrueColor(text: string, hex: string): string {
+  const normalized = hex.trim();
+  if (!RGB_HEX_REGEX.test(normalized) || !text) return text;
+  const red = Number.parseInt(normalized.slice(1, 3), 16);
+  const green = Number.parseInt(normalized.slice(3, 5), 16);
+  const blue = Number.parseInt(normalized.slice(5, 7), 16);
+  return `\x1b[38;2;${red};${green};${blue}m${text}\x1b[0m`;
+}
+
 export function renderProgressBar(usedPercent: number, width = DEFAULT_BAR_WIDTH): string {
   const barWidth = Math.max(1, Math.floor(width));
   const clampedPercent = clampPercent(usedPercent);
-  const maxUnits = barWidth * 8;
-  const roundedUnits = Math.round((clampedPercent / 100) * maxUnits);
-  const visibleUnits =
+  const roundedCells = Math.round((clampedPercent / 100) * barWidth);
+  const filledCells =
     clampedPercent === 0
       ? 0
       : clampedPercent === 100
-        ? maxUnits
-        : Math.max(1, Math.min(maxUnits - 1, roundedUnits));
-  const fullBlocks = Math.floor(visibleUnits / 8);
-  const partialUnits = visibleUnits % 8;
-  const partialBlock = PARTIAL_BLOCKS[partialUnits] ?? "";
-  const emptyBlocks = Math.max(0, barWidth - fullBlocks - (partialUnits > 0 ? 1 : 0));
-  return `${FULL_BLOCK.repeat(fullBlocks)}${partialBlock}${EMPTY_BLOCK.repeat(emptyBlocks)}`;
+        ? barWidth
+        : Math.max(1, Math.min(barWidth - 1, roundedCells));
+  const emptyCells = Math.max(0, barWidth - filledCells);
+  const filledSegment = ansiTrueColor(BAR_CHAR.repeat(filledCells), BAR_FILLED_COLOR);
+  const emptySegment = ansiTrueColor(BAR_CHAR.repeat(emptyCells), BAR_EMPTY_COLOR);
+  return `${filledSegment}${emptySegment}`;
 }
 
 function windowIsFresh(window: QuotaWindow, observedAtMs: number, nowMs: number): boolean {
@@ -284,7 +293,9 @@ export function quotaSnapshotIsFresh(snapshot: QuotaSnapshot, nowMs: number): bo
 
 function formatQuotaWindow(label: string, window: QuotaWindow, width: number): string {
   const percent = Math.round(clampPercent(window.usedPercent));
-  return `${label} [${renderProgressBar(percent, width)}]${percent}%`;
+  const prefix = ansiTrueColor(`${label} [`, TEXT_COLOR);
+  const suffix = ansiTrueColor(`] ${percent}%`, TEXT_COLOR);
+  return `${prefix}${renderProgressBar(percent, width)}${suffix}`;
 }
 
 export function formatQuotaStatus(
@@ -297,6 +308,9 @@ export function formatQuotaStatus(
   if (!quotaSnapshotIsFresh(snapshot, nowMs)) return "quota stale";
 
   const width = options.barWidth ?? DEFAULT_BAR_WIDTH;
-  const status = `${formatQuotaWindow("5h", snapshot.primary, width)} · ${formatQuotaWindow("weekly", snapshot.secondary, width)}`;
+  const status = `${formatQuotaWindow("5h", snapshot.primary, width)}${ansiTrueColor(
+    " · ",
+    TEXT_COLOR,
+  )}${formatQuotaWindow("weekly", snapshot.secondary, width)}`;
   return snapshot.rateLimitReachedType ? `${status} !` : status;
 }

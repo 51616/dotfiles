@@ -13,6 +13,29 @@ import {
 
 const NOW_MS = Date.parse("2026-05-23T00:00:00.000Z");
 const FUTURE_RESET = Math.floor(NOW_MS / 1000) + 3600;
+const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_RESET = "\x1b[0m";
+const BAR_FILLED_OPEN = "\x1b[38;2;166;173;200m";
+const BAR_EMPTY_OPEN = "\x1b[38;2;69;71;90m";
+const TEXT_OPEN = "\x1b[38;2;108;112;134m";
+
+function stripAnsi(text) {
+  return text.replace(ANSI_REGEX, "");
+}
+
+function expectedBar(filledCells, emptyCells) {
+  const filled = filledCells > 0 ? `${BAR_FILLED_OPEN}${"━".repeat(filledCells)}${ANSI_RESET}` : "";
+  const empty = emptyCells > 0 ? `${BAR_EMPTY_OPEN}${"━".repeat(emptyCells)}${ANSI_RESET}` : "";
+  return `${filled}${empty}`;
+}
+
+function expectedWindow(label, percent, filledCells, emptyCells) {
+  return `${TEXT_OPEN}${label} [${ANSI_RESET}${expectedBar(filledCells, emptyCells)}${TEXT_OPEN}] ${percent}%${ANSI_RESET}`;
+}
+
+function expectedStatus(primaryPercent, primaryFilledCells, secondaryPercent, secondaryFilledCells) {
+  return `${expectedWindow("5h", primaryPercent, primaryFilledCells, 10 - primaryFilledCells)}${TEXT_OPEN} · ${ANSI_RESET}${expectedWindow("weekly", secondaryPercent, secondaryFilledCells, 10 - secondaryFilledCells)}`;
+}
 
 function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RESET) {
   return {
@@ -25,23 +48,25 @@ function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RE
   };
 }
 
-test("renderProgressBar keeps a fixed compact Unicode width", () => {
-  assert.equal(renderProgressBar(0), "░░░░░");
-  assert.equal(renderProgressBar(3), "▏░░░░");
-  assert.equal(renderProgressBar(9), "▌░░░░");
-  assert.equal(renderProgressBar(34), "█▊░░░");
-  assert.equal(renderProgressBar(56), "██▊░░");
-  assert.equal(renderProgressBar(99), "████▉");
-  assert.equal(renderProgressBar(100), "█████");
-  assert.equal(renderProgressBar(150), "█████");
+test("renderProgressBar keeps a fixed compact colorized width", () => {
+  assert.equal(renderProgressBar(0), expectedBar(0, 10));
+  assert.equal(renderProgressBar(3), expectedBar(1, 9));
+  assert.equal(renderProgressBar(9), expectedBar(1, 9));
+  assert.equal(renderProgressBar(34), expectedBar(3, 7));
+  assert.equal(renderProgressBar(56), expectedBar(6, 4));
+  assert.equal(renderProgressBar(99), expectedBar(9, 1));
+  assert.equal(renderProgressBar(100), expectedBar(10, 0));
+  assert.equal(renderProgressBar(150), expectedBar(10, 0));
+  assert.equal(stripAnsi(renderProgressBar(56)), "━━━━━━━━━━");
 });
 
 test("formatQuotaStatus keeps both quota bars on one compact footer line", () => {
   const status = formatQuotaStatus(snapshot(34, 12), NOW_MS);
 
-  assert.equal(status, "5h [█▊░░░]34% · weekly [▋░░░░]12%");
+  assert.equal(status, expectedStatus(34, 3, 12, 1));
+  assert.equal(stripAnsi(status), "5h [━━━━━━━━━━] 34% · weekly [━━━━━━━━━━] 12%");
   assert.equal(status.includes("\n"), false);
-  assert.ok(status.length <= 40, `status is too wide: ${status.length}`);
+  assert.ok(stripAnsi(status).length <= 52, `status is too wide: ${stripAnsi(status).length}`);
 });
 
 test("formatQuotaStatus marks expired snapshots stale instead of showing old bars", () => {
@@ -58,7 +83,7 @@ test("normalizeQuotaSnapshot accepts Codex session-log snake_case windows", () =
 
   assert.equal(normalized?.primary?.usedPercent, 34);
   assert.equal(normalized?.secondary?.windowMinutes, 10080);
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), "5h [█▊░░░]34% · weekly [▋░░░░]12%");
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(34, 3, 12, 1));
 });
 
 test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
@@ -69,7 +94,7 @@ test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
     planType: "pro",
   }, NOW_MS);
 
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), "5h [██▌░░]51% · weekly [▏░░░░]3%");
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(51, 5, 3, 1));
 });
 
 test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
@@ -89,7 +114,7 @@ test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
 
   const parsed = parseQuotaSnapshotFromJsonLine(line, NOW_MS - 1000);
   assert.equal(parsed?.observedAtMs, NOW_MS);
-  assert.equal(formatQuotaStatus(parsed, NOW_MS), "5h [█▊░░░]34% · weekly [▋░░░░]12%");
+  assert.equal(formatQuotaStatus(parsed, NOW_MS), expectedStatus(34, 3, 12, 1));
 });
 
 test("readLatestCodexSessionRateLimits scans newest session tails first", async () => {
@@ -125,7 +150,7 @@ test("readLatestCodexSessionRateLimits scans newest session tails first", async 
 
   try {
     const latest = await readLatestCodexSessionRateLimits({ codexHome });
-    assert.equal(formatQuotaStatus(latest, NOW_MS), "5h [█▊░░░]34% · weekly [▋░░░░]12%");
+    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(34, 3, 12, 1));
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

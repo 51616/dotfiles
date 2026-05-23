@@ -11,7 +11,7 @@ import {
   buildEditorBorderBadgeText,
   buildEditorTopBorderLine,
   buildModelEffortLabel,
-  buildSingleLineFooter,
+  buildSingleLineFooterPreservingAnsi,
   getContextUsageHighlightAnsiCodes,
   sanitizeStatusText,
 } from "./lib/layout.ts";
@@ -428,7 +428,7 @@ export default function tuiBroker(pi: ExtensionAPI) {
             .filter(Boolean)
             .join(" ");
           const statusLine = rightStatusLine
-            ? buildSingleLineFooter(leftStatusLine, rightStatusLine, width)
+            ? buildSingleLineFooterPreservingAnsi(leftStatusLine, rightStatusLine, width)
             : truncateToWidth(leftStatusLine, width, "...");
           if (statusLine.trim()) {
             lines.push(theme.fg("dim", statusLine));
