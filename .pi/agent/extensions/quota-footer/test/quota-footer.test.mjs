@@ -34,7 +34,7 @@ function expectedWindow(label, percent, filledCells, emptyCells) {
 }
 
 function expectedStatus(primaryPercent, primaryFilledCells, secondaryPercent, secondaryFilledCells) {
-  return `${expectedWindow("5h", primaryPercent, primaryFilledCells, 10 - primaryFilledCells)}${TEXT_OPEN} · ${ANSI_RESET}${expectedWindow("weekly", secondaryPercent, secondaryFilledCells, 10 - secondaryFilledCells)}`;
+  return `${expectedWindow("5h", primaryPercent, primaryFilledCells, 6 - primaryFilledCells)}${TEXT_OPEN} · ${ANSI_RESET}${expectedWindow("weekly", secondaryPercent, secondaryFilledCells, 6 - secondaryFilledCells)}`;
 }
 
 function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RESET) {
@@ -49,24 +49,24 @@ function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RE
 }
 
 test("renderProgressBar keeps a fixed compact colorized width", () => {
-  assert.equal(renderProgressBar(0), expectedBar(0, 10));
-  assert.equal(renderProgressBar(3), expectedBar(1, 9));
-  assert.equal(renderProgressBar(9), expectedBar(1, 9));
-  assert.equal(renderProgressBar(34), expectedBar(3, 7));
-  assert.equal(renderProgressBar(56), expectedBar(6, 4));
-  assert.equal(renderProgressBar(99), expectedBar(9, 1));
-  assert.equal(renderProgressBar(100), expectedBar(10, 0));
-  assert.equal(renderProgressBar(150), expectedBar(10, 0));
-  assert.equal(stripAnsi(renderProgressBar(56)), "━━━━━━━━━━");
+  assert.equal(renderProgressBar(0), expectedBar(0, 6));
+  assert.equal(renderProgressBar(3), expectedBar(1, 5));
+  assert.equal(renderProgressBar(9), expectedBar(1, 5));
+  assert.equal(renderProgressBar(34), expectedBar(2, 4));
+  assert.equal(renderProgressBar(56), expectedBar(3, 3));
+  assert.equal(renderProgressBar(99), expectedBar(5, 1));
+  assert.equal(renderProgressBar(100), expectedBar(6, 0));
+  assert.equal(renderProgressBar(150), expectedBar(6, 0));
+  assert.equal(stripAnsi(renderProgressBar(56)), "━━━━━━");
 });
 
 test("formatQuotaStatus keeps both quota bars on one compact footer line", () => {
   const status = formatQuotaStatus(snapshot(34, 12), NOW_MS);
 
-  assert.equal(status, expectedStatus(66, 7, 88, 9));
-  assert.equal(stripAnsi(status), "5h ━━━━━━━━━━ 66% · weekly ━━━━━━━━━━ 88%");
+  assert.equal(status, expectedStatus(66, 4, 88, 5));
+  assert.equal(stripAnsi(status), "5h ━━━━━━ 66% · weekly ━━━━━━ 88%");
   assert.equal(status.includes("\n"), false);
-  assert.ok(stripAnsi(status).length <= 48, `status is too wide: ${stripAnsi(status).length}`);
+  assert.ok(stripAnsi(status).length <= 40, `status is too wide: ${stripAnsi(status).length}`);
 });
 
 test("formatQuotaStatus marks expired snapshots stale instead of showing old bars", () => {
@@ -83,7 +83,7 @@ test("normalizeQuotaSnapshot accepts Codex session-log snake_case windows", () =
 
   assert.equal(normalized?.primary?.usedPercent, 34);
   assert.equal(normalized?.secondary?.windowMinutes, 10080);
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(66, 7, 88, 9));
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(66, 4, 88, 5));
 });
 
 test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
@@ -94,7 +94,7 @@ test("normalizeQuotaSnapshot accepts app-server camelCase windows", () => {
     planType: "pro",
   }, NOW_MS);
 
-  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(49, 5, 97, 9));
+  assert.equal(formatQuotaStatus(normalized, NOW_MS), expectedStatus(49, 3, 97, 5));
 });
 
 test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
@@ -114,7 +114,7 @@ test("parseQuotaSnapshotFromJsonLine reads token_count event payloads", () => {
 
   const parsed = parseQuotaSnapshotFromJsonLine(line, NOW_MS - 1000);
   assert.equal(parsed?.observedAtMs, NOW_MS);
-  assert.equal(formatQuotaStatus(parsed, NOW_MS), expectedStatus(66, 7, 88, 9));
+  assert.equal(formatQuotaStatus(parsed, NOW_MS), expectedStatus(66, 4, 88, 5));
 });
 
 test("readLatestCodexSessionRateLimits scans newest session tails first", async () => {
@@ -150,7 +150,7 @@ test("readLatestCodexSessionRateLimits scans newest session tails first", async 
 
   try {
     const latest = await readLatestCodexSessionRateLimits({ codexHome });
-    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(66, 7, 88, 9));
+    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(66, 4, 88, 5));
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }

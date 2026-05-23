@@ -504,7 +504,7 @@ test("tui-broker right-aligns registered footer right statuses", async () => {
   __resetTuiBrokerRuntimeForTests();
   __resetGoalRuntimeStoreForTests();
 
-  const quotaStatus = "\x1b[38;2;166;173;200m5h ━━━━━━━━━━ 91% · weekly ━━━━━━━━━━ 44%\x1b[0m";
+  const quotaStatus = "\x1b[38;2;166;173;200m5h ━━━━━━ 91% · weekly ━━━━━━ 44%\x1b[0m";
   registerTuiBrokerFooterRightStatusProvider("quota-footer", () => ({
     text: quotaStatus,
     priority: 100,
@@ -536,7 +536,7 @@ test("tui-broker right-aligns registered footer right statuses", async () => {
 
   const lines = footer.render(60);
   assert.equal(lines.length, 2);
-  assert.equal(stripAnsi(lines[1]), `goal active${" ".repeat(8)}5h ━━━━━━━━━━ 91% · weekly ━━━━━━━━━━ 44%`);
+  assert.equal(stripAnsi(lines[1]), `goal active${" ".repeat(16)}5h ━━━━━━ 91% · weekly ━━━━━━ 44%`);
   assert.ok(lines[1].includes("\x1b[38;2;166;173;200m"));
 
   const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });

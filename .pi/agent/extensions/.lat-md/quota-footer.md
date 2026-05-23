@@ -10,7 +10,7 @@ The canonical parser and formatter live in [[quota-footer/lib/quota-footer.ts]].
 
 ## Contracts
 
-The visible footer label is `5h ━━━━━━━━━━ 100% · weekly ━━━━━━━━━━ 100%` with no leading `q` prefix or brackets.
+The visible footer label is `5h ━━━━━━ 100% · weekly ━━━━━━ 100%` with no leading `q` prefix or brackets.
 
 The percentage and filled bar cells show quota still available. The bars use one horizontal glyph with light gray available cells and dark gray consumed cells, and stay fixed-width so the footer can reserve a stable right-aligned slot.
 

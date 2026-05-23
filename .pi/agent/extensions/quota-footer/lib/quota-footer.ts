@@ -34,7 +34,7 @@ type SessionCandidate = {
   mtimeMs: number;
 };
 
-const DEFAULT_BAR_WIDTH = 10;
+const DEFAULT_BAR_WIDTH = 6;
 const DEFAULT_MAX_SESSION_FILES = 80;
 const DEFAULT_TAIL_BYTES = 1024 * 1024;
 const FALLBACK_FRESH_MS = 10 * 60 * 1000;
