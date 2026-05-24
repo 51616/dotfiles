@@ -129,7 +129,7 @@ Environment variables (defaults in parentheses):
   - each JSONL record includes `checkpointProbe` metadata for diagnostics; footer acceptance does not use file existence validation
 - `PI_SELF_CHECKPOINT_FOOTER_DEDUPE_MS` (`15000`) — ignore duplicate footer for the same checkpoint path within this window
 - `PI_SELF_CHECKPOINT_AUTO_KICK_MAX_AGE_MS` (`120000`) — auto-kick watchdog timeout for “writing checkpoint…” state
-- `PI_SELF_CHECKPOINT_AUTO_KICK_MIN_TOOL_CALLS` (`10`) — min number of tool calls between auto-kick reminder attempts
+- `PI_SELF_CHECKPOINT_AUTO_KICK_MIN_TOOL_CALLS` (`20`) — min number of tool calls between auto-kick reminder attempts
 - `PI_SELF_CHECKPOINT_AUTOTEST_MAX_AGE_MS` (`300000`) — autotest cleanup failsafe
 - `PI_SELF_CHECKPOINT_AUTOTEST_MAX_TURNS` (`12`) — autotest cleanup failsafe
 - `PI_SELF_CHECKPOINT_STATE_DIR` (unset) — override the state directory (default: `~/.pi/agent/state/pi-self-checkpointing`)

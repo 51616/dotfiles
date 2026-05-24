@@ -101,7 +101,7 @@ export default function selfCheckpointing(pi: ExtensionAPI) {
   );
   const AUTO_KICK_MIN_TOOL_CALLS = parseNonNegativeIntEnv(
     "PI_SELF_CHECKPOINT_AUTO_KICK_MIN_TOOL_CALLS",
-    10,
+    20,
   );
 
   const debugWidgetAuto = (process.env.PI_SELF_CHECKPOINT_DEBUG_WIDGET_AUTO ?? "0") === "1";
