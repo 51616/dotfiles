@@ -16,6 +16,8 @@ Its output is the `t`-mode history source used by [[pi-diff-review-tui]] and any
 
 `index.ts` owns lifecycle wiring only: derive a stable turn id, start capture on `agent_start` without blocking the model, finalize on `agent_end`, and reset on session boundaries.
 
+A `pi-diff-review-turn-tracker/DISABLED` sentinel makes the entrypoint return before registering hooks. Delete that file and run `/reload` to re-enable tracking.
+
 `lib/tracker.ts` owns the artifact contract. It stores the start-tree oid once background preparation finishes, captures the end-tree oid, diffs those two trees, and writes `latest.patch`, `latest.json`, and `latest-reviewable.*` through the shared artifact writer. If preparation is still running when the turn ends, `agent_end` waits there instead of delaying model startup.
 
 The tracker is repo-scoped. It captures only the current cwd repo (or the resolved remote repo in SSH mode), not arbitrary files outside that repo.

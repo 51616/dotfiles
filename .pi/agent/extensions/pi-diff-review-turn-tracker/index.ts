@@ -1,9 +1,12 @@
 // @lat: [[pi-diff-review-turn-tracker#Pi diff review turn tracker]]
 
+import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DiffReviewTurnTracker } from "./lib/tracker.ts";
 import { makeSshScopeKey } from "../lib/pi-diff-review-ssh.ts";
 import { getActivePiSshSession, resolveActivePiSshRepoIdentity } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
+
+const DISABLED_SENTINEL_URL = new URL("./DISABLED", import.meta.url);
 
 function turnIdFromInput(text: string): string {
   const discord = text.match(/^\[from discord\][^\n]*\bmsg_id=([^\s]+)/m);
@@ -12,6 +15,11 @@ function turnIdFromInput(text: string): string {
 }
 
 export default function piDiffReviewTurnTracker(pi: ExtensionAPI) {
+  if (existsSync(DISABLED_SENTINEL_URL)) {
+    console.warn("[pi-diff-review-turn-tracker] disabled by DISABLED sentinel");
+    return;
+  }
+
   const tracker = new DiffReviewTurnTracker({ enableAgentChangeReport: false });
   let pendingTurnId: string | null = null;
 
