@@ -160,6 +160,23 @@ What this proves:
 - decoded remote context is injected into the existing local-style `# Project Context` section without inventing a separate remote-only format
 - prompt-context injection is idempotent for the same remote file block
 
+## Remote FFF forwarding searches the SSH filesystem and cleans up workers
+
+Owned by:
+- `remote-fff-forward/test/entrypoint.test.mjs`
+- `remote-fff-forward/test/query-format.test.mjs`
+- `remote-fff-forward/test/remote-worker-local.test.mjs`
+- `remote-fff-forward/test/worker-client.test.mjs`
+- `remote-fff-forward/test/live-smoke.mjs` for live SSH smoke runs
+
+What this proves:
+- extension registration stays inert without SSH state, registers immediately when `--ssh` is set, can register on `session_start` when SSH state appears later, and re-registers on SSH session start so it wins tool override order
+- query normalization accepts both local mapped paths and remote absolute paths under the active workspace, while rejecting out-of-workspace absolute constraints
+- formatted `fffind` and `ffgrep` output preserves the local `pi-fff` scan contract that agents rely on
+- cursor tokens are stateless, so pagination does not depend on an in-memory local cache or one specific remote worker process
+- the stdio worker runs native FFF find/grep, reuses one process for multiple requests, rejects malformed worker output, and kills the SSH child on abort
+- live SSH smoke against `gcp_slurm_sakana_eu` verifies remote find/grep results, normal `manager.dispose()` cleanup, and remote worker exit after the local client is killed with `SIGKILL`
+
 ## Self-checkpointing footer parsing and SSH-backed resume stay aligned
 
 Owned by:

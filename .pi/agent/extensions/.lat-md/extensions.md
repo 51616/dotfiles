@@ -62,6 +62,14 @@ See also [[quota-footer]].
 
 Entrypoint: [[quota-footer/index.ts]].
 
+## remote-fff-forward
+
+Owns SSH-aware `fffind` and `ffgrep` overrides that use the active `pi-ssh` session and a persistent remote FFF worker instead of searching the local filesystem.
+
+See also [[remote-fff-forward]].
+
+Entrypoint: [[remote-fff-forward/index.ts]].
+
 ## pi-diff-review-tui
 
 Owns the interactive diff-review overlay and related TUI surfaces for human-in-the-loop patch review.

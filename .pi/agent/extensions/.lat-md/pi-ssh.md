@@ -12,7 +12,7 @@ It keeps that SSH runtime in a process-local cache while pi replaces sessions fo
 
 It also owns the shared SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. Other extensions should consume that module instead of importing `skill-uri` internals when they need remote workspace ops, repo-root lookup, local→remote path mapping, exact one-shot SSH probes, low-latency persistent text commands, or remote exists/stat checks. `execText()` is the text-oriented low-latency path; `stat()` should stay on stdout-only exact capture so JSON helpers do not depend on PTY-clean output.
 
-`skill-uri`, `self-checkpointing`, and the `pi-diff-review-*` extensions now all share that single runtime boundary.
+`skill-uri`, `self-checkpointing`, `remote-fff-forward`, and the `pi-diff-review-*` extensions now all share that single runtime boundary.
 
 ## Invariants
 
@@ -40,7 +40,7 @@ If remote prompt-context probing fails, keep the session usable, surface the war
 
 If you change prompt-context probing or injection, keep the remote-context test honest because that contract is easy to regress and hard to spot manually.
 
-If you broaden the remote-tool surface beyond the current coding tools and `!` commands, inspect tool rendering and wrapper assumptions so the SSH session remains consistent end to end.
+If you broaden the remote-tool surface beyond the current coding tools, `!` commands, and `remote-fff-forward` search tools, inspect tool rendering and wrapper assumptions so the SSH session remains consistent end to end.
 
 ## Verification
 
