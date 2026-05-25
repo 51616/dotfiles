@@ -12,6 +12,7 @@ export async function beginCompactionLifecycle({
   setLocalCompactingUntil,
   setFooter,
   setActiveCompactionId,
+  setActiveCompactionFencingToken,
   leaseMs = 20 * 60 * 1000,
 }: {
   ctx: ExtensionContext;
@@ -22,6 +23,7 @@ export async function beginCompactionLifecycle({
   setLocalCompactingUntil: (value: number) => void;
   setFooter: (ctx: ExtensionContext) => void;
   setActiveCompactionId: (value: string) => void;
+  setActiveCompactionFencingToken: (value: string) => void;
   leaseMs?: number;
 }) {
   const sid = asString(ctx.sessionManager.getSessionId()).trim();
@@ -45,7 +47,10 @@ export async function beginCompactionLifecycle({
       1200,
     );
     const id = asString(data?.compactionId).trim();
-    if (id) setActiveCompactionId(id);
+    if (id) {
+      setActiveCompactionId(id);
+      setActiveCompactionFencingToken(asString(data?.fencingToken).trim());
+    }
   } catch {
     // keep local compacting marker as fallback
   }
@@ -55,18 +60,22 @@ export async function endCompactionLifecycle({
   ctx,
   managerRequest,
   activeCompactionId,
+  activeCompactionFencingToken,
   setLocalCompactingSessionId,
   setLocalCompactingUntil,
   setActiveCompactionId,
+  setActiveCompactionFencingToken,
   setFooter,
   pumpInputQueue,
 }: {
   ctx: ExtensionContext;
   managerRequest: ManagerRequestFn;
   activeCompactionId: string;
+  activeCompactionFencingToken: string;
   setLocalCompactingSessionId: (value: string) => void;
   setLocalCompactingUntil: (value: number) => void;
   setActiveCompactionId: (value: string) => void;
+  setActiveCompactionFencingToken: (value: string) => void;
   setFooter: (ctx: ExtensionContext) => void;
   pumpInputQueue: (ctx: ExtensionContext) => Promise<void>;
 }) {
@@ -75,12 +84,13 @@ export async function endCompactionLifecycle({
 
   try {
     if (activeCompactionId) {
-      await managerRequest("compaction.end", { compactionId: activeCompactionId }, 1200);
+      await managerRequest("compaction.end", { compactionId: activeCompactionId, fencingToken: activeCompactionFencingToken }, 1200);
     }
   } catch {
     // ignore
   } finally {
     setActiveCompactionId("");
+    setActiveCompactionFencingToken("");
     if (ctx.hasUI) setFooter(ctx);
     await pumpInputQueue(ctx);
   }

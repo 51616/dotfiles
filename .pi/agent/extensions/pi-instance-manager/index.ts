@@ -56,6 +56,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
   let localCompactingUntil = 0;
   let localCompactingSessionId = "";
   let activeCompactionId = "";
+  let activeCompactionFencingToken = "";
   let currentSessionId = "";
   let queueDrainInFlight = false;
   let managerUnavailableError = "";
@@ -260,7 +261,11 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       const turn = await waitForTurnGrant(next.ticketId, next.fencingToken);
       if (!turn.granted) return;
 
-      const lock = await acquireTurnLock(sid);
+      const lock = await acquireTurnLock(sid, {
+        ticketId: next.ticketId,
+        fencingToken: next.fencingToken || turn.fencingToken,
+        owner: next.owner,
+      });
       if (!lock.token) {
         await finishTurnTicket(next.ticketId, "turn.cancel", next.fencingToken || turn.fencingToken);
         const replacementTicket = await enqueueTurnTicket(sid, next.text);
@@ -430,6 +435,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       localCompactingUntil = 0;
       localCompactingSessionId = "";
       activeCompactionId = "";
+      activeCompactionFencingToken = "";
     }
 
     const queueDepth = queue.list(sid).length;
@@ -471,6 +477,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       setLocalCompactingUntil: (value) => (localCompactingUntil = value),
       setFooter: updateFooterStatus,
       setActiveCompactionId: (value) => (activeCompactionId = value),
+      setActiveCompactionFencingToken: (value) => (activeCompactionFencingToken = value),
     });
   }
 
@@ -479,9 +486,11 @@ export default function piInstanceManager(pi: ExtensionAPI) {
       ctx,
       managerRequest,
       activeCompactionId,
+      activeCompactionFencingToken,
       setLocalCompactingSessionId: (value) => (localCompactingSessionId = value),
       setLocalCompactingUntil: (value) => (localCompactingUntil = value),
       setActiveCompactionId: (value) => (activeCompactionId = value),
+      setActiveCompactionFencingToken: (value) => (activeCompactionFencingToken = value),
       setFooter: updateFooterStatus,
       pumpInputQueue,
     });
@@ -613,13 +622,14 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     getActiveCompactionId: () => activeCompactionId,
     endCompactionById: async (compactionId) => {
       try {
-        await managerRequest("compaction.end", { compactionId }, 800);
+        await managerRequest("compaction.end", { compactionId, fencingToken: activeCompactionFencingToken }, 800);
       } catch {
         // ignore
       }
     },
     clearActiveCompactionId: () => {
       activeCompactionId = "";
+      activeCompactionFencingToken = "";
     },
     releaseTurnLock,
     clearUiState: (ctx) => {

@@ -136,11 +136,12 @@ export function createTurnLockController({
 
   async function acquireTurnLock(
     sessionId: string,
+    ticket?: { ticketId?: string; fencingToken?: string; owner?: string },
   ): Promise<{ token: string; fencingToken: string; managerGeneration: number; waited: boolean }> {
     const sid = asString(sessionId).trim();
     if (!sid) return { token: "", fencingToken: "", managerGeneration: 0, waited: false };
 
-    const owner = `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
+    const owner = asString(ticket?.owner).trim() || `pi-tui:prompt:pid=${ownerPid}:session=${sid}`;
     const deadline = Date.now() + lockWaitTimeoutMs;
     let waited = false;
 
@@ -163,6 +164,8 @@ export function createTurnLockController({
             pid: ownerPid,
             leaseMs: turnLockLeaseMs,
             timeoutMs: slice,
+            ticketId: asString(ticket?.ticketId).trim(),
+            turnFencingToken: asString(ticket?.fencingToken).trim(),
           },
           slice + 1200,
         );
