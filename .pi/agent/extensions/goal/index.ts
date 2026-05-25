@@ -786,11 +786,14 @@ export default function goalExtension(pi: ExtensionAPI) {
     }
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", (_event, _ctx) => {
+    // Upstream BeforeAgentStartEvent has no `source` field, so checking event.source === "user"
+    // was permanently false and the rememberUserMessage call here was dead code. The user-typed
+    // prompt is already captured by the `input` handler, which receives a real InputSource
+    // ("interactive" | "rpc" | "extension") from emitInput() and correctly drops messages that
+    // pi.sendUserMessage() sent from inside an extension (including goal's own continuations).
+    // We only need this handler to clear stale compactionActive state at the start of each turn.
     clearCompactionActive();
-    if (event.source === "user" && isInteractiveUserText(event.prompt, "user")) {
-      rememberUserMessage(ctx, event.prompt);
-    }
   });
 
   pi.on("agent_end", (_event, ctx) => {

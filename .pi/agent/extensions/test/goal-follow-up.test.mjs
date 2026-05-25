@@ -203,8 +203,11 @@ test("session restore clears an existing vague goal", () => {
 test("blank command during a running turn adopts the previous user message", async () => {
   const harness = createHarness({ isIdle: () => false });
   harness.handlers.get("session_start")({}, harness.ctx);
-  harness.handlers.get("before_agent_start")(
-    { source: "user", prompt: "fix the failing auth tests", triggerMessage: { role: "user" } },
+  // Match real upstream order: `input` fires before `before_agent_start`. emitInput() is the
+  // only event that carries a real source ("interactive" | "rpc" | "extension"); the
+  // before_agent_start payload has no source field at all.
+  harness.handlers.get("input")(
+    { text: "fix the failing auth tests", source: "interactive" },
     harness.ctx,
   );
 
@@ -220,8 +223,8 @@ test("blank command does not adopt a previous session message after session swit
   let sessionId = "session-a";
   const harness = createHarness({ isIdle: () => false, sessionId: () => sessionId });
   harness.handlers.get("session_start")({}, harness.ctx);
-  harness.handlers.get("before_agent_start")(
-    { source: "user", prompt: "message from session a", triggerMessage: { role: "user" } },
+  harness.handlers.get("input")(
+    { text: "message from session a", source: "interactive" },
     harness.ctx,
   );
 
@@ -813,8 +816,8 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
 test("blank command rejects a vague previous user message", async () => {
   const harness = createHarness({ isIdle: () => false });
   harness.handlers.get("session_start")({}, harness.ctx);
-  harness.handlers.get("before_agent_start")(
-    { source: "user", prompt: "goal", triggerMessage: { role: "user" } },
+  harness.handlers.get("input")(
+    { text: "goal", source: "interactive" },
     harness.ctx,
   );
 
