@@ -27,12 +27,24 @@ function messageTextFromEntry(entry: unknown): string {
   return contentToText(messageRecord.content).trim();
 }
 
+// Sentinels that mark a message as goal-authored (the initial starter and the audited
+// continuations built by goal-continuation.ts). Anything starting with these strings is a
+// goal-emitted follow-up, not a human-typed objective, and must be ignored when blank /goal
+// adopts the previous user message. The old marker "Continue the active /goal objective." is
+// no longer produced anywhere, so leaving it as the only filter would let the lookup happily
+// return an audit transcript as the new goal objective.
+const GOAL_CONTINUATION_PREFIXES = ["Original objective:\n", "Objective:\n"];
+
+function isGoalContinuationText(text: string): boolean {
+  return GOAL_CONTINUATION_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
 export function findPreviousUserMessageForGoal(entries: readonly unknown[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const text = messageTextFromEntry(entries[i]).trim();
     if (!text) continue;
     if (text.startsWith("/")) continue;
-    if (text.includes("Continue the active /goal objective.")) continue;
+    if (isGoalContinuationText(text)) continue;
     return text;
   }
   return null;

@@ -205,6 +205,30 @@ test("session helpers find previous user messages and build audit prompts", () =
   ]);
   assert.equal(previous, "fix the failing auth tests");
 
+  // Regression: goal continuations start with "Original objective:\n" or "Objective:\n".
+  // findPreviousUserMessageForGoal must skip them so blank /goal adopts the human-typed
+  // message, not the most recent audit transcript.
+  const initial = buildInitialGoalMessage(createGoal("finish the migration", { goalId: "g1", nowMs: 1000 }));
+  const anchored = buildAnchoredContinuationMessage(
+    createGoal("finish the migration", { goalId: "g1", nowMs: 1000 }),
+    {
+      decision: "continue", confidence: "high", summary: "x",
+      completedItems: [], remainingItems: ["next"], evidence: ["e"],
+      sourcePaths: ["p"], continuationMessage: "next concrete step",
+    },
+  );
+  const fallback = buildFallbackContinuationMessage(
+    createGoal("finish the migration", { goalId: "g1", nowMs: 1000 }),
+    "audit timed out",
+  );
+  const skipsContinuations = findPreviousUserMessageForGoal([
+    { type: "message", message: { role: "user", content: "fix the failing auth tests" } },
+    { type: "message", message: { role: "user", content: initial } },
+    { type: "message", message: { role: "user", content: anchored } },
+    { type: "message", message: { role: "user", content: fallback } },
+  ]);
+  assert.equal(skipsContinuations, "fix the failing auth tests");
+
   const prompt = buildAuditPrompt({
     goal: createGoal("finish docs", { goalId: "goal-2", nowMs: 1000 }),
     cwd: "/repo",
