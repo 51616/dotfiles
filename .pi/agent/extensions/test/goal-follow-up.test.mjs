@@ -48,6 +48,7 @@ function createHarness(options = {}) {
 
   const pi = {
     __goalExtensionAuditStartDelayMs: options.auditStartDelayMs ?? 0,
+    __goalExtensionCompactionWatchdogMs: options.compactionWatchdogMs,
     __goalExtensionAuditRunner:
       options.auditRunner ??
       (async () => ({
@@ -471,6 +472,44 @@ test("scheduled audit stays muted while session compaction is active and resumes
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /Next after compaction/);
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
+});
+
+test("compactionActive self-heals via watchdog when session_compact never fires", async () => {
+  const harness = createHarness({
+    auditRunner: async () => ({
+      ok: true,
+      attempts: 1,
+      auditSessionPath: "/tmp/audit.jsonl",
+      commands: [],
+      audit: {
+        decision: "continue",
+        confidence: "high",
+        summary: "continue",
+        completedItems: [],
+        remainingItems: ["next"],
+        evidence: ["plan.md"],
+        sourcePaths: ["plan.md"],
+        continuationMessage: "Next after watchdog.",
+      },
+    }),
+    compactionWatchdogMs: 25,
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  // Compaction starts but the upstream provider fails non-abort-style and never emits
+  // session_compact or aborts the signal. Without the watchdog this would mute /goal forever.
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("session_before_compact")({ signal: new AbortController().signal }, harness.ctx);
+  await flushTimers();
+  assert.equal(harness.sentMessages.length, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  await flushTimers();
+
+  assert.match(harness.notifications.at(-1).message, /cleared stale compaction lock/);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after watchdog/);
 });
 
 test("high-confidence complete audit auto-clears the goal after a styled stats notification", async () => {

@@ -50,6 +50,9 @@ type AuditRunner = (
 ) => Promise<AuditRunnerOutcome>;
 
 export const DEFAULT_AUDIT_START_DELAY_MS = 10_000;
+// Safety cap for the compactionActive latch. Long enough to outlast any real compaction call
+// but short enough that a silent compaction failure does not permanently mute /goal.
+export const COMPACTION_WATCHDOG_MS = 10 * 60_000;
 
 function stripAnsi(text: string): string {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -285,6 +288,13 @@ function auditStartDelayMs(pi: ExtensionAPI): number {
     : DEFAULT_AUDIT_START_DELAY_MS;
 }
 
+function compactionWatchdogMs(pi: ExtensionAPI): number {
+  const override = (pi as unknown as { __goalExtensionCompactionWatchdogMs?: unknown }).__goalExtensionCompactionWatchdogMs;
+  return typeof override === "number" && Number.isFinite(override) && override >= 0
+    ? Math.floor(override)
+    : COMPACTION_WATCHDOG_MS;
+}
+
 class GoalEditor extends CustomEditor {
   private baseBorderColor: BorderColorFn;
   private readonly hasGoal: () => boolean;
@@ -347,6 +357,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   let activeAuditController: AbortController | null = null;
   const runAudit = makeAuditRunner(pi);
   const auditDelayMs = auditStartDelayMs(pi);
+  const compactionWatchdogDelayMs = compactionWatchdogMs(pi);
 
   const abortActiveAudit = (reason: string): void => {
     if (!activeAuditController) return;
@@ -373,8 +384,14 @@ export default function goalExtension(pi: ExtensionAPI) {
     if (isTuiBrokerInstalled()) requestTuiBrokerEditorReinstall();
   };
 
+  let compactionWatchdog: ReturnType<typeof setTimeout> | null = null;
+
   const clearCompactionActive = () => {
     compactionActive = false;
+    if (compactionWatchdog) {
+      clearTimeout(compactionWatchdog);
+      compactionWatchdog = null;
+    }
   };
 
   const applyEditorOverride = (ctx: ExtensionContext) => {
@@ -660,6 +677,20 @@ export default function goalExtension(pi: ExtensionAPI) {
       },
       { once: true },
     );
+
+    // Subtle but important: upstream emits `session_compact` only on successful compaction.
+    // On non-abort failures (provider error, JSON parse, etc.) the upstream abort controller is
+    // discarded without aborting, so neither the abort listener nor `session_compact` ever
+    // fires. Without a self-heal, a single failed compaction would permanently mute /goal until
+    // session_start or session_shutdown ran. The watchdog releases the gate after a generous
+    // cap so the next agent_end can resume goal continuation.
+    if (compactionWatchdog) clearTimeout(compactionWatchdog);
+    compactionWatchdog = setTimeout(() => {
+      if (!compactionActive) return;
+      clearCompactionActive();
+      notify(ctx, "goal cleared stale compaction lock (no session_compact within watchdog window)", "warning");
+      scheduleGoalContinuation(ctx);
+    }, compactionWatchdogDelayMs);
   };
 
   pi.registerCommand("goal", {
