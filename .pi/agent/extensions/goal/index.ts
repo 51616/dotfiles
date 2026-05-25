@@ -41,7 +41,13 @@ import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/goal-ses
 import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
 
 type BorderColorFn = (str: string) => string;
-type AuditRunner = (goal: GoalState, prompt: string, ctx: ExtensionContext, ssh?: AuditSshTarget) => Promise<AuditRunnerOutcome>;
+type AuditRunner = (
+  goal: GoalState,
+  prompt: string,
+  ctx: ExtensionContext,
+  ssh?: AuditSshTarget,
+  signal?: AbortSignal,
+) => Promise<AuditRunnerOutcome>;
 
 export const DEFAULT_AUDIT_START_DELAY_MS = 10_000;
 
@@ -183,7 +189,11 @@ function buildGoalCompletionNotification(ctx: ExtensionContext, goal: GoalState)
 
 type LoaderCloser = () => void;
 
-function showAuditLoader(ctx: ExtensionContext, label = "Auditing goal completion…"): LoaderCloser | undefined {
+function showAuditLoader(
+  ctx: ExtensionContext,
+  onCancel: () => void,
+  label = "Auditing goal completion…",
+): LoaderCloser | undefined {
   if (!ctx.hasUI) return undefined;
 
   let visible = true;
@@ -206,9 +216,16 @@ function showAuditLoader(ctx: ExtensionContext, label = "Auditing goal completio
     void ui.custom((tui, theme, _keybindings, done) => {
       closeFromLoader = () => done(null);
       const loader = new BorderedLoader(tui as never, theme as never, label);
+      // Subtle but important: ctx.abort() aborts the active agent stream, not our `pi -p`
+      // audit subprocess. The audit must be cancelled through its own AbortController so the
+      // spawned process actually exits when the user presses the loader cancel key.
       loader.onAbort = () => {
         close();
-        ctx.abort();
+        try {
+          onCancel();
+        } catch {
+          // ignore cancel-handler failures so closing the UI still completes
+        }
       };
       return loader;
     });
@@ -245,13 +262,17 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
   const injected = (pi as unknown as { __goalExtensionAuditRunner?: unknown }).__goalExtensionAuditRunner;
   if (typeof injected === "function") return injected as AuditRunner;
 
-  return (goal, prompt, ctx, ssh) =>
+  // Use the explicit per-audit signal owned by the goal extension. ctx.signal is undefined at
+  // agent_end (no streaming), so it cannot cancel a hanging `pi -p` audit subprocess. The
+  // extension owns its own AbortController and wires it into both runGoalAudit and the loader
+  // cancel hotkey so the spawned subprocess actually dies on cancel/replace/shutdown.
+  return (goal, prompt, ctx, ssh, signal) =>
     runGoalAudit({
       exec: (command, args, options) => pi.exec(command, args, options),
       prompt,
       cwd: ctx.cwd,
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
-      signal: ctx.signal,
+      signal,
       auditSessionPath: defaultAuditSessionPath(goal.goalId),
       ssh,
     });
@@ -323,8 +344,25 @@ export default function goalExtension(pi: ExtensionAPI) {
   let activeSessionId = "";
   let lastUserMessage: { sessionId: string; text: string } | null = null;
   let compactionActive = false;
+  let activeAuditController: AbortController | null = null;
   const runAudit = makeAuditRunner(pi);
   const auditDelayMs = auditStartDelayMs(pi);
+
+  const abortActiveAudit = (reason: string): void => {
+    if (!activeAuditController) return;
+    const controller = activeAuditController;
+    activeAuditController = null;
+    try {
+      controller.abort(new Error(reason));
+    } catch {
+      // Older Node abort() rejects non-DOMException reasons; fall back to a no-arg abort.
+      try {
+        controller.abort();
+      } catch {
+        // already aborted or detached; nothing else to do
+      }
+    }
+  };
 
   registerTuiBrokerEditorBadgeProvider("goal", () => {
     if (!currentGoal) return null;
@@ -392,6 +430,9 @@ export default function goalExtension(pi: ExtensionAPI) {
     const nextGoalId = goal?.goalId ?? null;
     currentGoal = goal;
     if (previousGoalId !== nextGoalId) {
+      // Any in-flight audit is now bound to a stale goal. Cancel its `pi -p` subprocess so
+      // we don't burn quota auditing a goal the user just cleared or replaced.
+      abortActiveAudit(nextGoalId === null ? "goal cleared" : "goal replaced");
       dispatchScheduled = false;
       activeDispatchToken = null;
     }
@@ -524,11 +565,21 @@ export default function goalExtension(pi: ExtensionAPI) {
             continuation = buildInitialGoalMessage(goalAtAuditStart);
           } else {
             let outcome: AuditRunnerOutcome;
-            const closeAuditLoader = showAuditLoader(ctx);
+            const auditController = new AbortController();
+            activeAuditController = auditController;
+            const closeAuditLoader = showAuditLoader(ctx, () => {
+              auditController.abort(new Error("audit cancelled by user"));
+            });
             try {
               setStatus(ctx, "⚑ auditing |");
               const auditInput = await buildPromptForGoal(goalAtAuditStart, ctx);
-              outcome = await runAudit(goalAtAuditStart, auditInput.prompt, ctx, auditInput.ssh);
+              outcome = await runAudit(
+                goalAtAuditStart,
+                auditInput.prompt,
+                ctx,
+                auditInput.ssh,
+                auditController.signal,
+              );
             } catch (error) {
               const failureReason = error instanceof Error ? error.message : String(error);
               outcome = {
@@ -541,6 +592,7 @@ export default function goalExtension(pi: ExtensionAPI) {
               };
             } finally {
               closeAuditLoader?.();
+              if (activeAuditController === auditController) activeAuditController = null;
               setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
             }
 
@@ -678,6 +730,10 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", (event, ctx) => {
+    // Compaction is a hard audit blocker. Also cancel an in-flight audit so we don't fight
+    // the compaction provider for quota and so the audit cannot dispatch a follow-up onto a
+    // session that is mid-compaction.
+    abortActiveAudit("session compaction starting");
     markCompactionActive(ctx, event.signal);
   });
 
@@ -687,6 +743,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    abortActiveAudit("session shutdown");
     clearCompactionActive();
     persistGoal(ctx);
     setStatus(ctx, undefined);

@@ -618,6 +618,91 @@ test("stale audit completion does not clear a newer dispatch lock", async () => 
   assert.match(harness.sentMessages[0].text, /second goal/);
 });
 
+test("goal replace aborts the in-flight audit's signal so the subprocess actually exits", async () => {
+  let receivedSignal = null;
+  let signalAbortedAtRun = null;
+  const auditStarted = deferred();
+  const auditFinished = deferred();
+  const harness = createHarness({
+    auditRunner: async (_goal, _prompt, _ctx, _ssh, signal) => {
+      receivedSignal = signal ?? null;
+      signalAbortedAtRun = signal?.aborted ?? null;
+      auditStarted.resolve();
+      await auditFinished.promise;
+      return {
+        ok: false,
+        failureReason: "aborted in test",
+        attempts: 0,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "unknown",
+          confidence: "low",
+          summary: "never delivered",
+          completedItems: [],
+          remainingItems: [],
+          evidence: [],
+          sourcePaths: [],
+          continuationMessage: "",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "first goal");
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await auditStarted.promise;
+
+  assert.ok(receivedSignal, "audit runner must receive a real AbortSignal, not undefined");
+  assert.equal(signalAbortedAtRun, false);
+
+  await harness.commands.get("goal").handler("replace second goal", harness.ctx);
+  assert.equal(receivedSignal.aborted, true, "replacing the goal must abort the in-flight audit signal");
+
+  auditFinished.resolve();
+  await flushTimers();
+});
+
+test("session_shutdown aborts the in-flight audit signal", async () => {
+  let receivedSignal = null;
+  const auditStarted = deferred();
+  const auditFinished = deferred();
+  const harness = createHarness({
+    auditRunner: async (_goal, _prompt, _ctx, _ssh, signal) => {
+      receivedSignal = signal ?? null;
+      auditStarted.resolve();
+      await auditFinished.promise;
+      return {
+        ok: false,
+        failureReason: "aborted in test",
+        attempts: 0,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "unknown",
+          confidence: "low",
+          summary: "never delivered",
+          completedItems: [],
+          remainingItems: [],
+          evidence: [],
+          sourcePaths: [],
+          continuationMessage: "",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+  harness.handlers.get("agent_end")({}, harness.ctx);
+  await auditStarted.promise;
+
+  harness.handlers.get("session_shutdown")({ reason: "quit" }, harness.ctx);
+  assert.equal(receivedSignal?.aborted, true);
+
+  auditFinished.resolve();
+  await flushTimers();
+});
+
 test("audit failure falls back to unanchored continuation and never completes", async () => {
   const harness = createHarness({
     auditRunner: async () => ({
