@@ -4,7 +4,7 @@ This file is the operator note for future pi after a fresh pi upgrade or reinsta
 
 ## Patch classes
 
-There are three different kinds of local patch state here.
+There are four different kinds of local patch state here.
 
 1. **pi core patch stack**
    - target: upstream `pi-mono`
@@ -14,7 +14,11 @@ There are three different kinds of local patch state here.
    - target: a separately installed package repo under `~/.pi/agent/git/...`
    - why: `pi-fff` must cooperate with `tui-broker` without taking editor ownership back
 
-3. **extension source compatibility edits already baked into local extensions**
+3. **runtime package/dependency patches**
+   - target: installed `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` package copies used by pi
+   - why: runtime retry/timeout behavior must fail cleanly instead of hanging or silently changing transports
+
+4. **extension source compatibility edits already baked into local extensions**
    - target: files under `~/.pi/agent/extensions/`
    - why: a few local extensions had stale lifecycle hooks that drifted from newer pi API surfaces
    - these are not normally something you reapply after a new pi binary install; they should already live in the local extension source tree
@@ -91,7 +95,67 @@ What this restores:
 - legacy `pi-fff` contributes only an autocomplete wrapper through broker hooks when broker is active
 - the context-usage meter and broker-owned editor border stay visible
 
-### 3) tui-broker status
+### 3) pi-ai strict WebSocket transport patch
+
+This is the runtime dependency patch that keeps explicit Codex WebSocket modes strict.
+
+Current active package targets:
+- `$(npm root -g)/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai`
+- `~/.pi/agent/extensions/node_modules/@earendil-works/pi-ai` when local extension tests import pi runtime packages
+
+Source of truth:
+- `~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py`
+- `~/vault/.pi/scripts/pi/test/openai-codex-strict-websocket.test.mjs`
+- `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-npm-v0.75.5.patch`
+- `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-legacy-v0.75.5.patch`
+
+Safe check:
+```bash
+python3 ~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py check
+if [ -d ~/.pi/agent/extensions/node_modules/@earendil-works/pi-ai ]; then
+  python3 ~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py check --package-root ~/.pi/agent/extensions/node_modules/@earendil-works/pi-ai
+fi
+```
+
+Actual apply:
+```bash
+python3 ~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py apply
+if [ -d ~/.pi/agent/extensions/node_modules/@earendil-works/pi-ai ]; then
+  python3 ~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py apply --package-root ~/.pi/agent/extensions/node_modules/@earendil-works/pi-ai
+fi
+```
+
+What this restores:
+- `transport: "websocket"` and `transport: "websocket-cached"` retry the WebSocket path and then fail without SSE fallback
+- `transport: "auto"` may still fall back to SSE after WebSocket retries are exhausted
+- strict WebSocket mode ignores stale per-session fallback state created while the session was in `auto`
+
+### 4) saved runtime-resilience diffs for v0.75.5
+
+These patch artifacts capture live global package edits that were not previously represented by the `activity-block` core stack or the strict WebSocket patch. They are saved for the next pi upgrade/porting pass.
+
+Source of truth:
+- `~/vault/.pi/scripts/pi/patches/earendil-pi-coding-agent-runtime-resilience-v0.75.5.patch`
+- `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-runtime-resilience-base-v0.75.5.patch`
+
+Apply order if you need to reconstruct the exact current global runtime on `0.75.5`:
+1. install the `activity-block` patched `@earendil-works/pi-coding-agent` tarball
+2. apply `earendil-pi-coding-agent-runtime-resilience-v0.75.5.patch` to `$(npm root -g)/@earendil-works/pi-coding-agent`
+3. apply `earendil-pi-ai-runtime-resilience-base-v0.75.5.patch` to a clean registry `@earendil-works/pi-ai@0.75.5` package root
+4. apply `earendil-pi-ai-strict-websocket-npm-v0.75.5.patch` to that same `@earendil-works/pi-ai` package root
+
+Do not apply the pi-ai runtime-resilience base patch on top of the legacy strict WebSocket patch without resetting that package copy first. The base patch creates the npm-layout shape that the npm strict WebSocket patch expects.
+
+What this restores:
+- provider SDK `maxRetries` defaulting to `0` unless explicitly configured
+- terminal quota/usage-limit errors treated as non-retryable
+- capped `Retry-After` handling for Codex HTTP retries
+- OpenAI Codex WebSocket connect and idle timeout plumbing
+- `websocketConnectTimeoutMs` flowing from pi-coding-agent settings into pi-ai
+
+The broad `reapply-local-patches.sh` fast path does not apply these two runtime-resilience diffs yet. Treat them as upgrade-porting artifacts until the reapply flow is deliberately extended.
+
+### 5) tui-broker status
 
 `tui-broker` does **not** currently have a separate patch file to apply after reinstall.
 
@@ -134,7 +198,10 @@ That script is the broad repair entrypoint and should cover:
 - the baked extension compatibility checks
 - the `pi-fff` broker interop patch
 - the `activity-block` core patch stack and reinstall
-- the extension workspace local `node_modules/@mariozechner/*` refresh from the same patched tarballs, so tests import the patched runtime surface
+- the `pi-ai` strict WebSocket transport patch
+- the extension workspace local runtime package refresh from the same patched tarballs, so tests import the patched runtime surface
+
+It does not yet apply the saved runtime-resilience diffs from section 4.
 
 ## After patching
 
