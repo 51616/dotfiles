@@ -87,6 +87,8 @@ Behavior covered by the total patch:
 - let extensions suppress hidden-thinking labels entirely when they provide their own summary surface
 
 Current extension-side presentation expectations:
+- the active block renders as the `activity-block-live-dock` `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available; the matching active transcript message renders no rows while the dock is visible, and the terminal dock stays visible after completion/abort/error until the next user input clears it so the historical transcript block can appear
+- if a UI context does not expose `ctx.ui.setWidget`, the extension deliberately keeps the transcript block visible instead of hiding it; this is a reduced transcript-only mode for older/fake contexts, not the intended live TUI behavior
 - compact mode shows only the header/first line of the latest thinking text; the thinking body opens only in the block-local thinking-expanded view
 - the latest three tool actions stay visible while newer thinking updates arrive, with the most recent action shown first instead of being flushed out by the thinking update
 - the block should never show multiple visible thinking bodies at once
@@ -97,7 +99,7 @@ Current extension-side presentation expectations:
 Extension-side lifecycle note:
 - keep historical transcript suppression enabled for the whole interactive session once the extension claims transcript ownership
 - keep live transcript suppression enabled until the current active block is finalized on `agent_end`; tool-result continuation turns reuse the same block across intermediate `turn_end` events
-- create the block from `before_turn_response` so each real trigger turn stays ordered as `user -> activity block -> assistant`, including queued steering turns inside an active agent run
+- create the block from `before_turn_response` so each real trigger turn stays ordered as `user -> activity block -> assistant`, including queued steering turns inside an active agent run; the live dock is only a UI projection of that same transcript anchor, not a second message
 - do not inject the block with `pi.sendMessage()` during assistant streaming; that turns the block into a queued custom message instead of a passive transcript artifact
 - do not clear historical transcript mode on `agent_end`
 - clearing historical transcript mode after a completed turn can trigger interactive-mode history rebuild and make the just-finished turn’s tool rows suddenly reappear

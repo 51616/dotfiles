@@ -14,6 +14,7 @@ What this proves:
 - text streaming marks the block as responding so the spinner can stop cleanly
 - tool totals/active/completed/failed counts stay honest across sequential and parallel tool execution
 - aborted runs do not leak a stale running state
+- the live block installs as an `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available, the matching active transcript renderer returns no rows while the dock is visible, the dock reflects thinking and tool lifecycle updates, terminal complete/aborted/error blocks remain docked until the next input, queued steering replaces the dock with the next active block, default mode clears the dock, and zen mode hides/restores the dock without exposing duplicate transcript blocks
 - the widget prefers the latest active tool when tools are running, reuses compact-tool-view-style colors for `read`/`write`/`edit`/`bash`, applies tool-state background highlighting to the live tool row, renders thinking as markdown, subsumes both tool-active and thinking-only live work under `Cooking`, and drops the spinner while responding
 - `Esc` aborts only when the extension has an active turn
 - historical transcript suppression stays active after `turn_end`, so finished turns do not suddenly replay default tool rows

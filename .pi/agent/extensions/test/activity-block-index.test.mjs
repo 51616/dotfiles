@@ -49,8 +49,34 @@ function makeCtx(entries = [], options = {}) {
   const historicalModes = [];
   const liveModes = [];
   const statuses = [];
+  const widgetCalls = [];
   let contextUsageTokens = options.contextUsageTokens;
   let idle = options.idle ?? true;
+
+  const ui = {
+    setStatus(_key, text) {
+      statuses.push(text);
+    },
+    setLiveTranscriptMode(mode) {
+      liveModes.push(mode);
+    },
+    setHistoricalTranscriptMode(mode) {
+      historicalModes.push(mode);
+    },
+    notify() {},
+    onTerminalInput(handler) {
+      terminalInputHandler = handler;
+      return () => {
+        unsubscribeCalls += 1;
+      };
+    },
+  };
+
+  if (options.widgets) {
+    ui.setWidget = (key, content, widgetOptions) => {
+      widgetCalls.push({ key, content, options: widgetOptions });
+    };
+  }
 
   const ctx = {
     hasUI: true,
@@ -69,24 +95,7 @@ function makeCtx(entries = [], options = {}) {
         return entries;
       },
     },
-    ui: {
-      setStatus(_key, text) {
-        statuses.push(text);
-      },
-      setLiveTranscriptMode(mode) {
-        liveModes.push(mode);
-      },
-      setHistoricalTranscriptMode(mode) {
-        historicalModes.push(mode);
-      },
-      notify() {},
-      onTerminalInput(handler) {
-        terminalInputHandler = handler;
-        return () => {
-          unsubscribeCalls += 1;
-        };
-      },
-    },
+    ui,
   };
 
   return {
@@ -101,7 +110,7 @@ function makeCtx(entries = [], options = {}) {
       return terminalInputHandler;
     },
     counts() {
-      return { abortCalls, unsubscribeCalls, historicalModes, liveModes, statuses };
+      return { abortCalls, unsubscribeCalls, historicalModes, liveModes, statuses, widgetCalls };
     },
   };
 }
@@ -118,6 +127,20 @@ function triggerTurnResponse(handlers, ctx, text = "hi", options = {}) {
     triggerMessages: [triggerMessage],
     systemPrompt: options.systemPrompt ?? "",
   }, ctx);
+}
+
+function latestWidgetCall(widgetCalls, key = "activity-block-live-dock") {
+  return widgetCalls.filter((call) => call.key === key).at(-1);
+}
+
+function latestVisibleWidgetCall(widgetCalls, key = "activity-block-live-dock") {
+  return widgetCalls.filter((call) => call.key === key && call.content !== undefined).at(-1);
+}
+
+function renderWidgetCall(call, width = 80) {
+  assert.equal(typeof call?.content, "function");
+  const component = call.content({}, theme);
+  return component.render(width).map((line) => stripAnsi(line));
 }
 
 test("activity-block session_start enables historical transcript suppression", async () => {
@@ -178,6 +201,140 @@ test("activity-block creates a block for custom trigger messages via before_turn
   });
 
   assert.equal(turn?.message?.details?.turnDisplayId, "1");
+});
+
+test("activity-block docks the active block above the editor and hides the active transcript duplicate", async () => {
+  const { pi, handlers, renderers } = makePiStub();
+  const { ctx, counts } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const turn = await triggerTurnResponse(handlers, ctx, "dock me");
+  const widgetCall = latestVisibleWidgetCall(counts().widgetCalls);
+
+  assert.equal(widgetCall?.options?.placement, "aboveEditor");
+  assert.ok(renderWidgetCall(widgetCall).some((line) => line.includes("Waiting for the first update")));
+
+  const renderer = renderers.get("activity-block-turn");
+  const activeTranscript = renderer({ details: turn.message.details }, {}, theme);
+  assert.deepEqual(activeTranscript.render(80), []);
+});
+
+test("activity-block live dock reflects thinking and tool lifecycle updates", async () => {
+  const { pi, handlers } = makePiStub();
+  const { ctx, counts } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  await triggerTurnResponse(handlers, ctx, "update dock");
+  const beforeThinkingRefreshes = counts().statuses.length;
+
+  await handlers.get("message_update")({
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "Checking the repo before using a tool" }],
+      stopReason: "stop",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      api: "anthropic-messages",
+      provider: "faux",
+      model: "faux-model",
+      timestamp: Date.now(),
+    },
+    assistantMessageEvent: { type: "thinking_delta", delta: "Checking the repo before using a tool", contentIndex: 0, partial: {} },
+  }, ctx);
+
+  assert.ok(counts().statuses.length > beforeThinkingRefreshes);
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Checking the repo before using a tool")));
+  const beforeToolStartRefreshes = counts().statuses.length;
+
+  await handlers.get("tool_execution_start")({
+    type: "tool_execution_start",
+    toolCallId: "tool-1",
+    toolName: "read",
+    args: { path: "README.md", offset: 1, limit: 2 },
+  }, ctx);
+
+  assert.ok(counts().statuses.length > beforeToolStartRefreshes);
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("read README.md:1-2")));
+  const beforeToolUpdateRefreshes = counts().statuses.length;
+
+  await handlers.get("tool_execution_update")({
+    type: "tool_execution_update",
+    toolCallId: "tool-1",
+    toolName: "read",
+    args: { path: "NOTES.md", offset: 3, limit: 2 },
+    partialResult: { content: [{ type: "text", text: "partial" }] },
+  }, ctx);
+
+  assert.ok(counts().statuses.length > beforeToolUpdateRefreshes);
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("read NOTES.md:3-4")));
+  const beforeToolEndRefreshes = counts().statuses.length;
+
+  await handlers.get("tool_execution_end")({
+    type: "tool_execution_end",
+    toolCallId: "tool-1",
+    toolName: "read",
+    result: { content: [{ type: "text", text: "done" }] },
+    isError: false,
+  }, ctx);
+
+  assert.ok(counts().statuses.length > beforeToolEndRefreshes);
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("✓ read NOTES.md:3-4")));
+});
+
+test("activity-block keeps the terminal block docked until the next input", async () => {
+  const { pi, handlers, renderers } = makePiStub();
+  const { ctx, counts } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const turn = await triggerTurnResponse(handlers, ctx, "finish docked");
+  const renderer = renderers.get("activity-block-turn");
+  const transcript = renderer({ details: turn.message.details }, {}, theme);
+
+  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
+
+  assert.deepEqual(transcript.render(80), []);
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Completed!")));
+
+  await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
+
+  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
+  assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("Completed!")));
+});
+
+test("activity-block keeps aborted and errored terminal blocks docked until the next input", async () => {
+  for (const terminal of [
+    { stopReason: "aborted", expected: "Aborted" },
+    { stopReason: "error", errorMessage: "boom", expected: "Error: boom" },
+  ]) {
+    const { pi, handlers, renderers } = makePiStub();
+    const { ctx, counts } = makeCtx([], { widgets: true });
+    activityBlockExtension(pi);
+
+    await handlers.get("session_start")({}, ctx);
+    const turn = await triggerTurnResponse(handlers, ctx, terminal.stopReason);
+    const renderer = renderers.get("activity-block-turn");
+    const transcript = renderer({ details: turn.message.details }, {}, theme);
+
+    await handlers.get("agent_end")({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [],
+        stopReason: terminal.stopReason,
+        errorMessage: terminal.errorMessage,
+      }],
+    }, ctx);
+
+    assert.deepEqual(transcript.render(80), []);
+    assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes(terminal.expected)));
+
+    await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
+    assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
+    assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes(terminal.expected)));
+  }
 });
 
 test("activity-block creates a fresh block for each queued turn", async () => {
@@ -306,6 +463,36 @@ test("activity-block freezes the current block when a queued steering message st
   const secondTurn = await triggerTurnResponse(handlers, ctx, "steer now", { turnIndex: 1 });
   assert.equal(secondTurn?.message?.details?.turnDisplayId, "2");
   assert.equal(appended.length, 1);
+});
+
+test("activity-block queued steering replaces the docked block with the next active turn", async () => {
+  const { pi, handlers, renderers } = makePiStub();
+  const appended = [];
+  pi.appendEntry = (type, data) => appended.push({ type, data });
+  const { ctx, counts, setIdle } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const firstTurn = await triggerTurnResponse(handlers, ctx, "first");
+  const renderer = renderers.get("activity-block-turn");
+  const firstTranscript = renderer({ details: firstTurn.message.details }, {}, theme);
+  setIdle(false);
+
+  await handlers.get("input")({ type: "input", text: "steer now", source: "interactive" }, ctx);
+  await handlers.get("message_start")({
+    type: "message_start",
+    message: { role: "user", content: [{ type: "text", text: "steer now" }] },
+  }, ctx);
+
+  assert.equal(appended[0].data.snapshot.finalLabel, "Interrupted by steering");
+  assert.ok(firstTranscript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("Interrupted by steering")));
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Waiting for the first update")));
+
+  const secondTurn = await triggerTurnResponse(handlers, ctx, "steer now", { turnIndex: 1 });
+  const secondTranscript = renderer({ details: secondTurn.message.details }, {}, theme);
+
+  assert.equal(secondTurn?.message?.details?.turnDisplayId, "2");
+  assert.deepEqual(secondTranscript.render(80), []);
 });
 
 test("activity-block agent_end without turn_end persists the terminal error state", async () => {
@@ -526,6 +713,51 @@ test("activity-block mode default restores core transcript modes and stops inser
   assert.equal(turn?.message?.details?.turnDisplayId, "1");
   assert.deepEqual(counts().historicalModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide" }]);
   assert.deepEqual(counts().liveModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
+});
+
+test("activity-block mode default clears the live dock when processed", async () => {
+  const { pi, handlers, commands, renderers } = makePiStub();
+  const { ctx, counts } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const turn = await triggerTurnResponse(handlers, ctx, "default clears dock");
+  const renderer = renderers.get("activity-block-turn");
+  const transcript = renderer({ details: turn.message.details }, {}, theme);
+
+  assert.deepEqual(transcript.render(80), []);
+  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
+
+  await commands.get("activity-block").handler("mode default", ctx);
+
+  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
+  assert.deepEqual(transcript.render(80), []);
+  assert.deepEqual(counts().historicalModes.slice(-1), [undefined]);
+  assert.deepEqual(counts().liveModes.slice(-1), [undefined]);
+});
+
+test("activity-block zen mode hides and restores the retained live dock without exposing transcript duplicates", async () => {
+  const { pi, handlers, commands, renderers } = makePiStub();
+  const { ctx, counts } = makeCtx([], { widgets: true });
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  const turn = await triggerTurnResponse(handlers, ctx, "zen dock");
+  const renderer = renderers.get("activity-block-turn");
+  const transcript = renderer({ details: turn.message.details }, {}, theme);
+
+  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
+  assert.deepEqual(transcript.render(80), []);
+
+  await commands.get("activity-block").handler("zen on", ctx);
+
+  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
+  assert.deepEqual(transcript.render(80), []);
+
+  await commands.get("activity-block").handler("zen off", ctx);
+
+  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
+  assert.deepEqual(transcript.render(80), []);
 });
 
 test("activity-block keeps only the thinking expansion control", () => {

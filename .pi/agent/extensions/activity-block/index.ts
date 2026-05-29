@@ -40,6 +40,7 @@ import {
 const MESSAGE_TYPE = "activity-block-turn";
 const STATE_TYPE = "activity-block-state";
 const STATUS_KEY = "activity-block";
+const LIVE_DOCK_WIDGET_KEY = "activity-block-live-dock";
 const BLOCK_TOGGLE_SHORTCUT = "ctrl+alt+a";
 const THINKING_TOGGLE_SHORTCUT = "ctrl+alt+t";
 const ZEN_MODE_TOGGLE_SHORTCUT = "ctrl+alt+z";
@@ -65,6 +66,12 @@ type TranscriptModeCapableUI = ExtensionContext["ui"] & {
 	setHistoricalTranscriptMode?: (mode?: HistoricalTranscriptMode) => void;
 };
 
+type ActivityBlockTheme = ConstructorParameters<typeof ActivityBlockMessageComponent>[0];
+type ActivityBlockWidgetFactory = (_tui: unknown, theme: ActivityBlockTheme) => ActivityBlockMessageComponent;
+type WidgetCapableUI = ExtensionContext["ui"] & {
+	setWidget?: (key: string, content?: string[] | ActivityBlockWidgetFactory, options?: { placement?: "aboveEditor" | "belowEditor" }) => void;
+};
+
 class ActivityBlockController {
 	private activeTurn:
 		| {
@@ -81,6 +88,11 @@ class ActivityBlockController {
 	private thinkingExpanded = false;
 	private zenMode = false;
 	private transcriptViewMode: TranscriptViewMode = "block";
+	private dockedTurnId: string | undefined;
+	// Only hide the transcript duplicate when a dock widget is actually visible.
+	// Zen/default mode may retain dock state without a visible widget, and hiding on
+	// dockedTurnId alone would make the block disappear from every surface.
+	private visibleDockTurnId: string | undefined;
 	private uiContext: ExtensionContext | undefined;
 	private turnCounter = 0;
 	private compactionCount = 0;
@@ -90,12 +102,14 @@ class ActivityBlockController {
 	attach(ctx: ExtensionContext): void {
 		this.uiContext = ctx;
 		this.syncContextUsage(ctx);
+		this.syncDockWidget(ctx);
 		this.refreshStatus();
 	}
 
 	reset(ctx?: ExtensionContext): void {
 		this.stopTokenRefresh();
 		this.activeTurn = undefined;
+		this.clearDockedTurn(ctx ?? this.uiContext);
 		this.persistedSnapshots.clear();
 		this.compactionCount = 0;
 		this.awaitingQueuedTurnStart = false;
@@ -148,6 +162,7 @@ class ActivityBlockController {
 	} {
 		this.attach(ctx);
 		if (this.transcriptViewMode === "default") {
+			this.clearDockedTurn(ctx);
 			this.clearTranscriptModes(ctx);
 			return {};
 		}
@@ -191,6 +206,7 @@ class ActivityBlockController {
 		if (!state) return;
 		applyMessageUpdate(state, event, now);
 		this.syncContextUsage(ctx);
+		this.refreshStatus();
 	}
 
 	onToolStart(event: ToolExecutionStartEvent, now: number, ctx?: ExtensionContext): void {
@@ -198,6 +214,7 @@ class ActivityBlockController {
 		if (!state) return;
 		applyToolStart(state, event, now);
 		this.syncContextUsage(ctx);
+		this.refreshStatus();
 	}
 
 	onToolUpdate(event: ToolExecutionUpdateEvent, now: number, ctx?: ExtensionContext): void {
@@ -205,6 +222,7 @@ class ActivityBlockController {
 		if (!state) return;
 		applyToolUpdate(state, event, now);
 		this.syncContextUsage(ctx);
+		this.refreshStatus();
 	}
 
 	onToolEnd(event: ToolExecutionEndEvent, now: number, ctx?: ExtensionContext): void {
@@ -212,6 +230,7 @@ class ActivityBlockController {
 		if (!state) return;
 		applyToolEnd(state, event, now);
 		this.syncContextUsage(ctx);
+		this.refreshStatus();
 	}
 
 	onTurnStart(): void {
@@ -290,7 +309,9 @@ class ActivityBlockController {
 	}
 
 	shouldHideTurn(turnId: string | undefined): boolean {
-		return this.transcriptViewMode === "default" || (this.zenMode && turnId !== undefined);
+		return this.transcriptViewMode === "default"
+			|| (this.zenMode && turnId !== undefined)
+			|| (turnId !== undefined && turnId === this.visibleDockTurnId);
 	}
 
 	getCompactionCount(): number {
@@ -342,6 +363,7 @@ class ActivityBlockController {
 			this.attach(ctx);
 		}
 		this.zenMode = nextEnabled;
+		this.syncDockWidget(ctx ?? this.uiContext);
 		this.refreshStatus();
 		return this.zenMode;
 	}
@@ -355,6 +377,11 @@ class ActivityBlockController {
 			this.attach(ctx);
 		}
 		this.transcriptViewMode = nextMode;
+		if (nextMode === "default") {
+			this.clearDockedTurn(ctx ?? this.uiContext);
+		} else {
+			this.syncDockWidget(ctx ?? this.uiContext);
+		}
 		this.applyCurrentTranscriptMode(ctx ?? this.uiContext);
 		this.refreshStatus();
 		return this.transcriptViewMode;
@@ -396,6 +423,7 @@ class ActivityBlockController {
 			ignoreNextUserMessageStart: options?.ignoreNextUserMessageStart ?? false,
 		} satisfies NonNullable<ActivityBlockController["activeTurn"]>;
 		this.activeTurn = activeTurn;
+		this.dockedTurnId = activeTurn.turnId;
 		this.syncContextUsage(ctx);
 		this.startTokenRefresh();
 		if (this.transcriptViewMode === "block") {
@@ -403,6 +431,7 @@ class ActivityBlockController {
 		} else {
 			this.clearTranscriptModes(ctx);
 		}
+		this.syncDockWidget(ctx);
 		this.refreshStatus();
 		return activeTurn;
 	}
@@ -434,9 +463,11 @@ class ActivityBlockController {
 		const snapshot = getActivityBlockSnapshot(activeTurn.state);
 		this.persistedSnapshots.set(activeTurn.turnId, snapshot);
 		this.activeTurn = undefined;
+		this.dockedTurnId = activeTurn.turnId;
 		if (!options?.keepLiveTranscriptMode) {
 			this.disableLiveTranscriptMode(this.uiContext);
 		}
+		this.syncDockWidget(this.uiContext);
 		this.refreshStatus();
 		return { turnId: activeTurn.turnId, snapshot };
 	}
@@ -455,6 +486,7 @@ class ActivityBlockController {
 
 	applyCurrentTranscriptMode(ctx: ExtensionContext | undefined): void {
 		if (this.transcriptViewMode === "default") {
+			this.clearDockedTurn(ctx);
 			this.clearTranscriptModes(ctx);
 			return;
 		}
@@ -464,6 +496,7 @@ class ActivityBlockController {
 		} else {
 			this.disableLiveTranscriptMode(ctx);
 		}
+		this.syncDockWidget(ctx);
 	}
 
 	private disableLiveTranscriptMode(ctx: ExtensionContext | undefined): void {
@@ -477,6 +510,58 @@ class ActivityBlockController {
 		const ui = ctx.ui as TranscriptModeCapableUI;
 		ui.setLiveTranscriptMode?.(undefined);
 		ui.setHistoricalTranscriptMode?.(undefined);
+	}
+
+	clearDockedTurn(ctx?: ExtensionContext): void {
+		this.dockedTurnId = undefined;
+		this.clearDockWidget(ctx ?? this.uiContext);
+	}
+
+	private syncDockWidget(ctx: ExtensionContext | undefined): void {
+		if (!ctx?.hasUI) return;
+		const ui = ctx.ui as WidgetCapableUI;
+		if (typeof ui.setWidget !== "function") {
+			this.visibleDockTurnId = undefined;
+			return;
+		}
+		const turnId = this.getDockedTurnIdForDisplay();
+		if (!turnId) {
+			this.clearDockWidget(ctx);
+			return;
+		}
+		if (this.visibleDockTurnId === turnId) return;
+		ui.setWidget(
+			LIVE_DOCK_WIDGET_KEY,
+			(_tui: unknown, theme: ActivityBlockTheme) => new ActivityBlockMessageComponent(
+				theme,
+				() => (this.dockedTurnId ? this.getSnapshot(this.dockedTurnId) : undefined),
+				() => Date.now(),
+				() => this.getToolHistoryViewMode(),
+				() => this.getThinkingExpanded(),
+				() => this.getCompactionCount(),
+				() => false,
+			),
+			{ placement: "aboveEditor" },
+		);
+		this.visibleDockTurnId = turnId;
+	}
+
+	private getDockedTurnIdForDisplay(): string | undefined {
+		if (this.transcriptViewMode !== "block") return undefined;
+		if (this.zenMode) return undefined;
+		return this.dockedTurnId;
+	}
+
+	private clearDockWidget(ctx: ExtensionContext | undefined): void {
+		if (!ctx?.hasUI) {
+			this.visibleDockTurnId = undefined;
+			return;
+		}
+		const ui = ctx.ui as WidgetCapableUI;
+		if (typeof ui.setWidget === "function" && this.visibleDockTurnId !== undefined) {
+			ui.setWidget(LIVE_DOCK_WIDGET_KEY, undefined);
+		}
+		this.visibleDockTurnId = undefined;
 	}
 
 	private startTokenRefresh(): void {
@@ -691,8 +776,11 @@ export default function activityBlockExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("input", async (_event, ctx) => {
-		if (ctx.isIdle() || !controller.hasActiveTurn()) return;
-		controller.markQueuedTurnBoundary();
+		if (controller.hasActiveTurn() && !ctx.isIdle()) {
+			controller.markQueuedTurnBoundary();
+			return;
+		}
+		controller.clearDockedTurn(ctx);
 	});
 
 	pi.on("turn_start", async () => {
