@@ -188,9 +188,10 @@ export class ActivityBlockMessageComponent implements Component {
 		const inlineThinkingHeader = shouldInlineThinkingHeader(snapshot, thinkingHeader, toolHistoryViewMode, thinkingExpanded);
 		const statusText = chooseStatusText(this.theme, this.markdownTheme, snapshot, model, thinkingHeader, innerWidth, inlineThinkingHeader);
 		const statusLabel = decorateBlockTitle(statusText);
+		const statusWrapper = statusRowWrapper(this.theme, getStatusLabelColor(statusLabel));
 		if (width <= 14) {
 			const line = `${statusLabel} ${model.primary}`.trim();
-			return [applyPersistentColor(fitToWidth(line, width), statusRowWrapper(this.theme))];
+			return [applyPersistentColor(fitToWidth(line, width), statusWrapper)];
 		}
 
 		const showAllToolHistory = toolHistoryViewMode === "all";
@@ -198,7 +199,7 @@ export class ActivityBlockMessageComponent implements Component {
 		const maxRenderedLines = thinkingExpanded ? THINKING_EXPANDED_MAX_RENDERED_LINES : DEFAULT_MAX_RENDERED_LINES;
 		const rows = [
 			renderBorder("╭", "╮", innerWidth, this.theme),
-			renderRow(innerWidth, statusLabel, statusRowWrapper(this.theme), this.theme),
+			renderRow(innerWidth, statusLabel, statusWrapper, this.theme),
 			renderEmptyRow(innerWidth, this.theme),
 		];
 		const footerReservation = 2;
@@ -391,13 +392,14 @@ function chooseStatusText(
 function decorateBlockTitle(title: string): string {
 	const trimmed = title.trimEnd();
 	if (!trimmed) return trimmed;
-	if (trimmed === "Complete") {
-		return "Completed!";
-	}
-	if (trimmed === "Completed") {
-		return "Completed!";
+	if (trimmed === "Complete" || trimmed === "Completed" || trimmed === "Completed!") {
+		return "COMPLETED!";
 	}
 	return trimmed;
+}
+
+function getStatusLabelColor(label: string): ThemeColor {
+	return label === "COMPLETED!" ? "success" : "text";
 }
 
 function normalizeTerminalStatus(status: string, runState: ActivityBlockSnapshot["runState"]): string {
@@ -801,8 +803,8 @@ function bgWrapper(theme: Theme, color: ThemeBgColor): [string, string] {
 	return extractStyleWrapper((text) => theme.bg(color, text));
 }
 
-function statusRowWrapper(theme: Theme): [string, string] {
-	return extractStyleWrapper((text) => theme.fg("text", theme.bold(text)));
+function statusRowWrapper(theme: Theme, color: ThemeColor = "text"): [string, string] {
+	return extractStyleWrapper((text) => theme.fg(color, theme.bold(text)));
 }
 
 function toolActivityWrapper(theme: Theme, state: ToolState | undefined): [string, string] {

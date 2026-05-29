@@ -146,6 +146,13 @@ test("ActivityBlockMessageComponent color codes grep, find, fff, multi_grep, and
 	assert.match(rendered, /<success>✓<\/success> <toolTitle><b>run-skill<\/b><\/toolTitle> <accent>scripts\/pi-ssh-setup\.sh in pi-ssh via bash \(timeout 30s, 2 args\)<\/accent>/);
 });
 
+test("ActivityBlockMessageComponent renders the completed label in green caps", () => {
+	const rendered = render();
+
+	assert.match(rendered, /<success><b>COMPLETED!\s*<\/b><\/success>/);
+	assert.doesNotMatch(rendered, /Completed!/);
+});
+
 test("ActivityBlockMessageComponent uses the theme border color for the block frame", () => {
 	const rendered = render();
 
