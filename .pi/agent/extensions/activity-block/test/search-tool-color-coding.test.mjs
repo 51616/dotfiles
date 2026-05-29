@@ -153,8 +153,23 @@ test("ActivityBlockMessageComponent renders the completed label in green caps", 
 	assert.doesNotMatch(rendered, /Completed!/);
 });
 
-test("ActivityBlockMessageComponent uses the theme border color for the block frame", () => {
+test("ActivityBlockMessageComponent renders completed block borders in green", () => {
 	const rendered = render();
+
+	assert.match(rendered, /<success>╭─+/);
+	assert.match(rendered, /<success>│<\/success>/);
+});
+
+test("ActivityBlockMessageComponent keeps running block borders on the theme border color", () => {
+	const rendered = render({
+		runState: "running",
+		endedAt: undefined,
+		finalLabel: undefined,
+		lastToolSummary: undefined,
+		tools: [],
+		totalTools: 0,
+		completedTools: 0,
+	});
 
 	assert.match(rendered, /<border>╭─+/);
 	assert.match(rendered, /<border>│<\/border>/);

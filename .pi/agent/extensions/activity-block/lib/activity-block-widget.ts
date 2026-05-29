@@ -189,6 +189,7 @@ export class ActivityBlockMessageComponent implements Component {
 		const statusText = chooseStatusText(this.theme, this.markdownTheme, snapshot, model, thinkingHeader, innerWidth, inlineThinkingHeader);
 		const statusLabel = decorateBlockTitle(statusText);
 		const statusWrapper = statusRowWrapper(this.theme, getStatusLabelColor(statusLabel));
+		const borderColor = getBlockBorderColor(snapshot);
 		if (width <= 14) {
 			const line = `${statusLabel} ${model.primary}`.trim();
 			return [applyPersistentColor(fitToWidth(line, width), statusWrapper)];
@@ -198,9 +199,9 @@ export class ActivityBlockMessageComponent implements Component {
 		const showThinkingPanel = shouldShowThinkingPanel(toolHistoryViewMode, thinkingExpanded);
 		const maxRenderedLines = thinkingExpanded ? THINKING_EXPANDED_MAX_RENDERED_LINES : DEFAULT_MAX_RENDERED_LINES;
 		const rows = [
-			renderBorder("╭", "╮", innerWidth, this.theme),
-			renderRow(innerWidth, statusLabel, statusWrapper, this.theme),
-			renderEmptyRow(innerWidth, this.theme),
+			renderBorder("╭", "╮", innerWidth, this.theme, borderColor),
+			renderRow(innerWidth, statusLabel, statusWrapper, this.theme, borderColor),
+			renderEmptyRow(innerWidth, this.theme, borderColor),
 		];
 		const footerReservation = 2;
 		const thinkingExpandedHasToolHistory = thinkingExpanded && hasThinkingExpandedToolHistory(snapshot, toolHistoryViewMode);
@@ -222,6 +223,7 @@ export class ActivityBlockMessageComponent implements Component {
 					)
 					: EXPANDED_THOUGHT_LINES,
 				inlineThinkingHeader,
+				borderColor,
 			)
 			: [];
 		const thoughtSpacer = thoughtLines.length > 0 ? 1 : 0;
@@ -238,6 +240,7 @@ export class ActivityBlockMessageComponent implements Component {
 				timerNow,
 				toolHistoryViewMode,
 				maxToolHistoryRows,
+				borderColor,
 			);
 			if (thinkingExpandedToolHistoryRows.length === 0) {
 				const fallbackBudget = Math.max(1, maxRenderedLines - rows.length - thoughtLines.length - thoughtSpacer - footerReservation - 1);
@@ -252,6 +255,7 @@ export class ActivityBlockMessageComponent implements Component {
 					thinkingExpanded,
 					thoughtLines.length > 0,
 					timerNow,
+					borderColor,
 				);
 			}
 		} else {
@@ -267,6 +271,7 @@ export class ActivityBlockMessageComponent implements Component {
 				thinkingExpanded,
 				thoughtLines.length > 0,
 				timerNow,
+				borderColor,
 			);
 			const primarySpacer = primaryLines.length > 0 ? 1 : 0;
 			const maxExpandedDetailLines = showAllToolHistory
@@ -279,11 +284,11 @@ export class ActivityBlockMessageComponent implements Component {
 
 		rows.push(...thoughtLines);
 		if (thoughtLines.length > 0) {
-			rows.push(renderEmptyRow(innerWidth, this.theme));
+			rows.push(renderEmptyRow(innerWidth, this.theme, borderColor));
 		}
 		rows.push(...primaryLines);
 		if (primaryLines.length > 0) {
-			rows.push(renderEmptyRow(innerWidth, this.theme));
+			rows.push(renderEmptyRow(innerWidth, this.theme, borderColor));
 		}
 		for (const line of expandedDetailLines) {
 			const wrapper = line.placeholder
@@ -291,17 +296,17 @@ export class ActivityBlockMessageComponent implements Component {
 				: line.toolState
 					? toolActivityWrapper(this.theme, line.toolState)
 					: colorWrapper(this.theme, line.color ?? "dim");
-			rows.push(renderRow(innerWidth, line.text, wrapper, this.theme));
+			rows.push(renderRow(innerWidth, line.text, wrapper, this.theme, borderColor));
 		}
 		if (expandedDetailLines.length > 0) {
-			rows.push(renderEmptyRow(innerWidth, this.theme));
+			rows.push(renderEmptyRow(innerWidth, this.theme, borderColor));
 		}
 		rows.push(...thinkingExpandedToolHistoryRows);
 		if (thinkingExpandedToolHistoryRows.length > 0) {
-			rows.push(renderEmptyRow(innerWidth, this.theme));
+			rows.push(renderEmptyRow(innerWidth, this.theme, borderColor));
 		}
-		rows.push(renderSplitRow(innerWidth, detail, model.secondaryRight, colorWrapper(this.theme, "dim"), this.theme));
-		rows.push(renderBorder("╰", "╯", innerWidth, this.theme));
+		rows.push(renderSplitRow(innerWidth, detail, model.secondaryRight, colorWrapper(this.theme, "dim"), this.theme, borderColor));
+		rows.push(renderBorder("╰", "╯", innerWidth, this.theme, borderColor));
 		return rows.slice(0, maxRenderedLines);
 	}
 }
@@ -338,6 +343,7 @@ function renderThinkingBlockRows(
 	thinkingExpanded: boolean,
 	maxContentLines: number,
 	inlineHeader: boolean,
+	borderColor: ThemeColor,
 ): string[] {
 	if (!snapshot.latestThinking) return [];
 	if (snapshot.runState !== "running" && !thinkingExpanded) return [];
@@ -345,14 +351,14 @@ function renderThinkingBlockRows(
 	const { header, body } = splitThinkingSource(source || snapshot.latestThinking);
 	const headerSource = header || snapshot.latestThinking;
 	const headerLine = renderMarkdownRows(theme, markdownTheme, headerSource, width, 1, "text")[0] ?? stripPadding(headerSource);
-	const headerRow = renderRow(width, stripPadding(headerLine), colorWrapper(theme, "text"), theme);
+	const headerRow = renderRow(width, stripPadding(headerLine), colorWrapper(theme, "text"), theme, borderColor);
 	if (!thinkingExpanded || maxContentLines <= 1) return inlineHeader ? [] : [headerRow];
 	if (!body) return inlineHeader ? [] : [headerRow];
 	const markdownLines = renderMarkdownRows(theme, markdownTheme, body, width, maxContentLines - 1, "text");
 	if (markdownLines.length === 0) return inlineHeader ? [] : [headerRow];
 	return [
 		...(inlineHeader ? [] : [headerRow]),
-		...markdownLines.map((line) => renderRow(width, stripPadding(line), colorWrapper(theme, "text"), theme)),
+		...markdownLines.map((line) => renderRow(width, stripPadding(line), colorWrapper(theme, "text"), theme, borderColor)),
 	];
 }
 
@@ -400,6 +406,10 @@ function decorateBlockTitle(title: string): string {
 
 function getStatusLabelColor(label: string): ThemeColor {
 	return label === "COMPLETED!" ? "success" : "text";
+}
+
+function getBlockBorderColor(snapshot: ActivityBlockSnapshot): ThemeColor {
+	return snapshot.runState === "complete" ? "success" : "border";
 }
 
 function normalizeTerminalStatus(status: string, runState: ActivityBlockSnapshot["runState"]): string {
@@ -461,6 +471,7 @@ function renderPrimaryLines(
 	thinkingExpanded: boolean,
 	hasThoughtLines: boolean,
 	now: number,
+	borderColor: ThemeColor,
 ): string[] {
 	if (maxLines <= 0) return [];
 	if (toolHistoryViewMode === "all" && !thinkingExpanded) return [];
@@ -471,8 +482,8 @@ function renderPrimaryLines(
 		const placeholderCount = getToolHistoryPlaceholderCount(toolHistoryViewMode, stickyTools.length, targetToolRows);
 		if (stickyTools.length > 0 || placeholderCount > 0) {
 			return [
-				...stickyTools.map((tool) => renderToolActivityRow(theme, tool, width, now)),
-				...renderPlaceholderToolRows(theme, width, placeholderCount),
+				...stickyTools.map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor)),
+				...renderPlaceholderToolRows(theme, width, placeholderCount, borderColor),
 			];
 		}
 	}
@@ -484,7 +495,7 @@ function renderPrimaryLines(
 		return [];
 	}
 	if (!model.primary) return [];
-	return [renderRow(width, model.primary, colorWrapper(theme, "text"), theme)];
+	return [renderRow(width, model.primary, colorWrapper(theme, "text"), theme, borderColor)];
 }
 
 function formatExpandedDetails(
@@ -547,12 +558,13 @@ function renderThinkingExpandedToolHistoryRows(
 	now: number,
 	toolHistoryViewMode: ToolHistoryViewMode,
 	maxRows: number,
+	borderColor: ThemeColor,
 ): string[] {
 	const targetRows = Math.min(THINKING_EXPANDED_TOOL_HISTORY_ROWS, maxRows);
 	if (targetRows <= 0) return [];
 	const tools = getThinkingExpandedToolActivities(snapshot, toolHistoryViewMode, targetRows);
 	if (tools.length === 0) return [];
-	return tools.map((tool) => renderToolActivityRow(theme, tool, width, now));
+	return tools.map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor));
 }
 
 function getThinkingExpandedToolActivities(
@@ -585,12 +597,12 @@ function getStickyToolActivities(snapshot: ActivityBlockSnapshot, limit: number)
 	}];
 }
 
-function renderToolActivityRow(theme: Theme, tool: ToolActivity, width: number, now: number): string {
-	return renderRow(width, styleTimedToolActivityLine(theme, tool, width, now), toolActivityWrapper(theme, tool.state), theme);
+function renderToolActivityRow(theme: Theme, tool: ToolActivity, width: number, now: number, borderColor: ThemeColor): string {
+	return renderRow(width, styleTimedToolActivityLine(theme, tool, width, now), toolActivityWrapper(theme, tool.state), theme, borderColor);
 }
 
-function renderPlaceholderToolRows(theme: Theme, width: number, count: number): string[] {
-	return Array.from({ length: count }, () => renderRow(width, "", placeholderToolRowWrapper(theme), theme));
+function renderPlaceholderToolRows(theme: Theme, width: number, count: number, borderColor: ThemeColor): string[] {
+	return Array.from({ length: count }, () => renderRow(width, "", placeholderToolRowWrapper(theme), theme, borderColor));
 }
 
 function createPlaceholderToolRows(count: number): ToolRowView[] {
@@ -745,34 +757,35 @@ function formatCompactionCount(compactionCount: number): string | undefined {
 }
 
 
-function renderBorder(left: string, right: string, innerWidth: number, theme: Theme): string {
-	return applyPersistentColor(`${left}${"─".repeat(innerWidth)}${right}`, borderWrapper(theme));
+function renderBorder(left: string, right: string, innerWidth: number, theme: Theme, borderColor: ThemeColor = "border"): string {
+	return applyPersistentColor(`${left}${"─".repeat(innerWidth)}${right}`, borderWrapper(theme, borderColor));
 }
 
-function renderRow(innerWidth: number, text: string, wrapper: [string, string], theme: Theme): string {
+function renderRow(innerWidth: number, text: string, wrapper: [string, string], theme: Theme, borderColor: ThemeColor = "border"): string {
 	const fitted = fitToWidth(text, innerWidth);
 	const content = applyPersistentColor(fitted, wrapper[0], wrapper[1]);
-	const borderLeft = applyPersistentColor("│", borderWrapper(theme));
-	const borderRight = applyPersistentColor("│", borderWrapper(theme));
+	const border = borderWrapper(theme, borderColor);
+	const borderLeft = applyPersistentColor("│", border);
+	const borderRight = applyPersistentColor("│", border);
 	return `${borderLeft}${content}${borderRight}`;
 }
 
-function renderEmptyRow(innerWidth: number, theme: Theme): string {
-	return renderRow(innerWidth, "", colorWrapper(theme, "text"), theme);
+function renderEmptyRow(innerWidth: number, theme: Theme, borderColor: ThemeColor = "border"): string {
+	return renderRow(innerWidth, "", colorWrapper(theme, "text"), theme, borderColor);
 }
 
-function renderSplitRow(innerWidth: number, left: string, right: string | undefined, wrapper: [string, string], theme: Theme): string {
-	if (!right) return renderRow(innerWidth, left, wrapper, theme);
+function renderSplitRow(innerWidth: number, left: string, right: string | undefined, wrapper: [string, string], theme: Theme, borderColor: ThemeColor = "border"): string {
+	if (!right) return renderRow(innerWidth, left, wrapper, theme, borderColor);
 	const rightWidth = visibleWidth(right);
 	if (rightWidth >= innerWidth) {
-		return renderRow(innerWidth, right, wrapper, theme);
+		return renderRow(innerWidth, right, wrapper, theme, borderColor);
 	}
 	const leftWidth = Math.max(0, innerWidth - rightWidth - 1);
 	if (leftWidth <= 0) {
-		return renderRow(innerWidth, right, wrapper, theme);
+		return renderRow(innerWidth, right, wrapper, theme, borderColor);
 	}
 	const fittedLeft = fitToWidth(left, leftWidth);
-	return renderRow(innerWidth, `${fittedLeft} ${right}`, wrapper, theme);
+	return renderRow(innerWidth, `${fittedLeft} ${right}`, wrapper, theme, borderColor);
 }
 
 function fitToWidth(text: string, width: number): string {
@@ -795,8 +808,8 @@ function colorWrapper(theme: Theme, color: ThemeColor): [string, string] {
 	return extractStyleWrapper((text) => theme.fg(color, text));
 }
 
-function borderWrapper(theme: Theme): [string, string] {
-	return colorWrapper(theme, "border");
+function borderWrapper(theme: Theme, color: ThemeColor = "border"): [string, string] {
+	return colorWrapper(theme, color);
 }
 
 function bgWrapper(theme: Theme, color: ThemeBgColor): [string, string] {
