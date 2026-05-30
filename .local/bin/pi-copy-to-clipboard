@@ -3,13 +3,32 @@ set -euo pipefail
 
 payload=$(cat)
 
-# Prefer tmux when the caller is running inside tmux. `set-buffer -w`
-# updates both tmux's paste buffer and, when supported by the client terminal,
-# the system clipboard through tmux's clipboard integration.
-if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
-  if tmux set-buffer -w -- "$payload" 2>/dev/null; then
-    exit 0
+copy_with_tmux() {
+  command -v tmux >/dev/null 2>&1 || return 1
+
+  # Inside tmux, tmux already knows the current client. `set-buffer -w`
+  # updates tmux's paste buffer and asks that client terminal to sync the
+  # system clipboard through OSC 52 when supported.
+  if [[ -n "${TMUX:-}" ]] && tmux set-buffer -w -- "$payload" 2>/dev/null; then
+    return 0
   fi
+
+  # Outside tmux, prefer a running tmux server when it has an attached client.
+  # `-w` needs a target client because the clipboard write is emitted through a
+  # client terminal, not directly by the tmux server.
+  local target_client
+  target_client=$(
+    tmux list-clients -F '#{client_activity} #{client_name}' 2>/dev/null \
+      | sort -nr \
+      | awk 'NR == 1 { print $2; exit }'
+  ) || return 1
+
+  [[ -n "$target_client" ]] || return 1
+  tmux set-buffer -w -t "$target_client" -- "$payload" 2>/dev/null
+}
+
+if copy_with_tmux; then
+  exit 0
 fi
 
 if command -v xclip >/dev/null 2>&1; then
