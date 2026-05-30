@@ -448,8 +448,9 @@ export FZF_CTRL_T_OPTS="
   --bind 'ctrl-/:change-preview-window(down|hidden|)'"
 
 # CTRL-/ to toggle small preview window to see the full command
-# CTRL-Y to copy the command into clipboard using pbcopy
-# enter to execute the command right away
+# CTRL-E to paste the selected command into the prompt without executing it
+# CTRL-Y to copy the command into clipboard using xclip
+# Enter executes the command right away
 export FZF_CTRL_R_OPTS="
   --preview 'echo {}'
   --preview-window up:3:hidden:wrap
@@ -457,7 +458,7 @@ export FZF_CTRL_R_OPTS="
   --bind 'ctrl-y:execute-silent(echo -n {2..} | xclip -sel clip)+abort'
   --color header:italic
   --height 60%
-  --header 'Press CTRL-/ to toggle preview, CTRL-Y to copy command into clipboard'"
+  --header 'Press CTRL-/ to toggle preview, CTRL-E to paste into prompt, CTRL-Y to copy command into clipboard'"
 
 # Print tree structure in the preview window
 # export FZF_ALT_C_OPTS="--preview 'tree -C {}'"
@@ -626,17 +627,21 @@ fzf-history-widget() {
      FZF_DEFAULT_OPTS="--height ${FZF_TMUX_HEIGHT:-40%} $FZF_DEFAULT_OPTS --tiebreak=index --bind=ctrl-r:toggle-sort --expect=ctrl-e $FZF_CTRL_R_OPTS --query=${(qqq)LBUFFER} +m" $(__fzfcmd)) )
    local ret=$?
    if [ -n "$selected" ]; then
-     local accept=0
      if [[ $selected[1] = ctrl-e ]]; then
-       accept=1
        shift selected
-       BUFFER="fc $selected[1]" && zle accept-line
-       return $ret 
-     fi
-     num=$selected[1]
-     if [ -n "$num" ]; then
-       zle vi-fetch-history -n $num
-       [[ $accept = 0 ]] && zle accept-line
+       num=$selected[1]
+       if [ -n "$num" ]; then
+         # Do not use `fc $num` here: fc opens $EDITOR. Fetch the history
+         # event directly so CTRL-E only pastes it into the prompt.
+         zle vi-fetch-history -n $num
+         CURSOR=${#BUFFER}
+       fi
+     else
+       num=$selected[1]
+       if [ -n "$num" ]; then
+         zle vi-fetch-history -n $num
+         zle accept-line
+       fi
      fi
    fi
    zle reset-prompt
