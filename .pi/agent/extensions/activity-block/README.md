@@ -4,11 +4,11 @@ This extension depends on **pi core changes** before you use it for the intended
 
 Saved patch artifacts are **versioned by upstream pi-mono tag**.
 
-For **pi-mono v0.77.0** (current default for the live install):
-- `patches/v0.77.0/pi-core-local-extension-seams.patch`
-- `patches/v0.77.0/README.md`
+For **pi-mono v0.78.0** (current default for the live install):
+- `patches/v0.78.0/pi-core-local-extension-seams.patch`
+- `patches/v0.78.0/README.md`
 
-For **pi-mono v0.75.5** and **v0.70.0**:
+For **pi-mono v0.77.0**, **v0.75.5**, and **v0.70.0**:
 - `patches/v<version>/pi-core-local-extension-seams.patch`
 - `patches/v<version>/README.md`
 
@@ -46,7 +46,7 @@ Legacy/older patch artifacts (kept for reference; may not apply to v0.65.0):
 - `patches/pi-core-live-transcript-mode.patch`
 - `patches/pi-core-custom-message-turn-lifecycle.patch`
 
-Important: the current extension relies on `before_turn_response` for per-turn block creation, especially queued steering/follow-up/custom-message turns that must freeze the current block and start a fresh one under the queued trigger message. The current `v0.77.0` combined patch stack and the older saved stacks include that lifecycle seam.
+Important: the current extension relies on `before_turn_response` for per-turn block creation, especially queued steering/follow-up/custom-message turns that must freeze the current block and start a fresh one under the queued trigger message. The current `v0.78.0` combined patch stack and the older saved stacks include that lifecycle seam.
 
 Patch notes:
 - `patches/pi-core-custom-message-turn-lifecycle.md`
@@ -88,7 +88,7 @@ The saved patch files in this directory cover three required concerns for the fu
 - the custom-message trigger fix so queued custom turns preserve the same trigger metadata/lifecycle
 - `before_turn_response` queued-turn boundaries so steering/follow-up/custom-message turns can spawn fresh blocks without extra tool-continuation blocks
 
-The current `v0.77.0` stack and the older saved stacks include that full stack today.
+The current `v0.78.0` stack and the older saved stacks include that full stack today.
 
 Behavior covered by the total patch:
 - suppress live tool rows and live thinking placeholders while the block owns active-turn UX, while still allowing the stock working spinner row to remain visible
@@ -117,12 +117,12 @@ Extension-side lifecycle note:
 
 ## Apply steps
 
-For the current default saved patch artifacts (**pi-mono v0.77.0**):
+For the current default saved patch artifacts (**pi-mono v0.78.0**):
 
 ```bash
 cd ~/research/pi-mono
-git checkout v0.77.0
-git apply --unidiff-zero /home/tan/.pi/agent/extensions/activity-block/patches/v0.77.0/pi-core-local-extension-seams.patch
+git checkout v0.78.0
+git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.78.0/pi-core-local-extension-seams.patch
 ```
 
 For older split-stack installs, apply the versioned three-patch set. Example for **pi-mono v0.67.2**:
@@ -145,7 +145,7 @@ git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-
 git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch
 ```
 
-For a clean **v0.77.0** verification pass after applying the patches:
+For a clean **v0.78.0** verification pass after applying the patches:
 
 ```bash
 cd ~/research/pi-mono
@@ -169,7 +169,7 @@ Then start a fresh pi session. `/reload` refreshes extension code, but it does n
 - The extension’s transcript ordering fix (`user -> activity block -> assistant`) is extension-side and is **not** part of the core patch.
 - The extension currently inserts its block from `before_turn_response`, so each real trigger turn gets one block while tool-result continuation turns reuse the current block.
 - The extension must leave historical transcript suppression active across completed turns and keep live suppression active until the active block is finalized on `agent_end`, because tool-result continuations reuse that block.
-- The saved `v0.77.0` patch set is the current default. It is exported as one `pi-core-local-extension-seams.patch` artifact, while older saved stacks remain available for older installs.
+- The saved `v0.78.0` patch set is the current default. It is exported as one `pi-core-local-extension-seams.patch` artifact, while older saved stacks remain available for older installs.
 - The saved `v0.67.2` patch set keeps the same underlying change set as `v0.66.1`; the `before_turn_response` patch was rebased so it applies cleanly after the first two patches on `v0.67.2`.
 - The saved `v0.66.1` patch set also includes the separate `before_turn_response` lifecycle patch required for queued steering/follow-up/custom-message turn boundaries.
 - The same lifecycle patch remains part of the saved `v0.65.2` and `v0.65.0` stacks.

@@ -28,11 +28,11 @@ There are four different kinds of local patch state here.
 ### 1) activity-block core patch stack
 
 Current default target:
-- `earendil-works/pi-mono v0.77.0`
+- `earendil-works/pi-mono v0.78.0`
 
 Source of truth:
-- `~/.pi/agent/extensions/activity-block/patches/v0.77.0/README.md`
-- `~/.pi/agent/extensions/activity-block/patches/v0.77.0/pi-core-local-extension-seams.patch`
+- `~/.pi/agent/extensions/activity-block/patches/v0.78.0/README.md`
+- `~/.pi/agent/extensions/activity-block/patches/v0.78.0/pi-core-local-extension-seams.patch`
 
 Apply order:
 1. `pi-core-local-extension-seams.patch`
@@ -107,6 +107,7 @@ Current active package targets:
 Source of truth:
 - `~/vault/.pi/scripts/pi/reapply-pi-ai-strict-websocket-patch.py`
 - `~/vault/.pi/scripts/pi/test/openai-codex-strict-websocket.test.mjs`
+- `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-npm-v0.78.0.patch`
 - `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-npm-v0.77.0.patch`
 - `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-npm-v0.75.5.patch`
 - `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-strict-websocket-legacy-v0.75.5.patch`
@@ -134,7 +135,7 @@ What this restores:
 
 ### 4) saved runtime-resilience diffs for v0.75.5
 
-These patch artifacts capture old live global package edits that were not previously represented by the `activity-block` core stack or the strict WebSocket patch. They remain as historical v0.75.5 reconstruction notes. Upstream v0.77.0 already carries the retry/timeout baseline that mattered here; the current fast path reapplies only the strict WebSocket transport boundary on top of v0.77.0.
+These patch artifacts capture old live global package edits that were not previously represented by the `activity-block` core stack or the strict WebSocket patch. They remain as historical v0.75.5 reconstruction notes. Upstream v0.78.0 already carries the retry/timeout baseline that mattered here; the current fast path reapplies only the strict WebSocket transport boundary on top of v0.78.0.
 
 Source of truth:
 - `~/vault/.pi/scripts/pi/patches/earendil-pi-coding-agent-runtime-resilience-v0.75.5.patch`
@@ -155,7 +156,7 @@ What this restores:
 - OpenAI Codex WebSocket connect and idle timeout plumbing
 - `websocketConnectTimeoutMs` flowing from pi-coding-agent settings into pi-ai
 
-The broad `reapply-local-patches.sh` fast path does not apply these two runtime-resilience diffs. Treat them as historical artifacts for reconstructing the old v0.75.5 runtime, not as current v0.77.0 steps.
+The broad `reapply-local-patches.sh` fast path does not apply these two runtime-resilience diffs. Treat them as historical artifacts for reconstructing the old v0.75.5 runtime, not as current v0.78.0 steps.
 
 ### 5) tui-broker status
 
