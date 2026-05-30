@@ -9,6 +9,7 @@ Patch files:
   - adds extension UI seams for suppressing live and historical transcript elements:
     - `ctx.ui.setLiveTranscriptMode(...)`
     - `ctx.ui.setHistoricalTranscriptMode(...)`
+  - guards both live tool-call draft rendering and `tool_execution_start` rendering when `toolRows: "hide"` is active
   - preserves the normal `before_agent_start` lifecycle for `sendCustomMessage(..., { triggerTurn: true })`
   - extends `before_agent_start` events with:
     - `source: "user" | "customMessage"`

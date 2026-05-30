@@ -694,7 +694,7 @@ index 32276467..3aac21c7 100644
  			}
  		}
 diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-index 987a62cb..52351b46 100644
+index 987a62cb..603b7215 100644
 --- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 @@ -66,10 +66,12 @@ import type {
@@ -860,7 +860,17 @@ index 987a62cb..52351b46 100644
  						if (!errorMessage) {
  							errorMessage = this.streamingMessage.errorMessage || "Error";
  						}
-@@ -2871,7 +2943,9 @@ export class InteractiveMode {
+@@ -2822,6 +2894,9 @@ export class InteractiveMode {
+ 				break;
+ 
+ 			case "tool_execution_start": {
++				if (!this.shouldShowLiveToolRows()) {
++					break;
++				}
+ 				let component = this.pendingTools.get(event.toolCallId);
+ 				if (!component) {
+ 					component = new ToolExecutionComponent(
+@@ -2871,7 +2946,9 @@ export class InteractiveMode {
  				if (this.loadingAnimation) {
  					this.loadingAnimation.stop();
  					this.loadingAnimation = undefined;
@@ -871,7 +881,7 @@ index 987a62cb..52351b46 100644
  				}
  				if (this.streamingComponent) {
  					this.chatContainer.removeChild(this.streamingComponent);
-@@ -3123,7 +3197,7 @@ export class InteractiveMode {
+@@ -3123,7 +3200,7 @@ export class InteractiveMode {
  			case "assistant": {
  				const assistantComponent = new AssistantMessageComponent(
  					message,
@@ -880,7 +890,7 @@ index 987a62cb..52351b46 100644
  					this.getMarkdownThemeWithSettings(),
  					this.hiddenThinkingLabel,
  				);
-@@ -3162,6 +3236,9 @@ export class InteractiveMode {
+@@ -3162,6 +3239,9 @@ export class InteractiveMode {
  			// Assistant messages need special handling for tool calls
  			if (message.role === "assistant") {
  				this.addMessageToChat(message);
