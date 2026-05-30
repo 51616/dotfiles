@@ -671,9 +671,36 @@ function getToolColor(state: ToolState | undefined): ThemeColor {
 
 function styleToolActivityLine(theme: Theme, state: ToolState | undefined, toolName: string, summary: string): string {
 	const prefix = theme.fg(getToolColor(state), getToolPrefix(state));
+	const mutationLine = styleFileMutationActivityLine(theme, state, toolName, summary);
+	if (mutationLine) {
+		return `${prefix} ${mutationLine}`.trim();
+	}
 	const styledToolName = styleToolName(theme, toolName);
 	const styledSummary = styleToolSummary(theme, toolName, summary);
 	return `${prefix} ${styledToolName}${styledSummary ? ` ${styledSummary}` : ""}`.trim();
+}
+
+function styleFileMutationActivityLine(theme: Theme, state: ToolState | undefined, toolName: string, summary: string): string | undefined {
+	const action = getFileMutationAction(toolName, state);
+	if (!action) return undefined;
+	const actionColor = state === "error" ? "error" : toolName === "write" ? "success" : "warning";
+	const styledAction = theme.fg(actionColor, theme.bold(action));
+	const styledSummary = styleToolSummary(theme, toolName, summary || "…");
+	return `${styledAction}${styledSummary ? ` ${styledSummary}` : ""}`.trim();
+}
+
+function getFileMutationAction(toolName: string, state: ToolState | undefined): string | undefined {
+	if (toolName === "write") {
+		if (state === "complete") return "Wrote";
+		if (state === "error") return "Write failed for";
+		return "Writing to";
+	}
+	if (toolName === "edit") {
+		if (state === "complete") return "Edited";
+		if (state === "error") return "Edit failed for";
+		return "Editing";
+	}
+	return undefined;
 }
 
 function styleToolName(theme: Theme, toolName: string): string {

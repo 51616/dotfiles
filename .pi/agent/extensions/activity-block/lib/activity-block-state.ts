@@ -104,6 +104,12 @@ export interface PersistedActivityBlockState {
 	snapshot: ActivityBlockSnapshot;
 }
 
+type ToolCallDraft = {
+	toolCallId: string;
+	toolName: string;
+	args: Record<string, unknown>;
+};
+
 export function createInitialActivityBlockState(): ActivityBlockState {
 	return {
 		runState: "idle",
@@ -173,6 +179,11 @@ export function applyMessageUpdate(state: ActivityBlockState, event: MessageUpda
 		state.isResponding = true;
 		return;
 	}
+	const toolDraft = extractToolCallDraft(event);
+	if (toolDraft) {
+		applyToolDraft(state, toolDraft, now);
+		return;
+	}
 	const excerpt = extractLatestThinkingExcerpt(event);
 	const fullThinking = extractLatestThinkingContent(event);
 	if (!excerpt || !fullThinking) return;
@@ -183,6 +194,55 @@ export function applyMessageUpdate(state: ActivityBlockState, event: MessageUpda
 	state.thinkingSummaries = [excerpt];
 	state.lastThinkingAt = now;
 	recordActivity(state, { kind: "thinking", summary: excerpt, timestamp: now });
+}
+
+function applyToolDraft(state: ActivityBlockState, draft: ToolCallDraft, now: number): void {
+	if (state.runState === "idle") {
+		startRun(state, now);
+	}
+	state.isResponding = false;
+	state.respondingStartedAt = undefined;
+	const existing = state.tools.get(draft.toolCallId);
+	const summary = summarizeTool(draft.toolName, draft.args);
+	if (existing) {
+		existing.name = draft.toolName;
+		existing.summary = summary;
+		if (existing.state === "running") {
+			existing.completedAt = undefined;
+		}
+		existing.updatedAt = now;
+	} else {
+		state.tools.set(draft.toolCallId, {
+			id: draft.toolCallId,
+			name: draft.toolName,
+			summary,
+			state: "running",
+			startedAt: now,
+			updatedAt: now,
+		});
+		state.totalTools += 1;
+	}
+	const latest = state.tools.get(draft.toolCallId);
+	state.lastToolSummary = summary;
+	state.lastToolUpdateAt = now;
+	state.latestToolView = createToolDetailView({
+		toolCallId: draft.toolCallId,
+		toolName: draft.toolName,
+		args: draft.args,
+		state: latest?.state ?? "running",
+		isError: latest?.state === "error",
+		now,
+		previous: state.latestToolView,
+	});
+	recordActivity(state, {
+		kind: "tool",
+		summary,
+		timestamp: now,
+		toolCallId: draft.toolCallId,
+		toolName: draft.toolName,
+		toolState: latest?.state ?? "running",
+	});
+	recomputeToolCounts(state, draft.toolCallId);
 }
 
 export function applyToolStart(state: ActivityBlockState, event: ToolExecutionStartEvent, now: number): void {
@@ -545,6 +605,32 @@ function isTextResponseEvent(event: MessageUpdateEvent): boolean {
 	return event.assistantMessageEvent.type === "text_start"
 		|| event.assistantMessageEvent.type === "text_delta"
 		|| event.assistantMessageEvent.type === "text_end";
+}
+
+function extractToolCallDraft(event: MessageUpdateEvent): ToolCallDraft | undefined {
+	const contentIndex = getToolCallContentIndex(event);
+	if (contentIndex === undefined) return undefined;
+	const content = event.message.content[contentIndex];
+	if (!content || content.type !== "toolCall") return undefined;
+	const toolCallId = getStringProperty(content, ["id"]);
+	const toolName = getStringProperty(content, ["name"]);
+	if (!toolCallId || !toolName) return undefined;
+	return {
+		toolCallId,
+		toolName,
+		args: getObjectProperty(content, ["arguments"]) ?? {},
+	};
+}
+
+function getToolCallContentIndex(event: MessageUpdateEvent): number | undefined {
+	switch (event.assistantMessageEvent.type) {
+		case "toolcall_start":
+		case "toolcall_delta":
+		case "toolcall_end":
+			return event.assistantMessageEvent.contentIndex;
+		default:
+			return undefined;
+	}
 }
 
 function getFinalAssistantMessage(event: AgentEndEvent | TurnEndEvent) {
