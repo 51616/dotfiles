@@ -90,6 +90,38 @@ function renderTranscriptBlock(renderer, details) {
 	return component.render(80);
 }
 
+test("responding turns pop out of the above-editor dock and complete in the transcript", async () => {
+	const { pi, handlers, appended, getRenderer } = makePiStub();
+	const { ctx, widgetCalls } = makeCtx();
+	activityBlockExtension(pi);
+
+	await handlers.get("session_start")({ type: "session_start" }, ctx);
+	const prepared = await startActivityBlockTurn(handlers, ctx);
+	const details = prepared?.message?.details;
+	assert.ok(details?.turnId, "activity-block turn message was created");
+	assert.equal(typeof widgetCalls.at(-1)?.content, "function");
+	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
+
+	await handlers.get("message_update")({
+		type: "message_update",
+		message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "done", partial: { role: "assistant", content: [] } },
+	}, ctx);
+
+	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
+	assert.equal(widgetCalls.at(-1)?.content, undefined);
+	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /Responding/);
+
+	await handlers.get("agent_end")({
+		type: "agent_end",
+		messages: [{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }],
+	}, ctx);
+
+	assert.equal(appended.length, 1);
+	assert.equal(appended[0].type, "activity-block-state");
+	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
+});
+
 test("completed turns clear the above-editor dock and reveal the transcript block immediately", async () => {
 	const { pi, handlers, appended, getRenderer } = makePiStub();
 	const { ctx, widgetCalls } = makeCtx();

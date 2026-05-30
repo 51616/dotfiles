@@ -206,6 +206,7 @@ class ActivityBlockController {
 		if (!state) return;
 		applyMessageUpdate(state, event, now);
 		this.syncContextUsage(ctx);
+		this.syncDockWidget(ctx ?? this.uiContext);
 		this.refreshStatus();
 	}
 
@@ -548,6 +549,7 @@ class ActivityBlockController {
 	private getDockedTurnIdForDisplay(): string | undefined {
 		if (this.transcriptViewMode !== "block") return undefined;
 		if (this.zenMode) return undefined;
+		if (this.activeTurn?.state.isResponding) return undefined;
 		return this.dockedTurnId;
 	}
 
