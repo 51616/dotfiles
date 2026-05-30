@@ -97,7 +97,7 @@ Behavior covered by the total patch:
 - let extensions suppress hidden-thinking labels entirely when they provide their own summary surface
 
 Current extension-side presentation expectations:
-- the active block renders as the `activity-block-live-dock` `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available; the matching active transcript message renders no rows while the dock is visible, and the terminal dock stays visible after completion/abort/error until the next user input clears it so the historical transcript block can appear
+- the active block renders as the `activity-block-live-dock` `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available; the matching active transcript message renders no rows while the dock is visible, and the dock is cleared as soon as the turn completes/aborts/errors so the historical transcript block appears immediately
 - if a UI context does not expose `ctx.ui.setWidget`, the extension deliberately keeps the transcript block visible instead of hiding it; this is a reduced transcript-only mode for older/fake contexts, not the intended live TUI behavior
 - compact mode shows only the header/first line of the latest thinking text; the thinking body opens only in the block-local thinking-expanded view
 - the latest three tool actions stay visible while newer thinking updates arrive, with the most recent action shown first instead of being flushed out by the thinking update
