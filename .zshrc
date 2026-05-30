@@ -251,7 +251,7 @@ _fix_cursor() {
    echo -ne '\e[5 q'
 }
 
-cmd_to_clip () { echo -n $BUFFER | xclip -sel clip }
+cmd_to_clip () { print -rn -- "$BUFFER" | pi-copy-to-clipboard }
 zle -N cmd_to_clip
 bindkey '^Y' cmd_to_clip
 bindkey ' ' magic-space
@@ -449,16 +449,16 @@ export FZF_CTRL_T_OPTS="
 
 # CTRL-/ to toggle small preview window to see the full command
 # CTRL-E to paste the selected command into the prompt without executing it
-# CTRL-Y to copy the command into clipboard using xclip
+# CTRL-Y to copy the command into clipboard, preferring tmux
 # Enter executes the command right away
 export FZF_CTRL_R_OPTS="
   --preview 'echo {}'
   --preview-window up:3:hidden:wrap
   --bind 'ctrl-/:toggle-preview'
-  --bind 'ctrl-y:execute-silent(echo -n {2..} | xclip -sel clip)+abort'
+  --bind 'ctrl-y:execute-silent(printf %s {2..} | pi-copy-to-clipboard)+abort'
   --color header:italic
   --height 60%
-  --header 'Press CTRL-/ to toggle preview, CTRL-E to paste into prompt, CTRL-Y to copy command into clipboard'"
+  --header 'Press CTRL-/ to toggle preview, CTRL-E to paste into prompt, CTRL-Y to copy via tmux/system clipboard'"
 
 # Print tree structure in the preview window
 # export FZF_ALT_C_OPTS="--preview 'tree -C {}'"
