@@ -2,11 +2,16 @@ version = 2
 final_space = true
 
 [palette]
-os       = "#ACB0BE"
-closer   = "p:os"
-pink     = "#F5BDE6"
-lavender = "#B7BDF8"
-blue     = "#8AADF4"
+os       = "#A6ADC8"
+closer   = "#6C7086"
+pink     = "#F5C2E7"
+lavender = "#B4BEFE"
+blue     = "#89B4FA"
+flamingo = "#F2CDCD"
+teal     = "#94E2D5"
+yellow   = "#F9E2AF"
+green    = "#A6E3A1"
+red      = "#F38BA8"
 
 [[blocks]]
 type = "prompt"
@@ -16,7 +21,7 @@ newline = true
   [[blocks.segments]]
   type = "path"
   style = "plain"
-  foreground = "#86aeae"
+  foreground = "p:teal"
   template = '{{ if eq .Path "~" }} {{ else }} {{ end }}'
   separator = " "
 
@@ -24,13 +29,13 @@ newline = true
   [[blocks.segments]]
   type = "path"
   style = "plain"
-  template = '{{ $p := .Path }}{{ $firstColor := "#0ba7f1" }}{{ $midColor := "#86aeae" }}{{ if eq $p "~" }}<b><{{ $firstColor }}>~</></b>{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{/* absolute */}}{{ if eq $p "/" }}<{{ $midColor }}>/</>{{ else }}<{{ $midColor }}>/</>{{ range $i, $s := $parts }}{{ if gt $i 0 }}{{ if or (eq $i 1) (eq $i $last) }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ if lt $i $last }}<{{ $midColor }}>/</>{{ end }}{{ end }}{{ end }}{{ end }}{{ else }}{{/* home: starts with "~" */}}<b><{{ $firstColor }}>~</></b>{{ range $i, $s := $parts }}{{ if gt $i 0 }}<{{ $midColor }}>/</>{{ if eq $i $last }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ end }}{{ end }}{{ end }}{{ end }} '
+  template = '{{ $p := .Path }}{{ $firstColor := "#89B4FA" }}{{ $midColor := "#94E2D5" }}{{ if eq $p "~" }}<b><{{ $firstColor }}>~</></b>{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{/* absolute */}}{{ if eq $p "/" }}<{{ $midColor }}>/</>{{ else }}<{{ $midColor }}>/</>{{ range $i, $s := $parts }}{{ if gt $i 0 }}{{ if or (eq $i 1) (eq $i $last) }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ if lt $i $last }}<{{ $midColor }}>/</>{{ end }}{{ end }}{{ end }}{{ end }}{{ else }}{{/* home: starts with "~" */}}<b><{{ $firstColor }}>~</></b>{{ range $i, $s := $parts }}{{ if gt $i 0 }}<{{ $midColor }}>/</>{{ if eq $i $last }}<b><{{ $firstColor }}>{{ $s }}</></b>{{ else }}<{{ $midColor }}>{{ $s }}</>{{ end }}{{ end }}{{ end }}{{ end }}{{ end }} '
   properties = { style = "full", home_icon = "~" } 
   # # FIRST (cyan, bold): "~" for home paths, or first dir for absolute paths ("tmp"), or "/" for root
   # [[blocks.segments]]
   # type = "path"
   # style = "plain"
-  # foreground = "#0ba7f1"
+  # foreground = "#89B4FA"
   # template = '{{ $p := .Path }}{{ $parts := splitList "/" $p }}{{ if eq $p "~" }}<b>~</b> {{ else if eq $p "/" }}/ {{ else if eq (index $parts 0) "~" }}<b>~</b>{{ else }}<b>{{ index $parts 1 }}</b>{{ end }}'
   # properties = { style = "full", home_icon = "~" }
   #
@@ -38,7 +43,7 @@ newline = true
   # [[blocks.segments]]
   # type = "path"
   # style = "plain"
-  # foreground = "#86aeae"
+  # foreground = "#94E2D5"
   # template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}{{ $n := len $parts }}{{ $last := sub $n 1 }}{{ if eq (index $parts 0) "" }}{{ range $i, $s := $parts }}{{ if and (gt $i 1) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ else }}{{ range $i, $s := $parts }}{{ if and (gt $i 0) (lt $i $last) }}/{{ $s }}{{ end }}{{ end }}{{ end }}{{ end }}'
   # properties = { style = "full", home_icon = "~" }
   #
@@ -46,14 +51,14 @@ newline = true
   # [[blocks.segments]]
   # type = "path"
   # style = "plain"
-  # foreground = "#86aeae"
+  # foreground = "#94E2D5"
   # template = '{{ $p := .Path }}{{ if and (ne $p "~") (ne $p "/") }}/{{ end }}'
   #
   # # LAST (cyan, bold): last directory name only (no slash)
   # [[blocks.segments]]
   # type = "path"
   # style = "plain"
-  # foreground = "#0ba7f1"
+  # foreground = "#89B4FA"
   # template = '{{ $p := .Path }}{{ if or (eq $p "~") (eq $p "/") }}{{ else }}{{ $parts := splitList "/" $p }}<b>{{ index $parts (sub (len $parts) 1) }}</b>{{ end }} '
   # properties = { style = "full", home_icon = "~" }
 
@@ -78,11 +83,11 @@ newline = true
 [[blocks]]
 type = "prompt"
 alignment = "right"
-filler = "<#575757,transparent>·</>"
+filler = "<#6C7086,transparent>·</>"
   [[blocks.segments]]
   type = 'executiontime'
   style = 'plain'
-  foreground = '#86865f'
+  foreground = 'p:yellow'
   background = 'transparent'
   template = ' {{ .FormattedMs }}'
 
@@ -90,12 +95,11 @@ filler = "<#575757,transparent>·</>"
     threshold = 5000
     style = 'round'
 
-
   [[blocks.segments]]
   type = "text"
   style = "plain"
-  foreground = "#d6ae87"
-  template = " {{ .UserName }}@{{ .HostName }}"
+  foreground = "p:flamingo"
+  template = " <b>{{ .HostName }}</b>"
 
 [[blocks]]
 type = 'prompt'
@@ -106,21 +110,21 @@ newline = true
   type = 'text'
   style = 'plain'
   foreground_templates = [
-    "{{if gt .Code 0}}red{{end}}",
-    "{{if eq .Code 0}}#5dfeb0{{end}}",
+    "{{if gt .Code 0}}p:red{{end}}",
+    "{{if eq .Code 0}}p:green{{end}}",
   ]
   background = 'transparent'
   template = '❯'
 
 [transient_prompt]
 foreground_templates = [
-  "{{if gt .Code 0}}red{{end}}",
-  "{{if eq .Code 0}}#5dfeb0{{end}}",
+  "{{if gt .Code 0}}p:red{{end}}",
+  "{{if eq .Code 0}}p:green{{end}}",
 ]
 background = 'transparent'
 template = '❯ '
 
 [secondary_prompt]
-foreground = '#5dfeb0'
+foreground = 'p:green'
 background = 'transparent'
 template = '❯❯ '
