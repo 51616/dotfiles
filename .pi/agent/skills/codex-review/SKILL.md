@@ -20,9 +20,9 @@ Run the skill script directly through pi’s skill-script tool; do not rely on a
 
 - Script URI: `skill://codex-review/scripts/codex-review`
 - Interpreter: `python3`
-- Default timeout: `3600` seconds
+- Default timeout: 60 minutes (`3600` seconds)
 
-Tool arguments map to the script CLI:
+Tool arguments map to the script CLI. You only need `--timeout-seconds` when overriding the 60-minute default:
 
 ```text
 ["--timeout-seconds", "3600", "<prompt>"]

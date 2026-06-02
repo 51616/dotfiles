@@ -14,6 +14,8 @@ If the work is explicitly a multi-round audit/scrutiny loop (review/trim/impleme
 
 Do not resume existing tracks unless explicitly asked.
 
+When returning to the user or implementing, do not use session-specific naming, e.g., plan A, options 1, policy v1. These names are opaque and will cause confusion to the user and future pi. Explicitly write down what they are instead of referring to the opaque names. These names are ok for versioning the spec/plan.
+
 ## Flow
 
 ### 1) Audit the repo first (always)
