@@ -18,53 +18,14 @@ if command -v nvim >/dev/null 2>&1; then
   export EDITOR=$(which nvim)
 fi
 
-# faster paste
-export DISABLE_MAGIC_FUNCTIONS=true
+# Manual Zsh init. Preserve the old OMZ-era behavior without loading the
+# Oh My Zsh framework at runtime.
+autoload -Uz compinit colors select-word-style
+colors
+compinit
 
-# Path to your oh-my-zsh installation.
-omz="~/.oh-my-zsh"
-export ZSH="${omz/#\~/$HOME}"
-
-# Set name of the theme to load --- if set to "random", it will
-# load a random theme each time oh-my-zsh is loaded, in which case,
-# to know which specific one was loaded, run: echo $RANDOM_THEME
-# See https://github.com/robbyrussell/oh-my-zsh/wiki/Themes
-ZSH_THEME="robbyrussell"
-# Set list of themes to pick from when loading at random
-# Setting this variable when ZSH_THEME=random will cause zsh to load
-# a theme from this variable instead of looking in ~/.oh-my-zsh/themes/
-# If set to an empty array, this variable will have no effect.
-# ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
-
-# Uncomment the following line to use case-sensitive completion.
-# CASE_SENSITIVE="true"
-
-# Uncomment the following line to use hyphen-insensitive completion.
-# Case-sensitive completion must be off. _ and - will be interchangeable.
-# HYPHEN_INSENSITIVE="true"
-
-# Uncomment the following line to disable bi-weekly auto-update checks.
-# DISABLE_AUTO_UPDATE="true"
-
-# Uncomment the following line to change how often to auto-update (in days).
-# export UPDATE_ZSH_DAYS=13
-
-# Uncomment the following line to disable colors in ls.
-# DISABLE_LS_COLORS="true"
-
-# Uncomment the following line to disable auto-setting terminal title.
-# DISABLE_AUTO_TITLE="true"
-
-# Uncomment the following line to enable command auto-correction.
-# ENABLE_CORRECTION="true"
-
-# Uncomment the following line to display red dots whilst waiting for completion.
-# COMPLETION_WAITING_DOTS="true"
-
-# Uncomment the following line if you want to disable marking untracked files
-# under VCS as dirty. This makes repository status check for large repositories
-# much, much faster.
-# DISABLE_UNTRACKED_FILES_DIRTY="true"
+# Use editor-style word movement for ZLE widgets like backward-word/forward-word.
+select-word-style bash
 
 # Uncomment the following line if you want to change the command execution time
 # stamp shown in the history command output.
@@ -73,23 +34,6 @@ ZSH_THEME="robbyrussell"
 # or set a custom format using the strftime function format specifications,
 # see 'man strftime' for details.
 HIST_STAMPS="yyyy-mm-dd"
-
-# Would you like to use another custom folder than $ZSH/custom?
-# ZSH_CUSTOM=/path/to/new-custom-folder
-
-# Which plugins would you like to load?
-# Standard plugins can be found in ~/.oh-my-zsh/plugins/*
-# Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
-# Example format: plugins=(rails git textmate ruby lighthouse)
-# Add wisely, as too many plugins slow down shell startup.
-plugins=(
-  git
-  z
-  extract
-  colored-man-pages
-)
-
-source $ZSH/oh-my-zsh.sh
 
 HISTFILE=~/.zsh_history
 HISTSIZE=999999999
@@ -165,6 +109,8 @@ if command -v eza >/dev/null 2>&1; then
   }
   alias tsm="t -s=modified -r"
 fi
+
+compdef _cd t
 
 dot(){
   if [[ "$#" -eq 0 ]]; then
@@ -254,19 +200,16 @@ _fix_cursor() {
 cmd_to_clip () { print -rn -- "$BUFFER" | pi-copy-to-clipboard }
 zle -N cmd_to_clip
 bindkey '^Y' cmd_to_clip
-bindkey ' ' magic-space
+bindkey ' ' self-insert
 
-### Fix slowness of pastes with zsh-syntax-highlighting.zsh
-pasteinit() {
-  OLD_SELF_INSERT=${${(s.:.)widgets[self-insert]}[2,3]}
-  zle -N self-insert url-quote-magic # I wonder if you'd need `.url-quote-magic`?
-}
-
-pastefinish() {
-  zle -N self-insert $OLD_SELF_INSERT
-}
-zstyle :bracketed-paste-magic paste-init pasteinit
-zstyle :bracketed-paste-magic paste-finish pastefinish
+for keymap in emacs viins vicmd; do
+  [[ -n ${terminfo[kLFT5]} ]] && bindkey -M "$keymap" "${terminfo[kLFT5]}" backward-word
+  [[ -n ${terminfo[kRIT5]} ]] && bindkey -M "$keymap" "${terminfo[kRIT5]}" forward-word
+  bindkey -M "$keymap" '^[[1;5D' backward-word
+  bindkey -M "$keymap" '^[[1;5C' forward-word
+  bindkey -M "$keymap" '^[[5D' backward-word
+  bindkey -M "$keymap" '^[[5C' forward-word
+done
 
 # copy_last() {
 #   echo !! | xclip -sel clip
@@ -413,6 +356,10 @@ ZSH_HIGHLIGHT_PATTERNS+=('sudo shred *' 'fg=magenta,bold,standout')
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=23'
 
 # source additional zsh plugins
+[ -f "$HOME/.zsh/compat/omz-git.plugin.zsh" ] && source "$HOME/.zsh/compat/omz-git.plugin.zsh"
+[ -f "$HOME/.zsh/fzf-z/z.sh" ] && source "$HOME/.zsh/fzf-z/z.sh"
+[ -f "$HOME/.zsh/compat/omz-extract.plugin.zsh" ] && source "$HOME/.zsh/compat/omz-extract.plugin.zsh"
+[ -f "$HOME/.zsh/compat/omz-colored-man-pages.plugin.zsh" ] && source "$HOME/.zsh/compat/omz-colored-man-pages.plugin.zsh"
 source-git https://github.com/supasorn/fzf-z.git
 source-git https://github.com/Aloxaf/fzf-tab.git
 # load the theme first
@@ -493,13 +440,38 @@ zstyle ':fzf-tab:complete:systemctl-*:*' fzf-preview 'SYSTEMD_COLORS=1 systemctl
 # custom
 zstyle ':fzf-tab:*' continuous-trigger 'tab'
 # zstyle ':fzf-tab:complete:less:*' fzf-preview 'eza -1 --color=always $realpath'
-zstyle ':fzf-tab:complete:cd:*' fzf-preview 'less ${(Q)realpath}'
+zstyle ':fzf-tab:complete:(cd|t):*' fzf-preview 'if command -v eza >/dev/null 2>&1; then eza -TL 1 -h --color=always --group-directories-first --icons ${(Q)realpath}; elif command -v tree >/dev/null 2>&1; then tree -phCDF --dirsfirst --sort=name -L 1 ${(Q)realpath}; else ls -la ${(Q)realpath}; fi'
 zstyle ':fzf-tab:complete:less:*' fzf-preview 'less ${(Q)realpath}'
 zstyle ':fzf-tab:complete:bat:*' fzf-preview 'less ${(Q)realpath}'
 
 # zstyle ':fzf-tab:complete:less:*' fzf-preview 'rich -n -g --force-terminal $realpath'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# Safely tilde-expand a token like ~, ~user, or ~/foo to its filesystem path.
+# Prints the expanded path and returns 0 if it resolves to an existing
+# directory; otherwise prints nothing and returns 1.
+#
+# Splits on the first slash so we only feed the tilde head to `eval`. The
+# head is whitelisted to ~ or ~<wordlike>, which keeps inputs containing
+# shell metacharacters ($, `, ;, ...) from ever reaching `eval`. The rest
+# of the path is single-quoted via (q). Stderr is swallowed so a typo like
+# ~nosuchuser cannot spill onto the prompt when nomatch is set.
+_pi_path_tilde_dir() {
+  setopt localoptions extendedglob nomatch
+  local input="$1" head_tok rest expanded
+  if [[ "$input" == */* ]]; then
+    head_tok="${input%%/*}"
+    rest="/${input#*/}"
+  else
+    head_tok="$input"
+    rest=""
+  fi
+  [[ "$head_tok" == "~" || "$head_tok" == "~"[A-Za-z_][A-Za-z0-9_-]# ]] || return 1
+  expanded=$(eval "print -rn -- ${head_tok}${(q)rest}" 2>/dev/null) || return 1
+  [[ -n "$expanded" && "$expanded" != "$input" && -d "$expanded" ]] || return 1
+  print -rn -- "$expanded"
+}
 
 _pi_path_only_complete() {
   local current before search_dir typed selected candidate candidate_path preview_prefix selected_path selected_dir
@@ -525,23 +497,34 @@ _pi_path_only_complete() {
     raw_candidates=()
     path_candidates=()
 
+    # Use ${~search_dir} below so a leading ~ / ~user in the typed prefix is
+    # tilde-expanded for the filesystem test and glob (plain ${var} would not).
     if [[ "$current" == */ ]]; then
       search_dir="${current%/}"
       [[ -z "$search_dir" && "$current" == "/" ]] && search_dir="/"
       typed=""
-      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
-        raw_candidates=("$search_dir"/*(N))
+      if [[ -n "$search_dir" && -d ${~search_dir} ]]; then
+        raw_candidates=(${~search_dir}/*(N))
       fi
     elif [[ "$current" == */* ]]; then
       search_dir="${current:h}"
       typed="${current:t}"
-      if [[ -n "$search_dir" && -d "$search_dir" ]]; then
+      if [[ -n "$search_dir" && -d ${~search_dir} ]]; then
         if [[ "$typed" == .* ]]; then
-          raw_candidates=("$search_dir"/.*(N))
+          raw_candidates=(${~search_dir}/.*(N))
         else
-          raw_candidates=("$search_dir"/*(N))
+          raw_candidates=(${~search_dir}/*(N))
         fi
       fi
+    elif [[ "$current" == "~"* ]] && _pi_path_tilde_dir "$current" >/dev/null; then
+      # Bare ~ or ~user with no trailing slash: treat the tilde token as the
+      # search dir and list its contents, same as if the user had typed ~/.
+      # The _pi_path_tilde_dir helper swallows "no such user" errors so a
+      # bogus ~typo<TAB> never spills an error onto the prompt regardless of
+      # the current nomatch setting.
+      search_dir="$current"
+      typed=""
+      raw_candidates=(${~search_dir}/*(N))
     else
       search_dir=""
       typed="$current"
@@ -573,10 +556,14 @@ _pi_path_only_complete() {
       selected_key="tab"
     else
       preview_prefix="${search_dir:+$search_dir/}"
+      # Same tilde trap as the LBUFFER insertion: (q) escapes a leading ~,
+      # which the sh subshell that fzf spawns won't tilde-expand. Keep ~ raw.
+      local quoted_preview="${(q)preview_prefix}"
+      quoted_preview="${quoted_preview/#\\~/~}"
       selection=$(
         printf '%s\n' "${path_candidates[@]}" |
           fzf --height="${FZF_TMUX_HEIGHT:-40%}" --layout=reverse --query="$typed" --expect=tab,enter \
-            --preview "if [ -d ${(q)preview_prefix}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${(q)preview_prefix}{} 2>/dev/null || ls -la ${(q)preview_prefix}{}; else bat -n --color=always ${(q)preview_prefix}{} 2>/dev/null || sed -n '1,120p' ${(q)preview_prefix}{}; fi"
+            --preview "if [ -d ${quoted_preview}{} ]; then eza -TL 1 -h --color=always --group-directories-first --icons ${quoted_preview}{} 2>/dev/null || ls -la ${quoted_preview}{}; else bat -n --color=always ${quoted_preview}{} 2>/dev/null || sed -n '1,120p' ${quoted_preview}{}; fi"
       ) || {
         zle reset-prompt
         zle -R
@@ -591,13 +578,21 @@ _pi_path_only_complete() {
 
     selected_path="${search_dir:+$search_dir/}${selected}"
     selected_dir="${selected_path%/}"
-    LBUFFER="${before}${(q)selected_path}"
+    # (q) escapes everything including a leading ~, which would suppress
+    # tilde expansion at exec time (e.g. `cd \~/foo` fails). Keep the leading
+    # ~ literal so the user-visible form stays ~/foo and still expands.
+    local quoted_selected="${(q)selected_path}"
+    quoted_selected="${quoted_selected/#\\~/~}"
+    LBUFFER="${before}${quoted_selected}"
     zle reset-prompt
     zle -R
 
     continue_requested=0
     [[ "$selected_key" == "tab" ]] && continue_requested=1
-    if (( continue_requested )) && [[ "$selected" == */ && -d "$selected_dir" ]]; then
+    # ${~selected_dir} so a tilde-prefixed path (e.g. ~/.config) is expanded
+    # for the -d test; otherwise the "tab again to descend" branch is skipped
+    # for ~/... selections and the widget exits early.
+    if (( continue_requested )) && [[ "$selected" == */ && -d ${~selected_dir} ]]; then
       current="$selected_path"
       force_fzf=1
       continue
@@ -618,7 +613,6 @@ for keymap in emacs viins; do
   bindkey -M "$keymap" $'\e[Z' "$_pi_full_completion_widget"
 done
 unset _pi_full_completion_widget
-
 
 fzf-history-widget() {
    local selected num
@@ -657,14 +651,6 @@ bindkey '^R' fzf-history-widget
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
-
-# >>> PI_VAULT_ROOT (pi bootstrap) >>>
-export PI_VAULT_ROOT="/home/tan/vault"
-# <<< PI_VAULT_ROOT (pi bootstrap) <<<
-
-# >>> PI agent bin PATH (pi bootstrap) >>>
-export PATH="$HOME/.pi/agent/bin:$PATH"
-# <<< PI agent bin PATH (pi bootstrap) <<<
 # >>> PI python toolbox PATH (pi bootstrap) >>>
 if [ -d "$HOME/.venv/bin" ]; then
   case ":$PATH:" in
@@ -673,23 +659,21 @@ if [ -d "$HOME/.venv/bin" ]; then
   esac
 fi
 # <<< PI python toolbox PATH (pi bootstrap) <<<
-# >>> vault-local pi wrapper >>>
-pi() {
-  local vault_root="${PI_VAULT_ROOT:-$HOME/vault}"
-  local pwd_real vault_real
-  pwd_real="$(pwd -P 2>/dev/null || pwd)"
-  vault_real="$(cd "$vault_root" 2>/dev/null && pwd -P)" || {
-    command pi "$@"
-    return
-  }
-
-  if [[ "$pwd_real" == "$vault_real" || "$pwd_real" == "$vault_real"/* ]]; then
-    "$vault_real/pi" "$@"
-  else
-    command pi "$@"
-  fi
-}
-# <<< vault-local pi wrapper <<<
 
 # opencode
 export PATH=/home/tan/.opencode/bin:$PATH
+
+
+# >>> PI_VAULT_ROOT (pi bootstrap) >>>
+export PI_VAULT_ROOT="/home/tan/vault"
+# <<< PI_VAULT_ROOT (pi bootstrap) <<<
+
+# >>> PI agent bin PATH (pi bootstrap) >>>
+export PATH="$HOME/.pi/agent/bin:$PATH"
+# <<< PI agent bin PATH (pi bootstrap) <<<
+
+. "$HOME/.local/bin/env"
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/tan/.local/bin:$PATH"
