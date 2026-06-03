@@ -110,6 +110,7 @@ Current extension-side presentation expectations:
 Extension-side lifecycle note:
 - keep historical transcript suppression enabled for the whole interactive session once the extension claims transcript ownership
 - keep live transcript suppression enabled until the current active block is finalized on `agent_end`; tool-result continuation turns reuse the same block across intermediate `turn_end` events
+- when `agent_end` arrives without `tool_execution_end` or a terminal tool-result message for a running tool, stamp that tool as failed at the block end time so provider/websocket errors cannot leave command timers alive
 - create the block from `before_turn_response` so each real trigger turn stays ordered as `user -> activity block -> assistant`, including queued steering turns inside an active agent run; the live dock is only a UI projection of that same transcript anchor, not a second message
 - do not inject the block with `pi.sendMessage()` during assistant streaming; that turns the block into a queued custom message instead of a passive transcript artifact
 - do not clear historical transcript mode on `agent_end`

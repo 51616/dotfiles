@@ -262,7 +262,7 @@ test("turn_end can finalize a single turn from the assistant message", () => {
         { type: "thinking", thinking: "final thought for this turn" },
         { type: "text", text: "done" },
       ], "stop"),
-      toolResults: [],
+      toolResults: [{ role: "toolResult", toolCallId: "tool-1", toolName: "read", content: [], isError: false }],
     },
     180,
   );
@@ -270,6 +270,8 @@ test("turn_end can finalize a single turn from the assistant message", () => {
   const snapshot = getActivityBlockSnapshot(state);
   assert.equal(snapshot.runState, "complete");
   assert.equal(snapshot.finalLabel, "Completed");
+  assert.equal(snapshot.completedTools, 1);
+  assert.equal(snapshot.tools[0]?.state, "complete");
   assert.deepEqual(snapshot.thinkingSummaries, ["final thought for this turn"]);
 });
 
@@ -295,6 +297,29 @@ test("aborted runs derive the terminal state from the last assistant message", (
   const snapshot = getActivityBlockSnapshot(state);
   assert.equal(snapshot.runState, "aborted");
   assert.equal(snapshot.finalLabel, "Aborted");
+});
+
+test("finishRun fails dangling running tools when terminal events are skipped", () => {
+  const state = createInitialActivityBlockState();
+  applyToolStart(
+    state,
+    { type: "tool_execution_start", toolCallId: "tool-1", toolName: "bash", args: { command: "sleep 60" } },
+    100,
+  );
+
+  finishRun(state, { type: "agent_end", messages: [] }, 11_000);
+
+  const snapshot = getActivityBlockSnapshot(state);
+  assert.equal(snapshot.runState, "error");
+  assert.equal(snapshot.finalLabel, "Error: active command cancelled");
+  assert.equal(snapshot.activeTools, 0);
+  assert.equal(snapshot.failedTools, 1);
+  assert.equal(snapshot.latestActiveTool, undefined);
+  assert.equal(snapshot.tools[0]?.state, "error");
+  assert.equal(snapshot.tools[0]?.completedAt, 11_000);
+  assert.equal(snapshot.latestToolView?.state, "error");
+  assert.equal(snapshot.latestToolView?.isError, true);
+  assert.equal(snapshot.currentActivity?.toolState, "error");
 });
 
 test("finishRun does not replace block-scoped token counts with whole-session totals", () => {

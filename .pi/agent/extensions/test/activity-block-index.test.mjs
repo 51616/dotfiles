@@ -296,12 +296,12 @@ test("activity-block keeps the terminal block docked until the next input", asyn
   await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
 
   assert.deepEqual(transcript.render(80), []);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Completed!")));
+  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("COMPLETED!")));
 
   await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
 
   assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
-  assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("Completed!")));
+  assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("COMPLETED!")));
 });
 
 test("activity-block keeps aborted and errored terminal blocks docked until the next input", async () => {
@@ -512,6 +512,31 @@ test("activity-block agent_end without turn_end persists the terminal error stat
   assert.equal(appended.length, 1);
   assert.equal(appended[0].data.snapshot.runState, "error");
   assert.equal(appended[0].data.snapshot.finalLabel, "Error: boom");
+});
+
+test("activity-block fails dangling running tools on bare agent_end", async () => {
+  const { pi, handlers } = makePiStub();
+  const appended = [];
+  pi.appendEntry = (type, data) => appended.push({ type, data });
+  const { ctx } = makeCtx();
+  activityBlockExtension(pi);
+
+  await handlers.get("session_start")({}, ctx);
+  await triggerTurnResponse(handlers, ctx, "run command");
+  await handlers.get("tool_execution_start")({
+    type: "tool_execution_start",
+    toolCallId: "tool-1",
+    toolName: "bash",
+    args: { command: "sleep 60" },
+  }, ctx);
+  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
+
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].data.snapshot.runState, "error");
+  assert.equal(appended[0].data.snapshot.finalLabel, "Error: active command cancelled");
+  assert.equal(appended[0].data.snapshot.activeTools, 0);
+  assert.equal(appended[0].data.snapshot.failedTools, 1);
+  assert.equal(appended[0].data.snapshot.tools[0]?.state, "error");
 });
 
 test("activity-block resume continues the persisted turn counter", async () => {

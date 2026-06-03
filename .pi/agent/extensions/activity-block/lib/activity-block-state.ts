@@ -385,9 +385,11 @@ export function finishRun(state: ActivityBlockState, event: AgentEndEvent | Turn
 	state.endedAt = now;
 	state.isResponding = false;
 	state.respondingStartedAt = undefined;
+	applyTerminalToolResults(state, event, now);
+	const danglingToolCount = failDanglingTools(state, now);
 	const finalAssistant = getFinalAssistantMessage(event);
 	updateLatestTokenCount(state, finalAssistant);
-	const terminal = deriveFinalState(finalAssistant);
+	const terminal = deriveFinalState(finalAssistant, danglingToolCount);
 	state.runState = terminal.runState;
 	state.finalLabel = terminal.finalLabel;
 	const finalThinking = finalAssistant ? extractThinkingSummariesFromAssistantMessage(finalAssistant) : [];
@@ -413,6 +415,7 @@ export function interruptRun(state: ActivityBlockState, now: number, finalLabel 
 	if (state.latestThinking) {
 		state.thinkingSummaries = [state.latestThinking];
 	}
+	failDanglingTools(state, now);
 	recomputeToolCounts(state);
 }
 
@@ -646,6 +649,62 @@ function getFinalAssistantMessage(event: AgentEndEvent | TurnEndEvent) {
 	return undefined;
 }
 
+function applyTerminalToolResults(state: ActivityBlockState, event: AgentEndEvent | TurnEndEvent, now: number): void {
+	const toolResults = "toolResults" in event ? event.toolResults : event.messages.filter(isToolResultLikeMessage);
+	for (const toolResult of toolResults) {
+		const toolCallId = getStringProperty(toolResult, ["toolCallId"]);
+		const toolName = getStringProperty(toolResult, ["toolName"]);
+		if (!toolCallId || !toolName) continue;
+		const existing = state.tools.get(toolCallId);
+		if (existing && existing.state !== "running") continue;
+		applyToolEnd(
+			state,
+			{
+				type: "tool_execution_end",
+				toolCallId,
+				toolName,
+				result: toolResult,
+				isError: getBooleanProperty(toolResult, ["isError"]) ?? false,
+			},
+			now,
+		);
+	}
+}
+
+function isToolResultLikeMessage(message: unknown): message is Record<string, unknown> {
+	return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "toolResult");
+}
+
+function failDanglingTools(state: ActivityBlockState, now: number): number {
+	let danglingToolCount = 0;
+	for (const tool of state.tools.values()) {
+		if (tool.state !== "running") continue;
+		tool.state = "error";
+		tool.updatedAt = now;
+		tool.completedAt = now;
+		danglingToolCount += 1;
+	}
+	if (danglingToolCount === 0) return 0;
+
+	state.lastToolUpdateAt = now;
+	if (state.latestToolView?.state === "running") {
+		state.latestToolView = {
+			...state.latestToolView,
+			state: "error",
+			isError: true,
+			updatedAt: now,
+		};
+	}
+	if (state.currentActivity?.kind === "tool" && state.currentActivity.toolState === "running") {
+		state.currentActivity = {
+			...state.currentActivity,
+			toolState: "error",
+			timestamp: now,
+		};
+	}
+	return danglingToolCount;
+}
+
 function extractThinkingSummariesFromAssistantMessage(
 	message: Extract<NonNullable<ReturnType<typeof getFinalAssistantMessage>>, { role: "assistant" }>,
 	maxItems = MAX_FINAL_THINKING_SUMMARIES,
@@ -666,8 +725,12 @@ function extractLatestThinkingFromAssistantMessage(
 
 function deriveFinalState(
 	message: Extract<NonNullable<ReturnType<typeof getFinalAssistantMessage>>, { role: "assistant" }> | undefined,
+	danglingToolCount = 0,
 ): { runState: RunState; finalLabel: string } {
 	if (!message) {
+		if (danglingToolCount > 0) {
+			return { runState: "error", finalLabel: formatDanglingToolFinalLabel(danglingToolCount) };
+		}
 		return { runState: "complete", finalLabel: "Completed" };
 	}
 	if (message.stopReason === "aborted") {
@@ -676,7 +739,16 @@ function deriveFinalState(
 	if (message.stopReason === "error") {
 		return { runState: "error", finalLabel: message.errorMessage ? `Error: ${message.errorMessage}` : "Error" };
 	}
+	if (danglingToolCount > 0) {
+		return { runState: "error", finalLabel: formatDanglingToolFinalLabel(danglingToolCount) };
+	}
 	return { runState: "complete", finalLabel: "Completed" };
+}
+
+function formatDanglingToolFinalLabel(danglingToolCount: number): string {
+	return danglingToolCount === 1
+		? "Error: active command cancelled"
+		: `Error: ${danglingToolCount} active commands cancelled`;
 }
 
 function recomputeToolCounts(state: ActivityBlockState, latestActiveToolId = state.latestActiveToolId): void {
@@ -823,6 +895,17 @@ function getNumberProperty(value: unknown, keys: string[]): number | undefined {
 	for (const key of keys) {
 		const candidate = (value as Record<string, unknown>)[key];
 		if (typeof candidate === "number" && Number.isFinite(candidate)) {
+			return candidate;
+		}
+	}
+	return undefined;
+}
+
+function getBooleanProperty(value: unknown, keys: string[]): boolean | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	for (const key of keys) {
+		const candidate = (value as Record<string, unknown>)[key];
+		if (typeof candidate === "boolean") {
 			return candidate;
 		}
 	}
