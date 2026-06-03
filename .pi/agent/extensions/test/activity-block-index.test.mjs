@@ -283,7 +283,7 @@ test("activity-block live dock reflects thinking and tool lifecycle updates", as
   assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("✓ read NOTES.md:3-4")));
 });
 
-test("activity-block keeps the terminal block docked until the next input", async () => {
+test("activity-block clears the terminal block dock immediately after completion", async () => {
   const { pi, handlers, renderers } = makePiStub();
   const { ctx, counts } = makeCtx([], { widgets: true });
   activityBlockExtension(pi);
@@ -295,16 +295,11 @@ test("activity-block keeps the terminal block docked until the next input", asyn
 
   await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
 
-  assert.deepEqual(transcript.render(80), []);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("COMPLETED!")));
-
-  await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
-
   assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
   assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("COMPLETED!")));
 });
 
-test("activity-block keeps aborted and errored terminal blocks docked until the next input", async () => {
+test("activity-block clears aborted and errored terminal docks immediately", async () => {
   for (const terminal of [
     { stopReason: "aborted", expected: "Aborted" },
     { stopReason: "error", errorMessage: "boom", expected: "Error: boom" },
@@ -328,10 +323,6 @@ test("activity-block keeps aborted and errored terminal blocks docked until the 
       }],
     }, ctx);
 
-    assert.deepEqual(transcript.render(80), []);
-    assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes(terminal.expected)));
-
-    await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
     assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
     assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes(terminal.expected)));
   }

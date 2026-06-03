@@ -464,8 +464,7 @@ class ActivityBlockController {
 		const snapshot = getActivityBlockSnapshot(activeTurn.state);
 		this.persistedSnapshots.set(activeTurn.turnId, snapshot);
 		this.activeTurn = undefined;
-		this.dockedTurnId = activeTurn.turnId;
-		this.syncDockWidget(this.uiContext);
+		this.clearDockedTurn(this.uiContext);
 		if (!options?.keepLiveTranscriptMode) {
 			this.disableLiveTranscriptMode(this.uiContext);
 		}

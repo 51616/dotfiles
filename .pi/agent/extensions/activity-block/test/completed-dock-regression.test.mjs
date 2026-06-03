@@ -90,12 +90,7 @@ function renderTranscriptBlock(renderer, details) {
 	return component.render(80);
 }
 
-function renderWidgetBlock(call) {
-	assert.equal(typeof call?.content, "function");
-	return call.content({}, colorTheme).render(80);
-}
-
-test("responding turns pop out of the dock, then terminal completion is retained in the dock", async () => {
+test("responding turns pop out of the above-editor dock and complete in the transcript", async () => {
 	const { pi, handlers, appended, getRenderer } = makePiStub();
 	const { ctx, widgetCalls } = makeCtx();
 	activityBlockExtension(pi);
@@ -124,12 +119,10 @@ test("responding turns pop out of the dock, then terminal completion is retained
 
 	assert.equal(appended.length, 1);
 	assert.equal(appended[0].type, "activity-block-state");
-	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
-	assert.match(renderWidgetBlock(widgetCalls.at(-1)).join("\n"), /COMPLETED!/);
-	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
+	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
 });
 
-test("completed turns keep the terminal dock until the next input reveals transcript history", async () => {
+test("completed turns clear the above-editor dock and reveal the transcript block immediately", async () => {
 	const { pi, handlers, appended, getRenderer } = makePiStub();
 	const { ctx, widgetCalls } = makeCtx();
 	activityBlockExtension(pi);
@@ -149,12 +142,6 @@ test("completed turns keep the terminal dock until the next input reveals transc
 
 	assert.equal(appended.length, 1);
 	assert.equal(appended[0].type, "activity-block-state");
-	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
-	assert.match(renderWidgetBlock(widgetCalls.at(-1)).join("\n"), /COMPLETED!/);
-	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
-
-	await handlers.get("input")({ type: "input", text: "next", source: "interactive" }, ctx);
-
 	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
 	assert.equal(widgetCalls.at(-1)?.content, undefined);
 	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
