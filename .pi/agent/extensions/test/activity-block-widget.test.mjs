@@ -167,7 +167,7 @@ test("formatActivityBlock appends failed tool counts inline", () => {
 test("formatActivityBlock prefers active tool information over reasoning", () => {
   const view = formatActivityBlock(createSnapshot({ activeTools: 2 }), 1500);
   assert.equal(view.status, "Cooking");
-  assert.match(view.spinner ?? "", /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/u);
+  assert.match(view.spinner ?? "", /^[■⬝]{8}$/u);
   assert.match(view.primary, /^bash \$ printf hello/);
   assert.match(view.tertiary ?? "", /showing the latest update/);
 });
@@ -260,7 +260,7 @@ test("ActivityBlockMessageComponent keeps the running title static while appendi
   for (const now of [0, 350, 1050]) {
     const rendered = createComponent(overrides, { now }).render(48).map((line) => stripAnsi(line));
     const footer = rendered[rendered.length - 2] ?? "";
-    assert.match(footer, /Planning [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
+    assert.match(footer, /Planning [■⬝]{8}/u);
     assert.ok(!footer.includes("Planning."));
   }
 });

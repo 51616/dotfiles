@@ -1,5 +1,6 @@
 import { getMarkdownTheme, type Theme } from "@mariozechner/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, type Component, type MarkdownTheme } from "@mariozechner/pi-tui";
+import { getOpencodeScannerFrameIndex, renderOpencodeScanner, renderPlainOpencodeScanner } from "../../lib/shared/opencode-scanner.ts";
 import type { ActivityBlockSnapshot, ToolActivity, ToolState } from "./activity-block-state.ts";
 
 const DEFAULT_MAX_RENDERED_LINES = 20;
@@ -34,7 +35,7 @@ export function formatActivityBlock(
 	now: number,
 	title = "Activity",
 ): ActivityBlockViewModel {
-	const spinner = shouldShowSpinner(snapshot) ? getSpinnerFrame(now) : undefined;
+	const spinner = shouldShowSpinner(snapshot) ? renderPlainOpencodeScanner(getOpencodeScannerFrameIndex(now)) : undefined;
 	const liveStopAt = snapshot.isResponding
 		? (snapshot.respondingStartedAt ?? snapshot.lastToolUpdateAt ?? snapshot.lastThinkingAt ?? now)
 		: now;
@@ -180,7 +181,7 @@ export class ActivityBlockMessageComponent implements Component {
 		const timerNow = alignRenderClock(rawNow);
 		const snapshot = this.getSnapshot() ?? createPendingSnapshot(timerNow);
 		const model = formatActivityBlock(snapshot, timerNow);
-		const spinnerFrame = shouldShowSpinner(snapshot) ? getSpinnerFrame(rawNow) : model.spinner;
+		const spinnerFrame = shouldShowSpinner(snapshot) ? renderOpencodeScanner(this.theme, getOpencodeScannerFrameIndex(rawNow)) : model.spinner;
 		const thinkingSource = getThinkingSource(snapshot);
 		const { header: thinkingHeader } = splitThinkingSource(thinkingSource || snapshot.latestThinking);
 		const innerWidth = Math.max(1, width - 2);
@@ -430,11 +431,6 @@ function normalizeTerminalStatus(status: string, runState: ActivityBlockSnapshot
 
 function shouldShowSpinner(snapshot: ActivityBlockSnapshot): boolean {
 	return snapshot.runState === "running" && !snapshot.isResponding;
-}
-
-function getSpinnerFrame(now: number): string {
-	const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-	return frames[Math.floor(now / 80) % frames.length] ?? frames[0];
 }
 
 function truncateThinkingDisplay(text: string): string {

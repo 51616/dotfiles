@@ -26,7 +26,7 @@ What this proves:
 - compact mode keeps only the header/first line of the latest thinking text in the bottom-left footer status without an extra previous-activity row or duplicate live thinking block, and keeps the last three tool actions sticky while newer thinking updates arrive, with the newest action first
 - thinking expansion opens the full current thinking text up to 15 rendered lines, without reopening a tool detail pane
 - blank spacer rows stay between the thinking/tool sections and the footer so the block reads cleanly
-- live running-state labels append the in-block spinner while running, except `Responding`, which stays static
+- live running-state labels append the shared scanner spinner while running, except `Responding`, which stays static
 - timers start at `0s`, avoid sub-second precision, and freeze after completion
 - the footer/detail line keeps the timer right-aligned, formats the left side as `<X> tool calls (<Y> failed) · <tokens>`, adds `<N> compactions` when `N > 1`, buckets tokens in 1K increments with `< 1K tokens` below the first bucket, and keeps context-based token counts scoped to the active block instead of the whole session
 - narrow terminals stay width-safe and the widget remains height-bounded

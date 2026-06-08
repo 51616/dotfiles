@@ -28,7 +28,7 @@ Entrypoint: [[command-context-for-tools/index.ts]].
 
 ## Working spinner customization
 
-Owns the custom working-indicator word list and spinner renderer used while pi core's separate working row is visible; activity-block mode suppresses that row and uses its own footer spinner instead.
+Owns the custom working-indicator word list and uses the shared opencode-style scanner renderer while pi core's separate working row is visible; activity-block mode suppresses that row and uses the same scanner in its footer instead.
 
 Entrypoint: [[custom-spinner/index.ts]].
 

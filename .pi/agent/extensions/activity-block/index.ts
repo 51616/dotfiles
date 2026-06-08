@@ -18,6 +18,7 @@ import {
 	reconstructSnapshotsFromTranscript,
 	type ActivityBlockMessageDetails,
 } from "./lib/activity-block-history.ts";
+import { OPENCODE_SCANNER_INTERVAL_MS } from "../lib/shared/opencode-scanner.ts";
 import { ActivityBlockMessageComponent, isExpandedThinkingShown, type ToolHistoryViewMode } from "./lib/activity-block-widget.ts";
 import {
 	applyMessageUpdate,
@@ -45,7 +46,7 @@ const BLOCK_TOGGLE_SHORTCUT = "ctrl+alt+a";
 const THINKING_TOGGLE_SHORTCUT = "ctrl+alt+t";
 const ZEN_MODE_TOGGLE_SHORTCUT = "ctrl+alt+z";
 const TOKEN_REFRESH_INTERVAL_MS = 1000;
-const SPINNER_REFRESH_INTERVAL_MS = 80;
+const SPINNER_REFRESH_INTERVAL_MS = OPENCODE_SCANNER_INTERVAL_MS;
 
 const ACTIVITY_BLOCK_CONTENT = "activity block";
 

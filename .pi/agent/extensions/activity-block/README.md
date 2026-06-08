@@ -91,7 +91,7 @@ The saved patch files in this directory cover three required concerns for the fu
 The current `v0.78.0` stack and the older saved stacks include that full stack today.
 
 Behavior covered by the total patch:
-- suppress live tool rows, live thinking placeholders, and the stock working spinner row while the block owns active-turn UX; the block footer appends its own simple spinner to the current bottom-left header
+- suppress live tool rows, live thinking placeholders, and the stock working spinner row while the block owns active-turn UX; the block footer appends the shared opencode-style scanner spinner to the current bottom-left header
 - suppress replayed tool rows and replayed thinking placeholders on session resume so the block remains the canonical transcript surface
 - keep hidden-tool state stable across later tool updates
 - let extensions suppress hidden-thinking labels entirely when they provide their own summary surface
