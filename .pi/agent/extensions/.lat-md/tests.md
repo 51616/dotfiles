@@ -23,7 +23,7 @@ What this proves:
 - queued steering freezes the current block immediately, persists it as `Interrupted by steering`, and starts the next block under the steering message
 - bare `agent_end` failures still finalize the active block with the correct terminal state
 - resumed sessions continue the persisted local turn counter instead of resetting block turn identity/numbering to `1`
-- compact mode keeps only the header/first line of the latest thinking text in the bottom-left footer status without an extra previous-activity row or duplicate live thinking block, and keeps the last three tool actions sticky while newer thinking updates arrive, with the newest action first
+- compact mode keeps only the header/first line of the latest thinking text in the bottom-left footer status without an extra previous-activity row or duplicate live thinking block, and keeps the selected tool actions sticky while newer thinking updates arrive, with the newest visible action nearest the bottom footer
 - thinking expansion opens the full current thinking text up to 15 rendered lines, without reopening a tool detail pane
 - blank spacer rows stay between the thinking/tool sections and the footer so the block reads cleanly
 - live running-state labels append the shared scanner spinner while running, except `Responding`, which stays static

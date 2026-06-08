@@ -384,6 +384,19 @@ test("ActivityBlockMessageComponent adds a spacer row after the sticky tool stac
   assert.match(rendered[lastToolIndex + 1] ?? "", blankRow);
 });
 
+test("ActivityBlockMessageComponent bottom-anchors undersized recent tool stacks", () => {
+  const rendered = createComponent({}, { toolHistoryViewMode: "recent" }).render(64).map((line) => stripAnsi(line));
+  const blankRow = /^│\s*│$/;
+  const firstToolIndex = rendered.findIndex(isToolHistoryLine);
+  const toolLines = rendered.filter(isToolHistoryLine);
+
+  assert.equal(toolLines.length, 3);
+  assert.ok(firstToolIndex >= 3);
+  assert.match(rendered[firstToolIndex - 1] ?? "", blankRow);
+  assert.match(rendered[firstToolIndex - 2] ?? "", blankRow);
+  assert.match(toolLines[toolLines.length - 1] ?? "", /✓ Edited activity-block-widget\.ts/);
+});
+
 test("ActivityBlockMessageComponent shows only the thinking text header in compact mode", () => {
   const rendered = createComponent({
     latestThinking: "Evaluating rendering logic I am checking body text",
@@ -467,7 +480,7 @@ test("ActivityBlockMessageComponent renders collapsed thinking text as markdown"
   assert.ok(!rendered.some((line) => line.includes("**bold**")));
 });
 
-test("ActivityBlockMessageComponent keeps the last five tool actions sticky with newest first", () => {
+test("ActivityBlockMessageComponent keeps the last five tool actions sticky with newest at the bottom", () => {
   const rendered = createComponent({
     latestThinking: "Evaluating rendering logic body summary",
     latestThinkingFull: "Evaluating rendering logic\n\nbody summary",
@@ -549,11 +562,11 @@ test("ActivityBlockMessageComponent keeps the last five tool actions sticky with
 
   const toolLines = rendered.filter(isToolHistoryLine);
   assert.equal(toolLines.length, 5);
-  assert.match(toolLines[0] ?? "", /▶ \$ printf six/);
-  assert.match(toolLines[1] ?? "", /✓ Wrote five\.ts/);
+  assert.match(toolLines[0] ?? "", /✓ \$ printf two/);
+  assert.match(toolLines[1] ?? "", /✓ Edited three\.ts/);
   assert.match(toolLines[2] ?? "", /✓ read four\.md:1-20/);
-  assert.match(toolLines[3] ?? "", /✓ Edited three\.ts/);
-  assert.match(toolLines[4] ?? "", /✓ \$ printf two/);
+  assert.match(toolLines[3] ?? "", /✓ Wrote five\.ts/);
+  assert.match(toolLines[4] ?? "", /▶ \$ printf six/);
   assert.ok(!rendered.some((line) => line.includes("one.md:1-10")));
 });
 
@@ -606,7 +619,7 @@ test("ActivityBlockMessageComponent shows only the newest sticky tool row in lat
   assert.match(toolLines[0] ?? "", /✓ Edited three\.ts/);
 });
 
-test("ActivityBlockMessageComponent shows all tool rows in current sticky order for all mode", () => {
+test("ActivityBlockMessageComponent shows all tool rows with newest at the bottom for all mode", () => {
   const rendered = createComponent({
     tools: [
       {
@@ -652,9 +665,9 @@ test("ActivityBlockMessageComponent shows all tool rows in current sticky order 
 
   const toolLines = rendered.filter(isToolHistoryLine);
   assert.equal(toolLines.length, 3);
-  assert.match(toolLines[0] ?? "", /✓ Edited three\.ts/);
+  assert.match(toolLines[0] ?? "", /✓ read one\.md:1-10/);
   assert.match(toolLines[1] ?? "", /▶ \$ printf two/);
-  assert.match(toolLines[2] ?? "", /✓ read one\.md:1-10/);
+  assert.match(toolLines[2] ?? "", /✓ Edited three\.ts/);
 });
 
 test("ActivityBlockMessageComponent shows timers for running, successful, and failed tool rows once they reach ten seconds", () => {

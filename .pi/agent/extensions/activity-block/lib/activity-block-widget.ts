@@ -487,8 +487,8 @@ function renderPrimaryLines(
 		const placeholderCount = getToolHistoryPlaceholderCount(toolHistoryViewMode, stickyTools.length, targetToolRows);
 		if (stickyTools.length > 0 || placeholderCount > 0) {
 			return [
-				...stickyTools.map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor)),
 				...renderPlaceholderToolRows(theme, width, placeholderCount, borderColor),
+				...orderSelectedToolsNewestLast(stickyTools).map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor)),
 			];
 		}
 	}
@@ -511,11 +511,12 @@ function formatExpandedDetails(
 	maxRows: number,
 ): ToolRowView[] {
 	if (maxRows <= 0) return [];
-	const toolLines = formatToolLines(theme, snapshot.tools, width, now);
+	const tools = selectNewestToolsForBottomAnchoredDisplay(snapshot.tools, maxRows);
+	const toolLines = formatToolLines(theme, tools, width, now);
 	return [
-		...toolLines,
 		...createPlaceholderToolRows(getToolHistoryPlaceholderCount("all", toolLines.length, maxRows)),
-	].slice(0, maxRows);
+		...toolLines,
+	];
 }
 
 function formatToolLines(
@@ -524,7 +525,7 @@ function formatToolLines(
 	width: number,
 	now: number,
 ): ToolRowView[] {
-	return sortToolsNewestFirst(tools).map((tool) => ({
+	return tools.map((tool) => ({
 		text: styleTimedToolActivityLine(theme, tool, width, now),
 		color: "text",
 		toolState: tool.state,
@@ -569,7 +570,7 @@ function renderThinkingExpandedToolHistoryRows(
 	if (targetRows <= 0) return [];
 	const tools = getThinkingExpandedToolActivities(snapshot, toolHistoryViewMode, targetRows);
 	if (tools.length === 0) return [];
-	return tools.map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor));
+	return orderSelectedToolsNewestLast(tools).map((tool) => renderToolActivityRow(theme, tool, width, now, borderColor));
 }
 
 function getThinkingExpandedToolActivities(
@@ -600,6 +601,15 @@ function getStickyToolActivities(snapshot: ActivityBlockSnapshot, limit: number)
 		updatedAt: snapshot.latestToolView.updatedAt,
 		completedAt: snapshot.latestToolView.state === "running" ? undefined : snapshot.latestToolView.updatedAt,
 	}];
+}
+
+function selectNewestToolsForBottomAnchoredDisplay(tools: readonly ToolActivity[], limit: number): ToolActivity[] {
+	if (limit <= 0) return [];
+	return orderSelectedToolsNewestLast(sortToolsNewestFirst(tools).slice(0, limit));
+}
+
+function orderSelectedToolsNewestLast(tools: readonly ToolActivity[]): ToolActivity[] {
+	return [...tools].reverse();
 }
 
 function renderToolActivityRow(theme: Theme, tool: ToolActivity, width: number, now: number, borderColor: ThemeColor): string {
@@ -653,7 +663,8 @@ function renderMarkdownRows(
 }
 
 export function sortToolsNewestFirst(tools: readonly ToolActivity[]): ToolActivity[] {
-	// Compact and expanded views must share the exact same tool ordering.
+	// Selection keeps the newest rows; rendering reverses that selected window so
+	// the newest visible tool stays closest to the bottom footer and added rows grow upward.
 	return [...tools].sort(compareToolsNewestFirst);
 }
 
