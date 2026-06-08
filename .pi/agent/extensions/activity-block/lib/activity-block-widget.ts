@@ -189,8 +189,9 @@ export class ActivityBlockMessageComponent implements Component {
 		const thinkingExpanded = this.getThinkingExpanded();
 		const inlineThinkingHeader = shouldInlineThinkingHeader(snapshot, thinkingHeader, toolHistoryViewMode, thinkingExpanded);
 		const statusText = chooseStatusText(this.theme, this.markdownTheme, snapshot, model, thinkingHeader, innerWidth, inlineThinkingHeader);
-		const statusLabel = prependSpinnerToStatusLabel(decorateBlockTitle(statusText), spinnerFrame);
-		const statusWrapper = statusRowWrapper(this.theme, getStatusLabelColor(statusLabel));
+		const statusBaseLabel = decorateBlockTitle(statusText);
+		const statusWrapper = statusRowWrapper(this.theme, getStatusLabelColor(statusBaseLabel));
+		const statusLabel = prependSpinnerToStatusLabel(statusBaseLabel, spinnerFrame, statusWrapper[0]);
 		const borderColor = getBlockBorderColor(snapshot);
 		if (width <= 14) {
 			const line = `${statusLabel} ${model.primary}`.trim();
@@ -408,10 +409,13 @@ function decorateBlockTitle(title: string): string {
 	return trimmed;
 }
 
-function prependSpinnerToStatusLabel(label: string, spinner: string | undefined): string {
+function prependSpinnerToStatusLabel(label: string, spinner: string | undefined, statusPrefix = ""): string {
 	if (!spinner) return label;
 	const trimmed = label.trimStart();
-	return trimmed ? `${spinner} ${trimmed}` : spinner;
+	if (!trimmed) return spinner;
+	// Scanner frames contain bold/dim reset sequences. Restore the status
+	// prefix after the scanner so the following text does not flicker.
+	return `${spinner} ${statusPrefix}${trimmed}`;
 }
 
 function getStatusLabelColor(label: string): ThemeColor {

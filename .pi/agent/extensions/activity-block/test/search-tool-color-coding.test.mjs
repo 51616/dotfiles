@@ -15,6 +15,24 @@ const colorTheme = {
 	strikethrough: (text) => text,
 };
 
+const plainTheme = {
+	bold: (text) => text,
+	fg: (_name, text) => text,
+	bg: (_name, text) => text,
+	italic: (text) => text,
+	underline: (text) => text,
+	strikethrough: (text) => text,
+};
+
+const ansiTheme = {
+	bold: (text) => `\x1b[1m${text}\x1b[22m`,
+	fg: (_name, text) => `\x1b[38;5;7m${text}\x1b[39m`,
+	bg: (_name, text) => text,
+	italic: (text) => `\x1b[3m${text}\x1b[23m`,
+	underline: (text) => text,
+	strikethrough: (text) => text,
+};
+
 function createSnapshot(overrides = {}) {
 	return {
 		runState: "complete",
@@ -96,16 +114,16 @@ function createSnapshot(overrides = {}) {
 	};
 }
 
-function render(snapshotOverrides = {}) {
+function render(snapshotOverrides = {}, theme = colorTheme, width = 260) {
 	const component = new ActivityBlockMessageComponent(
-		colorTheme,
+		theme,
 		() => createSnapshot(snapshotOverrides),
 		() => 1_000,
 		() => "all",
 		() => false,
 		() => 0,
 	);
-	return component.render(260).join("\n");
+	return component.render(width).join("\n");
 }
 
 test("summarizeTool formats grep, find, fff, multi_grep, and run_skill_script arguments", () => {
@@ -169,7 +187,7 @@ test("ActivityBlockMessageComponent renders the running scanner before the statu
 		tools: [],
 		totalTools: 0,
 		completedTools: 0,
-	});
+	}, plainTheme, 120);
 
 	const scannerIndex = rendered.search(/[■⬝]/u);
 	const statusIndex = rendered.indexOf("Waiting for the first update");
@@ -177,6 +195,20 @@ test("ActivityBlockMessageComponent renders the running scanner before the statu
 	assert.notEqual(scannerIndex, -1);
 	assert.notEqual(statusIndex, -1);
 	assert.ok(scannerIndex < statusIndex);
+});
+
+test("ActivityBlockMessageComponent restores bold after the running scanner", () => {
+	const rendered = render({
+		runState: "running",
+		endedAt: undefined,
+		finalLabel: undefined,
+		lastToolSummary: undefined,
+		tools: [],
+		totalTools: 0,
+		completedTools: 0,
+	}, ansiTheme, 120);
+
+	assert.match(rendered, /\x1b\[1mWaiting for the first update/);
 });
 
 test("ActivityBlockMessageComponent keeps running block borders on the theme border color", () => {
