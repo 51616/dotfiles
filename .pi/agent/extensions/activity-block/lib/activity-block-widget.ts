@@ -180,6 +180,7 @@ export class ActivityBlockMessageComponent implements Component {
 		const timerNow = alignRenderClock(rawNow);
 		const snapshot = this.getSnapshot() ?? createPendingSnapshot(timerNow);
 		const model = formatActivityBlock(snapshot, timerNow);
+		const spinnerFrame = shouldShowSpinner(snapshot) ? getSpinnerFrame(rawNow) : model.spinner;
 		const thinkingSource = getThinkingSource(snapshot);
 		const { header: thinkingHeader } = splitThinkingSource(thinkingSource || snapshot.latestThinking);
 		const innerWidth = Math.max(1, width - 2);
@@ -187,7 +188,7 @@ export class ActivityBlockMessageComponent implements Component {
 		const thinkingExpanded = this.getThinkingExpanded();
 		const inlineThinkingHeader = shouldInlineThinkingHeader(snapshot, thinkingHeader, toolHistoryViewMode, thinkingExpanded);
 		const statusText = chooseStatusText(this.theme, this.markdownTheme, snapshot, model, thinkingHeader, innerWidth, inlineThinkingHeader);
-		const statusLabel = decorateBlockTitle(statusText);
+		const statusLabel = appendSpinnerToStatusLabel(decorateBlockTitle(statusText), spinnerFrame);
 		const statusWrapper = statusRowWrapper(this.theme, getStatusLabelColor(statusLabel));
 		const borderColor = getBlockBorderColor(snapshot);
 		if (width <= 14) {
@@ -404,6 +405,12 @@ function decorateBlockTitle(title: string): string {
 		return "COMPLETED!";
 	}
 	return trimmed;
+}
+
+function appendSpinnerToStatusLabel(label: string, spinner: string | undefined): string {
+	if (!spinner) return label;
+	const trimmed = label.trimEnd();
+	return trimmed ? `${trimmed} ${spinner}` : spinner;
 }
 
 function getStatusLabelColor(label: string): ThemeColor {

@@ -243,7 +243,7 @@ test("formatActivityBlock uses a waiting status before the first update", () => 
 });
 
 
-test("ActivityBlockMessageComponent keeps the running title static", () => {
+test("ActivityBlockMessageComponent keeps the running title static while appending the spinner", () => {
   const overrides = {
     latestThinking: "Planning",
     latestThinkingFull: "Planning\n\nwith more detail below",
@@ -260,7 +260,7 @@ test("ActivityBlockMessageComponent keeps the running title static", () => {
   for (const now of [0, 350, 1050]) {
     const rendered = createComponent(overrides, { now }).render(48).map((line) => stripAnsi(line));
     const footer = rendered[rendered.length - 2] ?? "";
-    assert.ok(footer.includes("Planning"));
+    assert.match(footer, /Planning [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
     assert.ok(!footer.includes("Planning."));
   }
 });
@@ -286,12 +286,11 @@ test("ActivityBlockMessageComponent keeps responding footer quantitative only", 
   assert.match(rendered, /3 tool calls/);
 });
 
-test("ActivityBlockMessageComponent renders the footer status fully bold without a spinner", () => {
+test("ActivityBlockMessageComponent renders the footer status fully bold", () => {
   const rendered = createComponent({}, { theme: markerBoldTheme }).render(64).map((line) => stripAnsi(line));
   const footer = rendered[rendered.length - 2] ?? "";
   assert.match(footer, /│<b>checking the latest thinking excerpt/u);
   assert.match(footer, /3 tool calls/u);
-  assert.doesNotMatch(footer, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
 });
 
 test("ActivityBlockMessageComponent keeps the timer on the far right", () => {

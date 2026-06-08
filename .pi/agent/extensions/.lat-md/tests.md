@@ -14,7 +14,7 @@ What this proves:
 - text streaming marks the block as responding so the spinner can stop cleanly
 - tool totals/active/completed/failed counts stay honest across sequential and parallel tool execution
 - aborted runs do not leak a stale running state
-- the live block installs as an `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available, the matching active transcript renderer returns no rows while the dock is visible, the dock reflects thinking and tool lifecycle updates, terminal complete/aborted/error blocks remain docked until the next input, queued steering replaces the dock with the next active block, default mode clears the dock, and zen mode hides/restores the dock without exposing duplicate transcript blocks
+- the live block installs as an `aboveEditor` widget while suppressing the stock `Working...` row when `ctx.ui.setWidget` is available, the matching active transcript renderer returns no rows while the dock is visible, the dock reflects thinking and tool lifecycle updates, terminal complete/aborted/error blocks remain docked until the next input, queued steering replaces the dock with the next active block, default mode clears the dock, and zen mode hides/restores the dock without exposing duplicate transcript blocks
 - the widget prefers the latest active tool when tools are running, reuses compact-tool-view-style colors for `read`/`write`/`edit`/`bash`, applies tool-state background highlighting to the live tool row, renders thinking as markdown, subsumes both tool-active and thinking-only live work under `Cooking`, and drops the spinner while responding
 - `Esc` aborts only when the extension has an active turn
 - historical transcript suppression stays active after `turn_end`, so finished turns do not suddenly replay default tool rows
@@ -23,10 +23,10 @@ What this proves:
 - queued steering freezes the current block immediately, persists it as `Interrupted by steering`, and starts the next block under the steering message
 - bare `agent_end` failures still finalize the active block with the correct terminal state
 - resumed sessions continue the persisted local turn counter instead of resetting block turn identity/numbering to `1`
-- compact mode keeps only the header/first line of the latest thinking text below the status row without an extra previous-activity row or duplicate live thinking block, and keeps the last three tool actions sticky while newer thinking updates arrive, with the newest action first
+- compact mode keeps only the header/first line of the latest thinking text in the bottom-left footer status without an extra previous-activity row or duplicate live thinking block, and keeps the last three tool actions sticky while newer thinking updates arrive, with the newest action first
 - thinking expansion opens the full current thinking text up to 15 rendered lines, without reopening a tool detail pane
-- blank spacer rows stay under the status row and between the thinking/tool sections and the footer so the block reads cleanly
-- live running-state labels animate their dot suffix from 0 to 3 dots instead of using a fixed ellipsis, except `Responding`, which stays static
+- blank spacer rows stay between the thinking/tool sections and the footer so the block reads cleanly
+- live running-state labels append the in-block spinner while running, except `Responding`, which stays static
 - timers start at `0s`, avoid sub-second precision, and freeze after completion
 - the footer/detail line keeps the timer right-aligned, formats the left side as `<X> tool calls (<Y> failed) · <tokens>`, adds `<N> compactions` when `N > 1`, buckets tokens in 1K increments with `< 1K tokens` below the first bucket, and keeps context-based token counts scoped to the active block instead of the whole session
 - narrow terminals stay width-safe and the widget remains height-bounded

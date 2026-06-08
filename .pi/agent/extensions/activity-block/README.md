@@ -91,13 +91,13 @@ The saved patch files in this directory cover three required concerns for the fu
 The current `v0.78.0` stack and the older saved stacks include that full stack today.
 
 Behavior covered by the total patch:
-- suppress live tool rows and live thinking placeholders while the block owns active-turn UX, while still allowing the stock working spinner row to remain visible
+- suppress live tool rows, live thinking placeholders, and the stock working spinner row while the block owns active-turn UX; the block footer appends its own simple spinner to the current bottom-left header
 - suppress replayed tool rows and replayed thinking placeholders on session resume so the block remains the canonical transcript surface
 - keep hidden-tool state stable across later tool updates
 - let extensions suppress hidden-thinking labels entirely when they provide their own summary surface
 
 Current extension-side presentation expectations:
-- the active block renders as the `activity-block-live-dock` `aboveEditor` widget below the stock `Working...` row when `ctx.ui.setWidget` is available; the matching active transcript message renders no rows while the dock is visible, and the dock is cleared as soon as the turn completes/aborts/errors so the historical transcript block appears immediately
+- the active block renders as the `activity-block-live-dock` `aboveEditor` widget when `ctx.ui.setWidget` is available, with pi core's separate `Working...` row suppressed; the matching active transcript message renders no rows while the dock is visible, and the dock is cleared as soon as the turn completes/aborts/errors so the historical transcript block appears immediately
 - if a UI context does not expose `ctx.ui.setWidget`, the extension deliberately keeps the transcript block visible instead of hiding it; this is a reduced transcript-only mode for older/fake contexts, not the intended live TUI behavior
 - compact mode shows only the header/first line of the latest thinking text; the thinking body opens only in the block-local thinking-expanded view
 - the latest three tool actions stay visible while newer thinking updates arrive, with the most recent action shown first instead of being flushed out by the thinking update

@@ -1,6 +1,6 @@
 # Activity block
 
-Owns the bounded activity block that renders live work as a docked `aboveEditor` widget below the stock `Working...` row, then preserves terminal blocks as transcript history between each user turn and its assistant response.
+Owns the bounded activity block that renders live work as a docked `aboveEditor` widget while suppressing pi core's separate `Working...` row, then preserves terminal blocks as transcript history between each user turn and its assistant response.
 
 Entrypoint: [[activity-block/index.ts]].
 
@@ -11,16 +11,16 @@ These are the behaviors the extension must keep stable when the live summary UX 
 - reduce live assistant/tool events into one current summary surface, keep `Cooking` as the fallback running label when no thinking header is available, and use the latest thinking header as the bottom-left footer label whenever the block is still thinking, including during tool-active phases
 - keep tool history in three block-local views that cycle `latest -> recent (5 latest) -> all` on every toggle, even when the turn has few or zero tool calls; pad undersized tool-history views with neutral grey placeholder rows so the chosen size stays visible, keep rows newest-first, show a dim inline per-tool elapsed timer suffix on each tool row, and keep the full-history panel tool-only by hiding the separate thinking panel unless the dedicated thinking toggle is explicitly expanded
 - keep thinking text behind the dedicated block-local toggle instead of auto-expanding it alongside the tool history; thoughts stay in their own bounded thinking area rather than being mixed into the tool timeline, and the full tool-history view should not inject a fallback `No recent tool details` row when there are no tool rows to show
-- stop spinner animation once the final assistant response is streaming; `Responding` stays static while other live running-state labels animate suffix dots from 0 to 3
+- append the live spinner frame to the bottom-left footer header while the block is running, and stop that spinner once the final assistant response is streaming so `Responding` stays static
 - render block content with white as the default text color while preserving pink borders, compact-tool-view-style tool colors for `read`/`write`/`edit`/`bash`, and readable search rows for `fffind`/`ffgrep`
-- keep the footer/detail line bottom-aligned even in expanded tool view, with a spacer row after the expanded tool list: the latest status/thinking header sits bottom-left, while lowercase tool-call count text with inline failure suffixes (`X tool calls (Y failed)`), a block-scoped token-count bucket from usage/context estimates (subtract the context baseline captured when the block starts), and the elapsed timer are grouped on the bottom-right
+- keep the footer/detail line bottom-aligned even in expanded tool view, with a spacer row after the expanded tool list: the latest status/thinking header plus its spinner sits bottom-left, while lowercase tool-call count text with inline failure suffixes (`X tool calls (Y failed)`), a block-scoped token-count bucket from usage/context estimates (subtract the context baseline captured when the block starts), and the elapsed timer are grouped on the bottom-right
 - render thinking excerpts as markdown instead of plain text, using the latest thinking header as the bottom-left footer label during reasoning-only phases, avoiding duplicate live thinking headers in compact mode, and showing the full current thinking text above the tool-call history list in the thinking-expanded view
 - support block-local `ctrl+alt+t` expansion for the currently shown thinking excerpt only, without expanding hidden historical transcript rows or stealing the built-in global toggles
 - let `Esc` abort the active turn without interfering when no turn is active
 - keep the rendered block width-safe and height-bounded to 20 total lines so narrow terminals do not crash rendering or let the block sprawl
 - keep a stable local per-session turn identity in message details/state so repeated similar turns stay distinguishable without showing a visible `Turn #X` line inside the block
 - own the block-local tool-history view toggle (`latest -> recent -> all`), including command/shortcut affordances and line budgeting
-- support a global zen mode from `/activity-block zen [on|off]` or `ctrl+alt+z` that hides activity blocks entirely while the mode is enabled so the stock pi working spinner stays visible during the run; activating it should toast a message that includes `Zen mode`
+- support a global zen mode from `/activity-block zen [on|off]` or `ctrl+alt+z` that hides activity blocks entirely while the mode is enabled; activating it should toast a message that includes `Zen mode`
 - support a runtime transcript view mode from `/activity-block mode block|default`; `block` claims live and historical transcript ownership, while `default` clears transcript suppression and hides activity-block messages so pi core renders its normal tool-call transcript without restarting the session
 - request the Phase 2 transcript-mode seams when available so inline tool rows, replayed tool rows, the separate working spinner row, and thinking placeholders are absorbed into the block
 - install the live block as the `activity-block-live-dock` `aboveEditor` widget while a turn is active when `ctx.ui.setWidget` is available, hide the matching active transcript message to prevent duplicate UI, and clear the dock immediately on completion/abort/error so the transcript block becomes visible as history; contexts without `setWidget` stay in documented transcript-only mode rather than hiding the block
@@ -44,7 +44,7 @@ These constraints keep the block honest and prevent it from becoming another noi
 - the block keeps current and previous activity summaries in state so live prioritization and future UI changes can reason about recent transitions without rebuilding transcript history
 - the reducer persists enough rich data for the latest visible thinking item to support block-local expansion after the turn finishes
 - while a turn is active, the block refreshes token counts from `ctx.getContextUsage()` on a short interval and subtracts the block-start baseline so the displayed token bucket reflects the current block instead of the whole session
-- live spinner frames stop once assistant `text_*` streaming begins
+- the in-block footer spinner refreshes while the active block is visible and stops once assistant `text_*` streaming begins
 - `Esc` is consumed only while this extension has an active turn to abort, and even instant aborted turns keep a minimal terminal block for audit history
 - tool counts stay honest for sequential and parallel tool execution
 - even in expanded mode, the block stays bounded and shows excerpts rather than a full transcript

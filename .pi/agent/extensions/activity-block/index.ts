@@ -45,6 +45,7 @@ const BLOCK_TOGGLE_SHORTCUT = "ctrl+alt+a";
 const THINKING_TOGGLE_SHORTCUT = "ctrl+alt+t";
 const ZEN_MODE_TOGGLE_SHORTCUT = "ctrl+alt+z";
 const TOKEN_REFRESH_INTERVAL_MS = 1000;
+const SPINNER_REFRESH_INTERVAL_MS = 80;
 
 const ACTIVITY_BLOCK_CONTENT = "activity block";
 
@@ -98,6 +99,7 @@ class ActivityBlockController {
 	private compactionCount = 0;
 	private awaitingQueuedTurnStart = false;
 	private tokenRefreshInterval: ReturnType<typeof setInterval> | undefined;
+	private spinnerRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 	attach(ctx: ExtensionContext): void {
 		this.uiContext = ctx;
@@ -108,6 +110,7 @@ class ActivityBlockController {
 
 	reset(ctx?: ExtensionContext): void {
 		this.stopTokenRefresh();
+		this.stopSpinnerRefresh();
 		this.activeTurn = undefined;
 		this.clearDockedTurn(ctx ?? this.uiContext);
 		this.persistedSnapshots.clear();
@@ -207,6 +210,7 @@ class ActivityBlockController {
 		applyMessageUpdate(state, event, now);
 		this.syncContextUsage(ctx);
 		this.syncDockWidget(ctx ?? this.uiContext);
+		this.syncSpinnerRefresh();
 		this.refreshStatus();
 	}
 
@@ -365,6 +369,7 @@ class ActivityBlockController {
 		}
 		this.zenMode = nextEnabled;
 		this.syncDockWidget(ctx ?? this.uiContext);
+		this.syncSpinnerRefresh();
 		this.refreshStatus();
 		return this.zenMode;
 	}
@@ -384,6 +389,7 @@ class ActivityBlockController {
 			this.syncDockWidget(ctx ?? this.uiContext);
 		}
 		this.applyCurrentTranscriptMode(ctx ?? this.uiContext);
+		this.syncSpinnerRefresh();
 		this.refreshStatus();
 		return this.transcriptViewMode;
 	}
@@ -427,6 +433,7 @@ class ActivityBlockController {
 		this.dockedTurnId = activeTurn.turnId;
 		this.syncContextUsage(ctx);
 		this.startTokenRefresh();
+		this.syncSpinnerRefresh();
 		if (this.transcriptViewMode === "block") {
 			this.enableTranscriptMode(ctx);
 		} else {
@@ -456,6 +463,7 @@ class ActivityBlockController {
 		const activeTurn = this.activeTurn;
 		if (!activeTurn) return undefined;
 		this.stopTokenRefresh();
+		this.stopSpinnerRefresh();
 		if (event) {
 			finishRun(activeTurn.state, event, now);
 		} else if (options?.interrupt) {
@@ -475,7 +483,7 @@ class ActivityBlockController {
 	private enableTranscriptMode(ctx: ExtensionContext | undefined): void {
 		if (!ctx?.hasUI) return;
 		const ui = ctx.ui as TranscriptModeCapableUI;
-		ui.setLiveTranscriptMode?.({ toolRows: "hide", thinking: "hide", working: "show" });
+		ui.setLiveTranscriptMode?.({ toolRows: "hide", thinking: "hide", working: "hide" });
 	}
 
 	applyHistoricalTranscriptMode(ctx: ExtensionContext | undefined): void {
@@ -582,6 +590,44 @@ class ActivityBlockController {
 		if (!this.tokenRefreshInterval) return;
 		clearInterval(this.tokenRefreshInterval);
 		this.tokenRefreshInterval = undefined;
+	}
+
+	private syncSpinnerRefresh(): void {
+		if (!this.shouldAnimateSpinner()) {
+			this.stopSpinnerRefresh();
+			return;
+		}
+		this.startSpinnerRefresh();
+	}
+
+	private shouldAnimateSpinner(): boolean {
+		const state = this.activeTurn?.state;
+		return Boolean(
+			this.uiContext?.hasUI
+				&& state
+				&& this.transcriptViewMode === "block"
+				&& !this.zenMode
+				&& state.runState === "running"
+				&& !state.isResponding,
+		);
+	}
+
+	private startSpinnerRefresh(): void {
+		if (this.spinnerRefreshInterval || !this.shouldAnimateSpinner()) return;
+		this.spinnerRefreshInterval = setInterval(() => {
+			if (!this.shouldAnimateSpinner()) {
+				this.stopSpinnerRefresh();
+				return;
+			}
+			this.refreshStatus();
+		}, SPINNER_REFRESH_INTERVAL_MS);
+		this.spinnerRefreshInterval.unref?.();
+	}
+
+	private stopSpinnerRefresh(): void {
+		if (!this.spinnerRefreshInterval) return;
+		clearInterval(this.spinnerRefreshInterval);
+		this.spinnerRefreshInterval = undefined;
 	}
 
 	private syncContextUsage(ctx?: ExtensionContext): void {

@@ -183,11 +183,11 @@ test("activity-block keeps historical transcript suppression after a turn finish
   }, ctx);
 
   assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }]);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
+  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
 
   await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
 
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "show" }, undefined]);
+  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }, undefined]);
 });
 
 test("activity-block creates a block for custom trigger messages via before_turn_response", async () => {
@@ -378,7 +378,7 @@ test("activity-block keeps one block across tool-result continuation boundaries 
 
   assert.equal(firstTurn?.message?.details?.turnDisplayId, "1");
   assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
+  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
 
   const continuationTurn = await handlers.get("before_turn_response")({
     type: "before_turn_response",
@@ -391,8 +391,8 @@ test("activity-block keeps one block across tool-result continuation boundaries 
   assert.equal(appended.length, 0);
   assert.deepEqual(counts().liveModes, [
     undefined,
-    { toolRows: "hide", thinking: "hide", working: "show" },
-    { toolRows: "hide", thinking: "hide", working: "show" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
   ]);
 
   await handlers.get("turn_end")({
@@ -405,8 +405,8 @@ test("activity-block keeps one block across tool-result continuation boundaries 
   assert.equal(appended.length, 0);
   assert.deepEqual(counts().liveModes, [
     undefined,
-    { toolRows: "hide", thinking: "hide", working: "show" },
-    { toolRows: "hide", thinking: "hide", working: "show" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
   ]);
 
   await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
@@ -415,8 +415,8 @@ test("activity-block keeps one block across tool-result continuation boundaries 
   assert.equal(appended[0].data.turnId, firstTurn?.message?.details?.turnId);
   assert.deepEqual(counts().liveModes, [
     undefined,
-    { toolRows: "hide", thinking: "hide", working: "show" },
-    { toolRows: "hide", thinking: "hide", working: "show" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
     undefined,
   ]);
 });
@@ -435,7 +435,7 @@ test("activity-block freezes the current block when a queued steering message st
   await handlers.get("input")({ type: "input", text: "steer now", source: "interactive" }, ctx);
 
   assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
+  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
 
   await handlers.get("message_start")({
     type: "message_start",
@@ -447,8 +447,8 @@ test("activity-block freezes the current block when a queued steering message st
   assert.equal(appended[0].data.snapshot.finalLabel, "Interrupted by steering");
   assert.deepEqual(counts().liveModes, [
     undefined,
-    { toolRows: "hide", thinking: "hide", working: "show" },
-    { toolRows: "hide", thinking: "hide", working: "show" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
+    { toolRows: "hide", thinking: "hide", working: "hide" },
   ]);
 
   const secondTurn = await triggerTurnResponse(handlers, ctx, "steer now", { turnIndex: 1 });
@@ -728,7 +728,7 @@ test("activity-block mode default restores core transcript modes and stops inser
 
   assert.equal(turn?.message?.details?.turnDisplayId, "1");
   assert.deepEqual(counts().historicalModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide" }]);
-  assert.deepEqual(counts().liveModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide", working: "show" }]);
+  assert.deepEqual(counts().liveModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
 });
 
 test("activity-block mode default clears the live dock when processed", async () => {
@@ -805,9 +805,9 @@ test("activity-block does not publish a status-bar hint", async () => {
 test("activity-block context token counts stay scoped to the active block", async () => {
   const originalSetInterval = globalThis.setInterval;
   const originalClearInterval = globalThis.clearInterval;
-  let tick;
+  const ticks = [];
   globalThis.setInterval = (callback) => {
-    tick = callback;
+    ticks.push(callback);
     return { unref() {} };
   };
   globalThis.clearInterval = () => {};
@@ -833,12 +833,12 @@ test("activity-block context token counts stay scoped to the active block", asyn
     assert.ok(!rendered.some((line) => line.includes("tokens")));
 
     setContextUsageTokens(1700);
-    tick?.();
+    for (const tick of ticks) tick?.();
     rendered = component.render(56).map((line) => stripAnsi(line));
     assert.ok(rendered.some((line) => line.includes("< 1K tokens")));
 
     setContextUsageTokens(2300);
-    tick?.();
+    for (const tick of ticks) tick?.();
     rendered = component.render(56).map((line) => stripAnsi(line));
     assert.ok(rendered.some((line) => line.includes(" 1K tokens")));
     assert.ok(!rendered.some((line) => line.includes("< 1K tokens")));
