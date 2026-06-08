@@ -160,6 +160,25 @@ test("ActivityBlockMessageComponent renders completed block borders in green", (
 	assert.match(rendered, /<success>│<\/success>/);
 });
 
+test("ActivityBlockMessageComponent renders the running scanner before the status text", () => {
+	const rendered = render({
+		runState: "running",
+		endedAt: undefined,
+		finalLabel: undefined,
+		lastToolSummary: undefined,
+		tools: [],
+		totalTools: 0,
+		completedTools: 0,
+	});
+
+	const scannerIndex = rendered.search(/[■⬝]/u);
+	const statusIndex = rendered.indexOf("Waiting for the first update");
+
+	assert.notEqual(scannerIndex, -1);
+	assert.notEqual(statusIndex, -1);
+	assert.ok(scannerIndex < statusIndex);
+});
+
 test("ActivityBlockMessageComponent keeps running block borders on the theme border color", () => {
 	const rendered = render({
 		runState: "running",
