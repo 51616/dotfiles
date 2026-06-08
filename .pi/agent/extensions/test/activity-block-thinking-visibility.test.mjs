@@ -138,9 +138,17 @@ function render(component, width) {
   return component.render(width).map((line) => stripAnsi(line));
 }
 
+function isToolHistoryLine(line) {
+  return line.includes("▶ $")
+    || line.includes("✓ Wrote")
+    || line.includes("✓ Edited")
+    || line.includes("✓ read")
+    || line.includes("✓ $");
+}
+
 test("activity-block full-history view keeps the header but hides the separate thinking text area", () => {
   const rendered = render(createComponent({}, { toolHistoryViewMode: "all" }), 80);
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ write") || line.includes("✓ read") || line.includes("✓ edit") || line.includes("✓ $") );
+  const toolLines = rendered.filter(isToolHistoryLine);
 
   assert.equal(toolLines.length, 6);
   assert.ok(rendered.some((line) => line.includes("one.md:1-10")));
@@ -152,7 +160,7 @@ test("activity-block full-history view keeps the header but hides the separate t
 
 test("activity-block full-history view shows thinking again after explicit expansion", () => {
   const rendered = render(createComponent({}, { toolHistoryViewMode: "all", thinkingExpanded: true }), 80);
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ write") || line.includes("✓ read") || line.includes("✓ edit") || line.includes("✓ $") );
+  const toolLines = rendered.filter(isToolHistoryLine);
 
   assert.ok(rendered.some((line) => line.includes("Planning the next step")));
   assert.ok(rendered.some((line) => line.includes("line 2 of the reasoning")));
@@ -208,7 +216,7 @@ test("activity-block does not pad the bottom tool stack while expanded thinking 
   const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ read"));
 
   assert.equal(toolLines.length, 2);
-  assert.equal(blankRows.length, 3);
+  assert.equal(blankRows.length, 2);
 });
 
 

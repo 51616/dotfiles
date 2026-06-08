@@ -200,10 +200,11 @@ export class ActivityBlockMessageComponent implements Component {
 		const maxRenderedLines = thinkingExpanded ? THINKING_EXPANDED_MAX_RENDERED_LINES : DEFAULT_MAX_RENDERED_LINES;
 		const rows = [
 			renderBorder("╭", "╮", innerWidth, this.theme, borderColor),
-			renderRow(innerWidth, statusLabel, statusWrapper, this.theme, borderColor),
-			renderEmptyRow(innerWidth, this.theme, borderColor),
 		];
 		const footerReservation = 2;
+		// The status row moved to the footer. Keep its former row budget reserved
+		// so expanding the header does not also expand reasoning/tool history content.
+		const movedHeaderReservation = 2;
 		const thinkingExpandedHasToolHistory = thinkingExpanded && hasThinkingExpandedToolHistory(snapshot, toolHistoryViewMode);
 		const thoughtLines = showThinkingPanel
 			? renderThinkingBlockRows(
@@ -217,6 +218,7 @@ export class ActivityBlockMessageComponent implements Component {
 						0,
 						maxRenderedLines
 							- rows.length
+							- movedHeaderReservation
 							- footerReservation
 							- 1
 							- (thinkingExpandedHasToolHistory ? THINKING_EXPANDED_TOOL_HISTORY_ROWS + 1 : 0),
@@ -227,12 +229,12 @@ export class ActivityBlockMessageComponent implements Component {
 			)
 			: [];
 		const thoughtSpacer = thoughtLines.length > 0 ? 1 : 0;
-		const detail = model.secondary || " ";
+		const footerRight = joinParts([model.secondary, model.secondaryRight]) || " ";
 		let primaryLines: string[] = [];
 		let expandedDetailLines: ToolRowView[] = [];
 		let thinkingExpandedToolHistoryRows: string[] = [];
 		if (thinkingExpanded) {
-			const maxToolHistoryRows = Math.max(0, maxRenderedLines - rows.length - thoughtLines.length - thoughtSpacer - footerReservation - 1);
+			const maxToolHistoryRows = Math.max(0, maxRenderedLines - rows.length - movedHeaderReservation - thoughtLines.length - thoughtSpacer - footerReservation - 1);
 			thinkingExpandedToolHistoryRows = renderThinkingExpandedToolHistoryRows(
 				this.theme,
 				snapshot,
@@ -243,7 +245,7 @@ export class ActivityBlockMessageComponent implements Component {
 				borderColor,
 			);
 			if (thinkingExpandedToolHistoryRows.length === 0) {
-				const fallbackBudget = Math.max(1, maxRenderedLines - rows.length - thoughtLines.length - thoughtSpacer - footerReservation - 1);
+				const fallbackBudget = Math.max(1, maxRenderedLines - rows.length - movedHeaderReservation - thoughtLines.length - thoughtSpacer - footerReservation - 1);
 				primaryLines = renderPrimaryLines(
 					this.theme,
 					this.markdownTheme,
@@ -259,7 +261,7 @@ export class ActivityBlockMessageComponent implements Component {
 				);
 			}
 		} else {
-			const primaryBudget = Math.max(1, maxRenderedLines - rows.length - thoughtLines.length - thoughtSpacer - 3);
+			const primaryBudget = Math.max(1, maxRenderedLines - rows.length - movedHeaderReservation - thoughtLines.length - thoughtSpacer - 3);
 			primaryLines = renderPrimaryLines(
 				this.theme,
 				this.markdownTheme,
@@ -275,7 +277,7 @@ export class ActivityBlockMessageComponent implements Component {
 			);
 			const primarySpacer = primaryLines.length > 0 ? 1 : 0;
 			const maxExpandedDetailLines = showAllToolHistory
-				? Math.max(0, maxRenderedLines - rows.length - thoughtLines.length - thoughtSpacer - primaryLines.length - primarySpacer - 3)
+				? Math.max(0, maxRenderedLines - rows.length - movedHeaderReservation - thoughtLines.length - thoughtSpacer - primaryLines.length - primarySpacer - 3)
 				: 0;
 			expandedDetailLines = showAllToolHistory
 				? formatExpandedDetails(this.theme, snapshot, innerWidth, timerNow, maxExpandedDetailLines)
@@ -305,7 +307,7 @@ export class ActivityBlockMessageComponent implements Component {
 		if (thinkingExpandedToolHistoryRows.length > 0) {
 			rows.push(renderEmptyRow(innerWidth, this.theme, borderColor));
 		}
-		rows.push(renderSplitRow(innerWidth, detail, model.secondaryRight, colorWrapper(this.theme, "dim"), this.theme, borderColor));
+		rows.push(renderFooterRow(innerWidth, statusLabel, footerRight, statusWrapper, colorWrapper(this.theme, "dim"), this.theme, borderColor));
 		rows.push(renderBorder("╰", "╯", innerWidth, this.theme, borderColor));
 		return rows.slice(0, maxRenderedLines);
 	}
@@ -801,18 +803,29 @@ function renderEmptyRow(innerWidth: number, theme: Theme, borderColor: ThemeColo
 	return renderRow(innerWidth, "", colorWrapper(theme, "text"), theme, borderColor);
 }
 
-function renderSplitRow(innerWidth: number, left: string, right: string | undefined, wrapper: [string, string], theme: Theme, borderColor: ThemeColor = "border"): string {
-	if (!right) return renderRow(innerWidth, left, wrapper, theme, borderColor);
-	const rightWidth = visibleWidth(right);
+function renderFooterRow(
+	innerWidth: number,
+	left: string,
+	right: string,
+	leftWrapper: [string, string],
+	rightWrapper: [string, string],
+	theme: Theme,
+	borderColor: ThemeColor = "border",
+): string {
+	const trimmedRight = right.trim();
+	if (!trimmedRight) return renderRow(innerWidth, left, leftWrapper, theme, borderColor);
+	const rightWidth = visibleWidth(trimmedRight);
 	if (rightWidth >= innerWidth) {
-		return renderRow(innerWidth, right, wrapper, theme, borderColor);
+		return renderRow(innerWidth, trimmedRight, rightWrapper, theme, borderColor);
 	}
-	const leftWidth = Math.max(0, innerWidth - rightWidth - 1);
-	if (leftWidth <= 0) {
-		return renderRow(innerWidth, right, wrapper, theme, borderColor);
-	}
-	const fittedLeft = fitToWidth(left, leftWidth);
-	return renderRow(innerWidth, `${fittedLeft} ${right}`, wrapper, theme, borderColor);
+	const leftBudget = Math.max(0, innerWidth - rightWidth - 1);
+	const fittedLeft = leftBudget > 0 ? fitToWidth(left, leftBudget) : "";
+	const gap = " ".repeat(Math.max(0, innerWidth - visibleWidth(fittedLeft) - rightWidth));
+	const content = `${applyPersistentColor(fittedLeft, leftWrapper)}${gap}${applyPersistentColor(trimmedRight, rightWrapper)}`;
+	const border = borderWrapper(theme, borderColor);
+	const borderLeft = applyPersistentColor("│", border);
+	const borderRight = applyPersistentColor("│", border);
+	return `${borderLeft}${content}${borderRight}`;
 }
 
 function fitToWidth(text: string, width: number): string {

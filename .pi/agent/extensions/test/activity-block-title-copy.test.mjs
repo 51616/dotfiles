@@ -59,8 +59,9 @@ function render(snapshotOverrides = {}, options = {}) {
 
 test("activity-block keeps the visible running title static", () => {
   const rendered = render({}, { now: 1_050 });
-  assert.ok(rendered.some((line) => line.includes("checking the latest thinking excerpt for the activity block")));
-  assert.ok(!rendered.some((line) => line.includes("checking the latest thinking excerpt for the activity block...")));
+  const footer = rendered[rendered.length - 2] ?? "";
+  assert.ok(footer.includes("checking the latest thinking excerpt"));
+  assert.ok(!footer.includes("checking the latest thinking excerpt..."));
 });
 
 test("activity-block renders Completed with an exclamation mark", () => {
@@ -73,7 +74,7 @@ test("activity-block renders Completed with an exclamation mark", () => {
     currentActivity: undefined,
     lastThinkingAt: undefined,
   });
-  assert.ok(rendered.some((line) => line.includes("Completed!")));
+  assert.ok(rendered.some((line) => line.includes("COMPLETED!")));
 });
 
 test("activity-block does not show Done when a no-tool turn completes", () => {

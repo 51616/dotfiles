@@ -128,6 +128,15 @@ function createComponent(snapshotOverrides = {}, options = {}) {
   );
 }
 
+function isToolHistoryLine(line) {
+  return line.includes("▶ $")
+    || line.includes("✓ Wrote")
+    || line.includes("✓ Edited")
+    || line.includes("✓ read")
+    || line.includes("✓ $")
+    || line.includes("! Write failed for");
+}
+
 test("formatActivityBlock keeps a provided turn title", () => {
   const view = formatActivityBlock(createSnapshot({ activeTools: 2 }), 1500, "Activity #abc123");
   assert.equal(view.title, "Activity #abc123");
@@ -174,7 +183,7 @@ test("formatActivityBlock freezes elapsed time once the turn ends", () => {
   assert.doesNotMatch(view.secondary, /12/);
 });
 
-test("ActivityBlockMessageComponent hides the collapsed thinking header after completion", () => {
+test("ActivityBlockMessageComponent renders terminal footer status after completion", () => {
   const rendered = createComponent({
     runState: "complete",
     endedAt: 2200,
@@ -182,9 +191,10 @@ test("ActivityBlockMessageComponent hides the collapsed thinking header after co
     activeTools: 0,
     latestActiveTool: undefined,
   }).render(72).map((line) => stripAnsi(line));
+  const footer = rendered[rendered.length - 2] ?? "";
 
-  assert.ok(rendered.some((line) => line.includes("Completed!")));
-  assert.ok(!rendered.some((line) => line.includes("checking the latest thinking excerpt for the activity block")));
+  assert.ok(footer.includes("COMPLETED!"));
+  assert.ok(footer.includes("3 tool calls · 2s"));
 });
 
 test("formatActivityBlock stops the spinner once the final response is streaming", () => {
@@ -249,8 +259,9 @@ test("ActivityBlockMessageComponent keeps the running title static", () => {
 
   for (const now of [0, 350, 1050]) {
     const rendered = createComponent(overrides, { now }).render(48).map((line) => stripAnsi(line));
-    assert.ok(rendered[1]?.includes("Planning"));
-    assert.ok(!rendered[1]?.includes("Planning."));
+    const footer = rendered[rendered.length - 2] ?? "";
+    assert.ok(footer.includes("Planning"));
+    assert.ok(!footer.includes("Planning."));
   }
 });
 
@@ -259,8 +270,9 @@ test("ActivityBlockMessageComponent does not animate Responding", () => {
     { isResponding: true, activeTools: 0, latestActiveTool: undefined },
     { now: 1050 },
   ).render(48).map((line) => stripAnsi(line));
-  assert.ok(rendered[1]?.includes("Responding"));
-  assert.ok(!rendered[1]?.includes("Responding."));
+  const footer = rendered[rendered.length - 2] ?? "";
+  assert.ok(footer.includes("Responding"));
+  assert.ok(!footer.includes("Responding."));
 });
 
 test("ActivityBlockMessageComponent keeps responding footer quantitative only", () => {
@@ -274,11 +286,12 @@ test("ActivityBlockMessageComponent keeps responding footer quantitative only", 
   assert.match(rendered, /3 tool calls/);
 });
 
-test("ActivityBlockMessageComponent renders the status line fully bold without a spinner", () => {
-  const line = stripAnsi(createComponent({}, { theme: markerBoldTheme }).render(64)[1] ?? "");
-  assert.match(line, /│<b>[^<]*<\/b>│/);
-  assert.match(line, /<b>checking the latest thinking excerpt[^<]*<\/b>/u);
-  assert.doesNotMatch(line, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
+test("ActivityBlockMessageComponent renders the footer status fully bold without a spinner", () => {
+  const rendered = createComponent({}, { theme: markerBoldTheme }).render(64).map((line) => stripAnsi(line));
+  const footer = rendered[rendered.length - 2] ?? "";
+  assert.match(footer, /│<b>checking the latest thinking excerpt/u);
+  assert.match(footer, /3 tool calls/u);
+  assert.doesNotMatch(footer, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
 });
 
 test("ActivityBlockMessageComponent keeps the timer on the far right", () => {
@@ -306,12 +319,10 @@ test("ActivityBlockMessageComponent keeps the block shape without a visible turn
   const rendered = createComponent({}, { expanded: true }).render(48).map((line) => stripAnsi(line));
   assert.ok(rendered.length <= 20);
   assert.ok(!rendered.some((line) => line.includes("Turn #123")));
-  const activityIndex = rendered.findIndex((line) => line.includes("checking the latest thinking excerpt") || line.includes("Cooking") || line.includes("Responding") || line.includes("Waiting for the first update"));
-  const blankRow = /^│\s*│$/;
-  assert.ok(activityIndex >= 0);
-  assert.match(rendered[activityIndex + 1] ?? "", blankRow);
+  const footer = rendered[rendered.length - 2] ?? "";
+  assert.ok(footer.includes("checking the latest"));
   assert.ok(rendered.some((line) => line.includes("▶ $ printf hello")));
-  assert.equal(rendered.filter((line) => line.includes("checking the latest thinking excerpt")).length, 1);
+  assert.equal(rendered.filter((line) => line.includes("checking the latest")).length, 1);
   assert.ok(!rendered.some((line) => line.includes("Expanded")));
   assert.ok(!rendered.some((line) => line.includes("Thought:")));
   for (const line of rendered) {
@@ -354,23 +365,23 @@ test("ActivityBlockMessageComponent keeps expanded thinking bounded while preser
   assert.equal(rendered.filter((line) => /line 1(\D|$)/.test(line)).length, 1);
   assert.ok(rendered.some((line) => line.includes("line 8")));
   assert.ok(!rendered.some((line) => line.includes("line 9")));
-  assert.ok(rendered.some((line) => line.includes("✓ edit activity-block-widget.ts")));
+  assert.ok(rendered.some((line) => line.includes("✓ Edited activity-block-widget.ts")));
   assert.ok(!rendered.some((line) => line.includes("Thought: final thought one")));
   assert.ok(!rendered.some((line) => line.includes("Thinking expanded")));
   assert.ok(rendered.length <= 20);
 });
 
-test("ActivityBlockMessageComponent adds spacer rows under status and after the sticky tool stack", () => {
+test("ActivityBlockMessageComponent adds a spacer row after the sticky tool stack", () => {
   const rendered = createComponent().render(64).map((line) => stripAnsi(line));
   const blankRow = /^│\s*│$/;
-  const statusIndex = rendered.findIndex((line) => line.includes("checking the latest thinking excerpt") || line.includes("Responding") || line.includes("Waiting for the first update"));
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
+  const footerIndex = rendered.length - 2;
+  const toolLines = rendered.filter(isToolHistoryLine);
   const lastToolLine = toolLines[toolLines.length - 1] ?? "";
   const lastToolIndex = rendered.lastIndexOf(lastToolLine);
 
-  assert.ok(statusIndex >= 0);
+  assert.ok((rendered[footerIndex] ?? "").includes("checking the latest thinking excerpt"));
   assert.ok(lastToolIndex >= 0);
-  assert.match(rendered[statusIndex + 1] ?? "", blankRow);
+  assert.ok(lastToolIndex < footerIndex);
   assert.match(rendered[lastToolIndex + 1] ?? "", blankRow);
 });
 
@@ -391,7 +402,7 @@ test("ActivityBlockMessageComponent shows only the thinking text header in compa
 });
 
 
-test("ActivityBlockMessageComponent uses the thinking header in the status row instead of Cooking", () => {
+test("ActivityBlockMessageComponent uses the thinking header in the footer instead of Cooking", () => {
   const rendered = createComponent({
     latestThinking: "Planning the next change",
     latestThinkingFull: "Planning the next change\n\nwith more detail below",
@@ -409,7 +420,7 @@ test("ActivityBlockMessageComponent uses the thinking header in the status row i
   assert.ok(!rendered.some((line) => line.includes("Cooking")));
 });
 
-test("ActivityBlockMessageComponent keeps the thinking header in the status row during tool activity", () => {
+test("ActivityBlockMessageComponent keeps the thinking header in the footer during tool activity", () => {
   const rendered = createComponent({
     latestThinking: "Planning the next change",
     latestThinkingFull: "Planning the next change\n\nwith more detail below",
@@ -434,7 +445,7 @@ test("ActivityBlockMessageComponent keeps the thinking header in the status row 
 
   assert.ok(rendered.some((line) => line.includes("Planning the next change")));
   assert.ok(!rendered.some((line) => line.includes("Cooking")));
-  assert.ok(rendered.some((line) => line.includes("✓ edit activity-block-widget.ts")));
+  assert.ok(rendered.some((line) => line.includes("✓ Edited activity-block-widget.ts")));
   assert.ok(!rendered.some((line) => line.includes("▶ $ printf hello")));
 });
 
@@ -537,12 +548,12 @@ test("ActivityBlockMessageComponent keeps the last five tool actions sticky with
     },
   }, { toolHistoryViewMode: "recent" }).render(80).map((line) => stripAnsi(line));
 
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ write") || line.includes("✓ read") || line.includes("✓ edit") || line.includes("✓ $"));
+  const toolLines = rendered.filter(isToolHistoryLine);
   assert.equal(toolLines.length, 5);
   assert.match(toolLines[0] ?? "", /▶ \$ printf six/);
-  assert.match(toolLines[1] ?? "", /✓ write five\.ts/);
+  assert.match(toolLines[1] ?? "", /✓ Wrote five\.ts/);
   assert.match(toolLines[2] ?? "", /✓ read four\.md:1-20/);
-  assert.match(toolLines[3] ?? "", /✓ edit three\.ts/);
+  assert.match(toolLines[3] ?? "", /✓ Edited three\.ts/);
   assert.match(toolLines[4] ?? "", /✓ \$ printf two/);
   assert.ok(!rendered.some((line) => line.includes("one.md:1-10")));
 });
@@ -591,9 +602,9 @@ test("ActivityBlockMessageComponent shows only the newest sticky tool row in lat
     },
   }).render(72).map((line) => stripAnsi(line));
 
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
+  const toolLines = rendered.filter(isToolHistoryLine);
   assert.equal(toolLines.length, 1);
-  assert.match(toolLines[0] ?? "", /✓ edit three\.ts/);
+  assert.match(toolLines[0] ?? "", /✓ Edited three\.ts/);
 });
 
 test("ActivityBlockMessageComponent shows all tool rows in current sticky order for all mode", () => {
@@ -640,9 +651,9 @@ test("ActivityBlockMessageComponent shows all tool rows in current sticky order 
     },
   }, { toolHistoryViewMode: "all" }).render(72).map((line) => stripAnsi(line));
 
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
+  const toolLines = rendered.filter(isToolHistoryLine);
   assert.equal(toolLines.length, 3);
-  assert.match(toolLines[0] ?? "", /✓ edit three\.ts/);
+  assert.match(toolLines[0] ?? "", /✓ Edited three\.ts/);
   assert.match(toolLines[1] ?? "", /▶ \$ printf two/);
   assert.match(toolLines[2] ?? "", /✓ read one\.md:1-10/);
 });
@@ -716,14 +727,14 @@ test("ActivityBlockMessageComponent shows timers for running, successful, and fa
     },
     lastToolSummary: "$ sleep 10",
   }, { now: 12_000, toolHistoryViewMode: "recent" }).render(80).map((line) => stripAnsi(line));
-  const toolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ read") || line.includes("! write") || line.includes("✓ edit"));
+  const toolLines = rendered.filter(isToolHistoryLine);
 
   assert.equal(toolLines.length, 4);
   assert.ok(toolLines.some((line) => /▶ \$ sleep 10.* · 10s/.test(line)));
-  assert.ok(toolLines.some((line) => /! write notes\.md.* · 10s/.test(line)));
+  assert.ok(toolLines.some((line) => /! Write failed for notes\.md.* · 10s/.test(line)));
   assert.ok(toolLines.some((line) => /✓ read README\.md:1-20.* · 10s/.test(line)));
-  assert.ok(toolLines.some((line) => /✓ edit fast\.ts/.test(line)));
-  assert.ok(!toolLines.some((line) => /✓ edit fast\.ts.* · 9s/.test(line)));
+  assert.ok(toolLines.some((line) => /✓ Edited fast\.ts/.test(line)));
+  assert.ok(!toolLines.some((line) => /✓ Edited fast\.ts.* · 9s/.test(line)));
 });
 
 test("ActivityBlockMessageComponent uses tool-state background highlighting for the rendered sticky tool row", () => {
@@ -732,7 +743,7 @@ test("ActivityBlockMessageComponent uses tool-state background highlighting for 
     bg: (name, text) => `<${name}>${text}</${name}>`,
   };
   const rendered = createComponent({}, { theme: backgroundTheme }).render(64).join("\n");
-  assert.match(rendered, /<toolSuccessBg>[^\n]*✓ edit activity-block-widget\.ts/);
+  assert.match(rendered, /<toolSuccessBg>[^\n]*✓ Edited activity-block-widget\.ts/);
   assert.doesNotMatch(rendered, /<toolPendingBg>[^\n]*▶ \$ printf hello/);
 });
 
@@ -743,7 +754,7 @@ test("ActivityBlockMessageComponent keeps expanded tool history color coded", ()
   };
   const rendered = createComponent({}, { theme: backgroundTheme, expanded: true }).render(64).join("\n");
   assert.match(rendered, /<toolPendingBg>[^\n]*▶ \$ printf hello/);
-  assert.match(rendered, /<toolSuccessBg>[^\n]*✓ edit activity-block-widget\.ts/);
+  assert.match(rendered, /<toolSuccessBg>[^\n]*✓ Edited activity-block-widget\.ts/);
   assert.match(rendered, /<toolSuccessBg>[^\n]*✓ read README\.md:1-40/);
 });
 
@@ -801,17 +812,17 @@ test("ActivityBlockMessageComponent freezes expanded tool timers at completion t
 
   assert.ok(rendered.some((line) => /▶ \$ sleep 12.* · 12s/.test(line)));
   assert.ok(rendered.some((line) => /✓ read README\.md:1-20.* · 11s/.test(line)));
-  assert.ok(rendered.some((line) => /✓ edit quick\.ts/.test(line)));
-  assert.ok(!rendered.some((line) => /✓ edit quick\.ts.* · 4s/.test(line)));
+  assert.ok(rendered.some((line) => /✓ Edited quick\.ts/.test(line)));
+  assert.ok(!rendered.some((line) => /✓ Edited quick\.ts.* · 4s/.test(line)));
   assert.ok(!rendered.some((line) => /✓ read README\.md:1-20.* · 19s/.test(line)));
 });
 
 test("ActivityBlockMessageComponent hides the separate primary text area when full history is visible", () => {
   const rendered = createComponent({}, { expanded: true }).render(80).map((line) => stripAnsi(line));
-  const prefixedToolLines = rendered.filter((line) => line.includes("▶ $") || line.includes("✓ edit") || line.includes("✓ read"));
+  const prefixedToolLines = rendered.filter(isToolHistoryLine);
   assert.equal(prefixedToolLines.length, 3);
   assert.ok(!rendered.some((line) => line.includes("bash $ printf hello from a surprisingly long command")));
-  assert.ok(rendered.some((line) => line.includes("checking the latest thinking excerpt for the activity block")));
+  assert.ok(rendered.some((line) => line.includes("checking the latest thinking excerpt")));
   assert.ok(!rendered.some((line) => line.includes("Cooking")));
 });
 
@@ -836,10 +847,10 @@ test("ActivityBlockMessageComponent keeps the full-history panel tool-only when 
 
   assert.ok(!rendered.some((line) => line.includes("No recent tool details")));
   assert.ok(!rendered.some((line) => line.includes("Thought:")));
-  assert.equal(rendered.filter((line) => line.includes("checking the latest thinking excerpt for the activity block")).length, 1);
+  assert.equal(rendered.filter((line) => line.includes("checking the latest thinking excerpt")).length, 1);
   assert.ok(rendered.some((line) => line.includes("0 tool calls")));
   const blankRows = rendered.filter((line) => /^│\s*│$/.test(line));
-  assert.equal(blankRows.length, 1);
+  assert.equal(blankRows.length, 0);
 });
 
 test("ActivityBlockMessageComponent keeps only the thinking header visible in full-history mode when no tools ran", () => {
@@ -893,5 +904,5 @@ test("ActivityBlockMessageComponent keeps the border pink after nested ansi rese
     () => 0,
   );
   const rendered = component.render(22);
-  assert.ok(rendered.some((line) => /\x1b\[1mchecking the latest .*\x1b\[0m\x1b\[38;2;245;194;231m│\x1b\[39m$/.test(line)));
+  assert.ok(rendered.some((line) => /\x1b\[1mc.*3 tool calls.*\x1b\[38;2;245;194;231m│\x1b\[39m$/.test(line)));
 });

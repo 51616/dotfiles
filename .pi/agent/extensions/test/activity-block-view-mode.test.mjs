@@ -118,7 +118,7 @@ function countVisibleToolRows(component) {
   return component
     .render(96)
     .map((line) => stripAnsi(line))
-    .filter((line) => /(▶|✓|!) (\$|read|write|edit)/.test(line)).length;
+    .filter((line) => /(▶|✓|!) (\$|read|Wrote|Edited|Writing|Editing|Write failed)/.test(line)).length;
 }
 
 test("activity-block view toggle cycles latest, recent, and all tool rows when each view changes output", async () => {
