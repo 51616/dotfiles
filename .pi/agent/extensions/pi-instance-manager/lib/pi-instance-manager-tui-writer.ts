@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { asString } from "./pi-instance-manager-common.ts";
 
 type ManagerRequestFn = (op: string, payload: Record<string, unknown>, timeoutMs?: number) => Promise<any>;
@@ -21,6 +22,44 @@ function randomOwnerId(): string {
 function parseManagerGeneration(value: unknown): number {
   const raw = Number(value);
   return Number.isFinite(raw) ? Math.trunc(raw) : 0;
+}
+
+function readProcessCwd(pid: number): string {
+  if (!Number.isFinite(pid) || pid <= 0) return "";
+  try {
+    return fs.readlinkSync(`/proc/${Math.trunc(pid)}/cwd`);
+  } catch {
+    return "";
+  }
+}
+
+async function describeActiveTuiWriter({
+  managerRequest,
+  sessionId,
+}: {
+  managerRequest: ManagerRequestFn;
+  sessionId: string;
+}): Promise<string> {
+  try {
+    const data = await managerRequest("state.get", {}, 800);
+    const writers: unknown[] = Array.isArray(data?.state?.tuiWriters) ? data.state.tuiWriters : [];
+    const writer = writers.find((row): row is Record<string, unknown> => {
+      if (!row || typeof row !== "object") return false;
+      return asString((row as Record<string, unknown>).sessionId).trim() === sessionId;
+    });
+    if (!writer) return "tui writer already active";
+
+    const pid = Number(writer?.pid);
+    const owner = asString(writer?.owner).trim();
+    const cwd = readProcessCwd(pid);
+    const parts = ["tui writer already active"];
+    if (Number.isFinite(pid) && pid > 0) parts.push(`pid=${Math.trunc(pid)}`);
+    if (cwd) parts.push(`cwd=${cwd}`);
+    if (owner) parts.push(`owner=${owner}`);
+    return parts.join("; ");
+  } catch {
+    return "tui writer already active";
+  }
 }
 
 export function createTuiWriterLeaseController({
@@ -144,7 +183,11 @@ export function createTuiWriterLeaseController({
         managerGeneration: parseManagerGeneration(data?.managerGeneration),
       };
     } catch (error) {
-      setManagerUnavailableError(`tui_writer.acquire failed: ${String(error instanceof Error ? error.message : error)}`);
+      const message = String(error instanceof Error ? error.message : error);
+      const detail = message === "tui writer already active"
+        ? await describeActiveTuiWriter({ managerRequest, sessionId: sid })
+        : message;
+      setManagerUnavailableError(`tui_writer.acquire failed: ${detail}`);
       scheduleQueueRetry(1200);
       return null;
     }

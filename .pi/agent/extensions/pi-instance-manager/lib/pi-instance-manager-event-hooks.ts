@@ -40,6 +40,7 @@ export function registerInstanceManagerEventHooks({
   refreshManagerState,
   pumpInputQueue,
   setManagerUnavailableError,
+  getManagerUnavailableError,
   setLastLocalSubmitAt,
   enqueueTurnTicket,
   getTuiPromptOwner,
@@ -81,6 +82,7 @@ export function registerInstanceManagerEventHooks({
   refreshManagerState: () => Promise<void>;
   pumpInputQueue: (ctx: ExtensionContext) => Promise<void>;
   setManagerUnavailableError: (value: string) => void;
+  getManagerUnavailableError?: () => string;
   setLastLocalSubmitAt: (value: number) => void;
   enqueueTurnTicket: (
     sessionId: string,
@@ -208,7 +210,12 @@ export function registerInstanceManagerEventHooks({
       const queuedText = expandQueuedCommandText(event.text) || event.text;
       const ticket = await enqueueTurnTicket(sid, queuedText);
       if (!ticket) {
-        if (ctx.hasUI) setFooter(ctx);
+        if (ctx.hasUI) {
+          const reason = asString(getManagerUnavailableError?.()).trim() || "manager rejected the queued turn";
+          ctx.ui.setEditorText(event.text);
+          ctx.ui.notify(`Input was not queued: ${reason}\nYour text was restored to the editor.`, "warning");
+          setFooter(ctx);
+        }
         return { action: "handled" };
       }
 

@@ -10,6 +10,7 @@ test("beginCompactionLifecycle sets local markers and records active compaction 
   let localCompactingSessionId = "";
   let localCompactingUntil = 0;
   let activeCompactionId = "";
+  let activeCompactionFencingToken = "";
   let footerCalls = 0;
   let refreshCalls = 0;
 
@@ -22,7 +23,7 @@ test("beginCompactionLifecycle sets local markers and records active compaction 
     ctx,
     managerRequest: async (op) => {
       assert.equal(op, "compaction.begin");
-      return { compactionId: "c-1" };
+      return { compactionId: "c-1", fencingToken: "fence-1" };
     },
     setCurrentSessionId: (value) => {
       currentSessionId = value;
@@ -42,6 +43,9 @@ test("beginCompactionLifecycle sets local markers and records active compaction 
     setActiveCompactionId: (value) => {
       activeCompactionId = value;
     },
+    setActiveCompactionFencingToken: (value) => {
+      activeCompactionFencingToken = value;
+    },
     leaseMs: 5000,
   });
 
@@ -49,6 +53,7 @@ test("beginCompactionLifecycle sets local markers and records active compaction 
   assert.equal(localCompactingSessionId, "s1");
   assert.ok(localCompactingUntil > Date.now());
   assert.equal(activeCompactionId, "c-1");
+  assert.equal(activeCompactionFencingToken, "fence-1");
   assert.equal(footerCalls, 1);
   assert.equal(refreshCalls, 1);
 });
@@ -57,6 +62,7 @@ test("endCompactionLifecycle clears markers and pumps queue", async () => {
   let localCompactingSessionId = "s1";
   let localCompactingUntil = Date.now() + 1000;
   let activeCompactionId = "c-1";
+  let activeCompactionFencingToken = "fence-1";
   let footerCalls = 0;
   let pumpCalls = 0;
   const managerCalls = [];
@@ -73,6 +79,7 @@ test("endCompactionLifecycle clears markers and pumps queue", async () => {
       return {};
     },
     activeCompactionId,
+    activeCompactionFencingToken,
     setLocalCompactingSessionId: (value) => {
       localCompactingSessionId = value;
     },
@@ -81,6 +88,9 @@ test("endCompactionLifecycle clears markers and pumps queue", async () => {
     },
     setActiveCompactionId: (value) => {
       activeCompactionId = value;
+    },
+    setActiveCompactionFencingToken: (value) => {
+      activeCompactionFencingToken = value;
     },
     setFooter: () => {
       footerCalls += 1;
@@ -93,7 +103,10 @@ test("endCompactionLifecycle clears markers and pumps queue", async () => {
   assert.equal(localCompactingSessionId, "");
   assert.equal(localCompactingUntil, 0);
   assert.equal(activeCompactionId, "");
+  assert.equal(activeCompactionFencingToken, "");
   assert.equal(footerCalls, 1);
   assert.equal(pumpCalls, 1);
-  assert.deepEqual(managerCalls, [{ op: "compaction.end", payload: { compactionId: "c-1" } }]);
+  assert.deepEqual(managerCalls, [
+    { op: "compaction.end", payload: { compactionId: "c-1", fencingToken: "fence-1" } },
+  ]);
 });

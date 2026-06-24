@@ -15,18 +15,36 @@ test("reissueQueueTickets replaces queue entries when all ticket reissues succee
       { text: "new-a", owner: "o2" },
       { text: "new-b" },
     ],
-    enqueueTurnTicket: async (_sid, text) => `ticket-${text}`,
-    finishTurnTicket: async (ticketId, op) => {
-      finished.push({ ticketId, op });
+    enqueueTurnTicket: async (_sid, text) => ({
+      ticketId: `ticket-${text}`,
+      fencingToken: `fence-${text}`,
+      managerGeneration: 7,
+    }),
+    finishTurnTicket: async (ticketId, op, fencingToken) => {
+      finished.push({ ticketId, op, fencingToken });
     },
     nowMs: () => 123,
   });
 
   assert.equal(result, true);
-  assert.deepEqual(finished, [{ ticketId: "old-1", op: "turn.cancel" }]);
+  assert.deepEqual(finished, [{ ticketId: "old-1", op: "turn.cancel", fencingToken: undefined }]);
   assert.deepEqual(queue.list("s1"), [
-    { ticketId: "ticket-new-a", text: "new-a", queuedAt: 123, owner: "o2" },
-    { ticketId: "ticket-new-b", text: "new-b", queuedAt: 123, owner: undefined },
+    {
+      ticketId: "ticket-new-a",
+      fencingToken: "fence-new-a",
+      managerGeneration: 7,
+      text: "new-a",
+      queuedAt: 123,
+      owner: "o2",
+    },
+    {
+      ticketId: "ticket-new-b",
+      fencingToken: "fence-new-b",
+      managerGeneration: 7,
+      text: "new-b",
+      queuedAt: 123,
+      owner: undefined,
+    },
   ]);
 });
 
@@ -39,14 +57,24 @@ test("reissueQueueTickets cancels rebuilt tickets and keeps old queue on partial
     queue,
     sessionId: "s1",
     nextItems: [{ text: "new-a" }, { text: "new-b" }],
-    enqueueTurnTicket: async (_sid, text) => (text === "new-a" ? "ticket-a" : ""),
-    finishTurnTicket: async (ticketId, op) => {
-      finished.push({ ticketId, op });
+    enqueueTurnTicket: async (_sid, text) =>
+      text === "new-a" ? { ticketId: "ticket-a", fencingToken: "fence-a", managerGeneration: 7 } : null,
+    finishTurnTicket: async (ticketId, op, fencingToken) => {
+      finished.push({ ticketId, op, fencingToken });
     },
     nowMs: () => 123,
   });
 
   assert.equal(result, false);
-  assert.deepEqual(finished, [{ ticketId: "ticket-a", op: "turn.cancel" }]);
-  assert.deepEqual(queue.list("s1"), [{ ticketId: "old-1", text: "old", queuedAt: 1, owner: "o1" }]);
+  assert.deepEqual(finished, [{ ticketId: "ticket-a", op: "turn.cancel", fencingToken: "fence-a" }]);
+  assert.deepEqual(queue.list("s1"), [
+    {
+      ticketId: "old-1",
+      fencingToken: undefined,
+      managerGeneration: undefined,
+      text: "old",
+      queuedAt: 1,
+      owner: "o1",
+    },
+  ]);
 });

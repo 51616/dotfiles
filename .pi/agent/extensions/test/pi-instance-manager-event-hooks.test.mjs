@@ -227,6 +227,110 @@ test("input hook expands prompt-template commands before queueing", async () => 
   }
 });
 
+test("input hook restores editor text and warns when queueing is rejected", async () => {
+  const handlers = new Map();
+  const queue = new SessionInputQueue();
+  const editorTexts = [];
+  const notifications = [];
+  const footerCalls = [];
+  let currentSessionId = "";
+  let currentSessionFile = "";
+  let managerError = "tui_writer.acquire failed: tui writer already active; pid=3186324; cwd=/home/tan";
+
+  const pi = {
+    on(name, handler) {
+      const key = String(name);
+      const list = handlers.get(key) || [];
+      list.push(handler);
+      handlers.set(key, list);
+    },
+  };
+
+  registerInstanceManagerEventHooks({
+    pi,
+    queue,
+    getCurrentSessionId: () => currentSessionId,
+    setCurrentSessionId: (value) => {
+      currentSessionId = value;
+    },
+    setLastCtx: noop,
+    setSessionResyncCurrentFile: (value) => {
+      currentSessionFile = value;
+    },
+    resetExternalWriteExpected: noop,
+    refreshTrackedSessionFile: noop,
+    resetSessionScopedState: noop,
+    ensurePollTimer: noopAsync,
+    clearPollTimer: noop,
+    clearQueueRetryTimer: noop,
+    clearSpinnerTimer: noop,
+    stopTurnLockRenew: noop,
+    stopTuiWriterRenew: noop,
+    releaseTuiWriterLease: noopAsync,
+    clearSessionResyncState: noop,
+    getActiveTurnTicketId: () => "",
+    getActiveTurnTicketFencingToken: () => "",
+    clearActiveTurnTicketId: noop,
+    finishTurnTicket: noopAsync,
+    getActiveCompactionId: () => "",
+    endCompactionById: noopAsync,
+    clearActiveCompactionId: noop,
+    releaseTurnLock: noopAsync,
+    clearUiState: noop,
+    beginCompaction: noopAsync,
+    endCompaction: noopAsync,
+    guardBranchNavigation: async () => ({ cancel: false }),
+    getActiveTurnLockToken: () => "",
+    getActiveTurnLockSessionId: () => "",
+    setAwaitingTurnEnd: noop,
+    refreshManagerState: noopAsync,
+    pumpInputQueue: noopAsync,
+    setManagerUnavailableError: (value) => {
+      managerError = value;
+    },
+    getManagerUnavailableError: () => managerError,
+    setLastLocalSubmitAt: noop,
+    enqueueTurnTicket: async () => null,
+    getTuiPromptOwner: (sessionId) => `pi-tui:prompt:pid=${process.pid}:instance=test:session=${sessionId}`,
+    setFooter: (ctx) => {
+      footerCalls.push(ctx.sessionManager.getSessionId());
+    },
+    expandQueuedCommandText: (text) => text,
+  });
+
+  const ctx = {
+    hasUI: true,
+    sessionManager: {
+      getSessionId: () => "session-1",
+      getSessionFile: () => "/tmp/session-1.jsonl",
+    },
+    ui: {
+      setEditorText: (value) => {
+        editorTexts.push(value);
+      },
+      notify: (text, level) => {
+        notifications.push({ text, level });
+      },
+    },
+  };
+
+  const inputHandlers = handlers.get("input") || [];
+  assert.equal(inputHandlers.length, 1);
+
+  const result = await inputHandlers[0]({ source: "user", text: "please continue" }, ctx);
+
+  assert.deepEqual(result, { action: "handled" });
+  assert.equal(currentSessionId, "session-1");
+  assert.equal(currentSessionFile, "/tmp/session-1.jsonl");
+  assert.deepEqual(queue.list("session-1"), []);
+  assert.deepEqual(editorTexts, ["please continue"]);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].level, "warning");
+  assert.match(notifications[0].text, /Input was not queued: tui_writer\.acquire failed/);
+  assert.match(notifications[0].text, /Your text was restored to the editor\./);
+  assert.deepEqual(footerCalls, ["session-1"]);
+});
+
 test("session_before_fork maps clone position to clone guard op", async () => {
   const handlers = new Map();
   const seenOps = [];

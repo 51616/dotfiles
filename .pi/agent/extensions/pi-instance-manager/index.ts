@@ -652,6 +652,7 @@ export default function piInstanceManager(pi: ExtensionAPI) {
     setManagerUnavailableError: (value) => {
       managerUnavailableError = value;
     },
+    getManagerUnavailableError: () => managerUnavailableError,
     setLastLocalSubmitAt: (value) => {
       lastLocalSubmitAt = value;
     },

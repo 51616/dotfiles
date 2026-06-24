@@ -54,17 +54,25 @@ async function createFakeManagerServer(sockPath, sessionId, requests) {
                       items: [],
                     },
                   ],
+                  tuiWriters: [],
                 },
               };
               break;
+            case "tui_writer.acquire":
+              data = { acquired: true, fencingToken: "writer-fence-1", managerGeneration: 1 };
+              break;
+            case "tui_writer.release":
+            case "tui_writer.renew":
+              data = { released: true, renewed: true, fencingToken: "writer-fence-1", managerGeneration: 1 };
+              break;
             case "turn.enqueue":
-              data = { ticketId: "ticket-1" };
+              data = { ticketId: "ticket-1", fencingToken: "turn-fence-1", managerGeneration: 1 };
               break;
             case "turn.wait":
-              data = { granted: true, waited: false };
+              data = { granted: true, waited: false, fencingToken: "turn-fence-1", managerGeneration: 1 };
               break;
             case "lock.acquire":
-              data = { token: "lock-1", waited: false };
+              data = { token: "lock-1", fencingToken: "lock-fence-1", managerGeneration: 1, waited: false };
               break;
             case "turn.done":
             case "turn.cancel":

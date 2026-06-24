@@ -4,19 +4,25 @@ import { createTurnLockController } from "../pi-instance-manager/lib/pi-instance
 
 test("createTurnLockController acquireTurnLock sets token/session on success", async () => {
   let activeToken = "";
+  let activeFence = "";
   let activeSessionId = "";
   const retries = [];
   const errors = [];
   const awaitingValues = [];
 
   const controller = createTurnLockController({
-    managerRequest: async (op) => {
+    managerRequest: async (op, payload) => {
       assert.equal(op, "lock.acquire");
-      return { token: "lock-1" };
+      assert.equal(payload.sessionId, "s1");
+      return { token: "lock-1", fencingToken: "fence-1", managerGeneration: 7 };
     },
     getActiveTurnLockToken: () => activeToken,
     setActiveTurnLockToken: (value) => {
       activeToken = value;
+    },
+    getActiveTurnLockFencingToken: () => activeFence,
+    setActiveTurnLockFencingToken: (value) => {
+      activeFence = value;
     },
     getActiveTurnLockSessionId: () => activeSessionId,
     setActiveTurnLockSessionId: (value) => {
@@ -37,9 +43,9 @@ test("createTurnLockController acquireTurnLock sets token/session on success", a
   });
 
   const result = await controller.acquireTurnLock("s1");
-  assert.equal(result.token, "lock-1");
-  assert.equal(result.waited, false);
+  assert.deepEqual(result, { token: "lock-1", fencingToken: "fence-1", managerGeneration: 7, waited: false });
   assert.equal(activeToken, "lock-1");
+  assert.equal(activeFence, "fence-1");
   assert.equal(activeSessionId, "s1");
   assert.deepEqual(retries, []);
   assert.equal(errors.at(-1), "");
@@ -50,6 +56,7 @@ test("createTurnLockController acquireTurnLock sets token/session on success", a
 
 test("createTurnLockController releaseTurnLock clears local state and retries on release failure", async () => {
   let activeToken = "lock-2";
+  let activeFence = "fence-2";
   let activeSessionId = "s2";
   let activeText = "hello";
   let awaitingTurnEnd = true;
@@ -57,12 +64,18 @@ test("createTurnLockController releaseTurnLock clears local state and retries on
   const errors = [];
 
   const controller = createTurnLockController({
-    managerRequest: async () => {
+    managerRequest: async (op, payload) => {
+      assert.equal(op, "lock.release");
+      assert.deepEqual(payload, { token: "lock-2", fencingToken: "fence-2" });
       throw new Error("socket closed");
     },
     getActiveTurnLockToken: () => activeToken,
     setActiveTurnLockToken: (value) => {
       activeToken = value;
+    },
+    getActiveTurnLockFencingToken: () => activeFence,
+    setActiveTurnLockFencingToken: (value) => {
+      activeFence = value;
     },
     getActiveTurnLockSessionId: () => activeSessionId,
     setActiveTurnLockSessionId: (value) => {
@@ -86,6 +99,7 @@ test("createTurnLockController releaseTurnLock clears local state and retries on
   await controller.releaseTurnLock();
 
   assert.equal(activeToken, "");
+  assert.equal(activeFence, "");
   assert.equal(activeSessionId, "");
   assert.equal(activeText, "");
   assert.equal(awaitingTurnEnd, false);
@@ -95,6 +109,7 @@ test("createTurnLockController releaseTurnLock clears local state and retries on
 
 test("createTurnLockController acquireTurnLock times out and schedules retry", async () => {
   let activeToken = "";
+  let activeFence = "";
   let activeSessionId = "";
   const retries = [];
   const errors = [];
@@ -106,6 +121,10 @@ test("createTurnLockController acquireTurnLock times out and schedules retry", a
     getActiveTurnLockToken: () => activeToken,
     setActiveTurnLockToken: (value) => {
       activeToken = value;
+    },
+    getActiveTurnLockFencingToken: () => activeFence,
+    setActiveTurnLockFencingToken: (value) => {
+      activeFence = value;
     },
     getActiveTurnLockSessionId: () => activeSessionId,
     setActiveTurnLockSessionId: (value) => {

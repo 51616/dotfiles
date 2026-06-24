@@ -10,7 +10,10 @@ test("createTurnTicketClient enqueueTurnTicket returns ticketId and clears error
     managerRequest: async (op, payload) => {
       assert.equal(op, "turn.enqueue");
       assert.equal(payload.sessionId, "s1");
-      return { ticketId: "t-1" };
+      assert.equal(payload.owner, "pi-tui:prompt:pid=999:instance=test:session=s1");
+      assert.equal(payload.writerOwnerId, "writer-1");
+      assert.equal(payload.writerFencingToken, "writer-fence-1");
+      return { ticketId: "t-1", fencingToken: "turn-fence-1", managerGeneration: 2 };
     },
     setManagerUnavailableError: (message) => {
       errors.push(message);
@@ -18,11 +21,13 @@ test("createTurnTicketClient enqueueTurnTicket returns ticketId and clears error
     scheduleQueueRetry: (ms) => {
       retries.push(ms);
     },
+    getTuiWriterLease: async () => ({ ownerId: "writer-1", fencingToken: "writer-fence-1" }),
+    buildTuiOwner: (sessionId) => `pi-tui:prompt:pid=999:instance=test:session=${sessionId}`,
     ownerPid: 999,
   });
 
-  const ticketId = await client.enqueueTurnTicket("s1", "hello");
-  assert.equal(ticketId, "t-1");
+  const ticket = await client.enqueueTurnTicket("s1", "hello");
+  assert.deepEqual(ticket, { ticketId: "t-1", fencingToken: "turn-fence-1", managerGeneration: 2 });
   assert.deepEqual(retries, []);
   assert.equal(errors.at(-1), "");
 });

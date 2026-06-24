@@ -48,17 +48,18 @@ test("countRemoteQueuedTurns excludes local, non-queued, and invalid tickets", (
       {
         sessionId: "s1",
         items: [
-          { ticketId: "l1", state: "queued" },
-          { ticketId: "r1", state: "queued" },
-          { ticketId: "r2", state: "queued" },
-          { ticketId: "g1", state: "granted" },
-          { ticketId: "", state: "queued" },
-          { state: "queued" },
+          { ticketId: "l1", state: "queued", owner: "pi-discord-bot:prompt:session=s1" },
+          { ticketId: "r1", state: "queued", owner: "pi-discord-bot:prompt:session=s1" },
+          { ticketId: "r2", state: "queued", owner: "pi-discord-bot:prompt:session=s1" },
+          { ticketId: "tui1", state: "queued", owner: "pi-tui:prompt:pid=1:session=s1" },
+          { ticketId: "g1", state: "granted", owner: "pi-discord-bot:prompt:session=s1" },
+          { ticketId: "", state: "queued", owner: "pi-discord-bot:prompt:session=s1" },
+          { state: "queued", owner: "pi-discord-bot:prompt:session=s1" },
         ],
       },
       {
         sessionId: "s2",
-        items: [{ ticketId: "x", state: "queued" }],
+        items: [{ ticketId: "x", state: "queued", owner: "pi-discord-bot:prompt:session=s2" }],
       },
     ],
   };
