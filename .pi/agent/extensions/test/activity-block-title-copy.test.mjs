@@ -60,7 +60,7 @@ function render(snapshotOverrides = {}, options = {}) {
 test("activity-block keeps the visible running title static", () => {
   const rendered = render({}, { now: 1_050 });
   const footer = rendered[rendered.length - 2] ?? "";
-  assert.ok(footer.includes("checking the latest thinking excerpt"));
+  assert.ok(footer.includes("checking the latest thinking"));
   assert.ok(!footer.includes("checking the latest thinking excerpt..."));
 });
 

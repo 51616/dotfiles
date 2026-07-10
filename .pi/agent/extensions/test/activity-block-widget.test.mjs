@@ -243,7 +243,7 @@ test("formatActivityBlock uses a waiting status before the first update", () => 
 });
 
 
-test("ActivityBlockMessageComponent keeps the running title static while appending the spinner", () => {
+test("ActivityBlockMessageComponent keeps the running title static while prepending the scanner", () => {
   const overrides = {
     latestThinking: "Planning",
     latestThinkingFull: "Planning\n\nwith more detail below",
@@ -260,7 +260,7 @@ test("ActivityBlockMessageComponent keeps the running title static while appendi
   for (const now of [0, 350, 1050]) {
     const rendered = createComponent(overrides, { now }).render(48).map((line) => stripAnsi(line));
     const footer = rendered[rendered.length - 2] ?? "";
-    assert.match(footer, /Planning [■⬝]{8}/u);
+    assert.match(footer, /[■⬝]{8} Planning/u);
     assert.ok(!footer.includes("Planning."));
   }
 });
@@ -286,10 +286,10 @@ test("ActivityBlockMessageComponent keeps responding footer quantitative only", 
   assert.match(rendered, /3 tool calls/);
 });
 
-test("ActivityBlockMessageComponent renders the footer status fully bold", () => {
+test("ActivityBlockMessageComponent renders the scanner and footer status fully bold", () => {
   const rendered = createComponent({}, { theme: markerBoldTheme }).render(64).map((line) => stripAnsi(line));
   const footer = rendered[rendered.length - 2] ?? "";
-  assert.match(footer, /│<b>checking the latest thinking excerpt/u);
+  assert.match(footer, /│<b>[■⬝]{8} <b>checking the latest thinking/u);
   assert.match(footer, /3 tool calls/u);
 });
 
@@ -319,9 +319,9 @@ test("ActivityBlockMessageComponent keeps the block shape without a visible turn
   assert.ok(rendered.length <= 20);
   assert.ok(!rendered.some((line) => line.includes("Turn #123")));
   const footer = rendered[rendered.length - 2] ?? "";
-  assert.ok(footer.includes("checking the latest"));
+  assert.ok(footer.includes("checking the lates"));
   assert.ok(rendered.some((line) => line.includes("▶ $ printf hello")));
-  assert.equal(rendered.filter((line) => line.includes("checking the latest")).length, 1);
+  assert.equal(rendered.filter((line) => line.includes("checking the lates")).length, 1);
   assert.ok(!rendered.some((line) => line.includes("Expanded")));
   assert.ok(!rendered.some((line) => line.includes("Thought:")));
   for (const line of rendered) {
@@ -378,7 +378,7 @@ test("ActivityBlockMessageComponent adds a spacer row after the sticky tool stac
   const lastToolLine = toolLines[toolLines.length - 1] ?? "";
   const lastToolIndex = rendered.lastIndexOf(lastToolLine);
 
-  assert.ok((rendered[footerIndex] ?? "").includes("checking the latest thinking excerpt"));
+  assert.ok((rendered[footerIndex] ?? "").includes("checking the latest thinking"));
   assert.ok(lastToolIndex >= 0);
   assert.ok(lastToolIndex < footerIndex);
   assert.match(rendered[lastToolIndex + 1] ?? "", blankRow);
@@ -834,7 +834,7 @@ test("ActivityBlockMessageComponent hides the separate primary text area when fu
   const prefixedToolLines = rendered.filter(isToolHistoryLine);
   assert.equal(prefixedToolLines.length, 3);
   assert.ok(!rendered.some((line) => line.includes("bash $ printf hello from a surprisingly long command")));
-  assert.ok(rendered.some((line) => line.includes("checking the latest thinking excerpt")));
+  assert.ok(rendered.some((line) => line.includes("checking the latest thinking")));
   assert.ok(!rendered.some((line) => line.includes("Cooking")));
 });
 
@@ -859,7 +859,7 @@ test("ActivityBlockMessageComponent keeps the full-history panel tool-only when 
 
   assert.ok(!rendered.some((line) => line.includes("No recent tool details")));
   assert.ok(!rendered.some((line) => line.includes("Thought:")));
-  assert.equal(rendered.filter((line) => line.includes("checking the latest thinking excerpt")).length, 1);
+  assert.equal(rendered.filter((line) => line.includes("checking the latest thinking")).length, 1);
   assert.ok(rendered.some((line) => line.includes("0 tool calls")));
   const blankRows = rendered.filter((line) => /^│\s*│$/.test(line));
   assert.equal(blankRows.length, 0);
@@ -916,5 +916,5 @@ test("ActivityBlockMessageComponent keeps the border pink after nested ansi rese
     () => 0,
   );
   const rendered = component.render(22);
-  assert.ok(rendered.some((line) => /\x1b\[1mc.*3 tool calls.*\x1b\[38;2;245;194;231m│\x1b\[39m$/.test(line)));
+  assert.ok(rendered.some((line) => line.includes("3 tool calls") && /\x1b\[38;2;245;194;231m│\x1b\[39m$/.test(line)));
 });

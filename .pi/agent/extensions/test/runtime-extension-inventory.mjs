@@ -63,6 +63,10 @@ export const REGRESSION_MATRIX = {
     "test/runtime-entrypoint-imports.test.mjs",
     "quota-footer/test/quota-footer.test.mjs",
   ],
+  "remote-fff-forward": [
+    "remote-fff-forward/test/entrypoint.test.mjs",
+    "remote-fff-forward/test/query-format.test.mjs",
+  ],
   "self-checkpointing": [
     "test/self-checkpointing-entrypoint.test.mjs",
     "self-checkpointing/test/compaction-ui.test.mjs",
