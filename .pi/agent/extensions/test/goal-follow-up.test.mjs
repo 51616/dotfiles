@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { initTheme } from "@mariozechner/pi-coding-agent";
 import goalExtension from "../goal/index.ts";
 import {
   __resetGoalRuntimeStoreForTests,
@@ -44,6 +45,7 @@ function createHarness(options = {}) {
   const appendedEntries = [];
   const statuses = [];
   const confirmations = [];
+  const auditLoaders = [];
   const branchEntries = options.branchEntries ?? [];
 
   const pi = {
@@ -118,6 +120,21 @@ function createHarness(options = {}) {
     },
   };
 
+  if (options.enableAuditLoader) {
+    ctx.ui.custom = (factory) => {
+      let component;
+      const done = () => component?.dispose?.();
+      component = factory(
+        { requestRender() {} },
+        { fg: (_color, text) => text },
+        {},
+        done,
+      );
+      auditLoaders.push(component);
+      return Promise.resolve(null);
+    };
+  }
+
   goalExtension(pi);
 
   return {
@@ -129,6 +146,7 @@ function createHarness(options = {}) {
     appendedEntries,
     statuses,
     confirmations,
+    auditLoaders,
     branchEntries,
     ctx,
   };
@@ -236,7 +254,7 @@ test("blank command does not adopt a previous session message after session swit
   assert.match(harness.notifications.at(-1).message, /could not find a previous user message/);
 });
 
-test("agent_end waits for the configured audit delay before auditing", async () => {
+test("agent_settled waits for the configured audit delay before auditing", async () => {
   let auditCalls = 0;
   const harness = createHarness({
     auditStartDelayMs: 35,
@@ -263,7 +281,7 @@ test("agent_end waits for the configured audit delay before auditing", async () 
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(auditCalls, 0);
@@ -276,7 +294,54 @@ test("agent_end waits for the configured audit delay before auditing", async () 
   assert.match(harness.sentMessages[0].text, /Next after audit delay/);
 });
 
-test("agent_end runs audit, sends anchored follow-up, and increments turns after dispatch", async () => {
+test("delayed audit rechecks idle state before starting external work", async () => {
+  let idle = true;
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditStartDelayMs: 35,
+    isIdle: () => idle,
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next after the session is idle.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  idle = false;
+  await new Promise((resolve) => setTimeout(resolve, 55));
+
+  assert.equal(auditCalls, 0, "a delayed audit must not overlap a newly active agent run");
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 55));
+
+  assert.equal(auditCalls, 1, "the next idle scheduling event must be able to retry");
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Next after the session is idle/);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
+});
+
+test("agent_settled runs audit, sends anchored follow-up, and increments turns after dispatch", async () => {
   const harness = createHarness({
     auditRunner: async (_goal, prompt) => {
       assert.match(prompt, /external progress\/completion auditor/);
@@ -301,7 +366,7 @@ test("agent_end runs audit, sends anchored follow-up, and increments turns after
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish the migration");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 1);
@@ -338,7 +403,7 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
@@ -346,7 +411,7 @@ test("continuation gates are rechecked after audit before dispatch", async () =>
   assert.equal(getGoalSnapshotForSession("session-1").status, "active");
 });
 
-test("agent_end defers audit while an auto-checkpoint cycle is active", async () => {
+test("agent_settled defers audit while an auto-checkpoint cycle is active", async () => {
   let auditCalls = 0;
   const harness = createHarness({
     auditRunner: async () => {
@@ -373,7 +438,7 @@ test("agent_end defers audit while an auto-checkpoint cycle is active", async ()
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
   setCheckpointCycleActive(harness.ctx, true);
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(auditCalls, 0);
@@ -381,7 +446,7 @@ test("agent_end defers audit while an auto-checkpoint cycle is active", async ()
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   setCheckpointCycleActive(harness.ctx, false);
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(auditCalls, 1);
@@ -416,7 +481,7 @@ test("scheduled audit rechecks auto-checkpoint state before dispatch", async () 
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   setCheckpointCycleActive(harness.ctx, true);
   await flushTimers();
 
@@ -425,7 +490,7 @@ test("scheduled audit rechecks auto-checkpoint state before dispatch", async () 
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 
   setCheckpointCycleActive(harness.ctx, false);
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(auditCalls, 1);
@@ -460,7 +525,7 @@ test("scheduled audit stays muted while session compaction is active and resumes
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   harness.handlers.get("session_before_compact")({ signal: new AbortController().signal }, harness.ctx);
   await flushTimers();
 
@@ -502,7 +567,7 @@ test("compactionActive self-heals via watchdog when session_compact never fires"
 
   // Compaction starts but the upstream provider fails non-abort-style and never emits
   // session_compact or aborts the signal. Without the watchdog this would mute /goal forever.
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   harness.handlers.get("session_before_compact")({ signal: new AbortController().signal }, harness.ctx);
   await flushTimers();
   assert.equal(harness.sentMessages.length, 0);
@@ -546,7 +611,7 @@ test("high-confidence complete audit auto-clears the goal after a styled stats n
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 0);
@@ -593,12 +658,12 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
   });
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
 
   await harness.commands.get("goal").handler("budget 5", harness.ctx);
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
 
@@ -608,6 +673,74 @@ test("same-goal updates do not cancel or duplicate an in-flight dispatch", async
   const snapshot = getGoalSnapshotForSession("session-1");
   assert.equal(snapshot.turnBudget, 5);
   assert.equal(snapshot.turnsUsed, 2);
+});
+
+test("agent activity aborts a stale audit and re-audits the new settled state", async () => {
+  let idle = true;
+  const audits = [];
+  const harness = createHarness({
+    isIdle: () => idle,
+    auditRunner: async (_goal, _prompt, _ctx, _ssh, signal) => {
+      const gate = deferred();
+      audits.push({ gate, signal });
+      return gate.promise;
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(audits.length, 1);
+
+  idle = false;
+  harness.handlers.get("agent_start")({}, harness.ctx);
+  assert.equal(audits[0].signal.aborted, true, "new agent work must cancel the stale audit");
+
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  audits[0].gate.resolve({
+    ok: true,
+    attempts: 1,
+    auditSessionPath: "/tmp/stale-audit.jsonl",
+    commands: [],
+    audit: {
+      decision: "complete",
+      confidence: "high",
+      summary: "stale completion",
+      completedItems: ["old snapshot"],
+      remainingItems: [],
+      evidence: ["old evidence"],
+      sourcePaths: ["old-state.md"],
+      continuationMessage: "",
+    },
+  });
+  await flushTimers();
+
+  assert.equal(audits.length, 2, "settled activity during the old audit must trigger a fresh audit");
+  assert.equal(getGoalSnapshotForSession("session-1").status, "active");
+  assert.equal(harness.sentMessages.length, 0);
+
+  audits[1].gate.resolve({
+    ok: true,
+    attempts: 1,
+    auditSessionPath: "/tmp/fresh-audit.jsonl",
+    commands: [],
+    audit: {
+      decision: "continue",
+      confidence: "high",
+      summary: "fresh continuation",
+      completedItems: [],
+      remainingItems: ["next"],
+      evidence: ["fresh evidence"],
+      sourcePaths: ["fresh-state.md"],
+      continuationMessage: "Continue from fresh state.",
+    },
+  });
+  await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /Continue from fresh state/);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
 });
 
 test("stale audit completion does not clear a newer dispatch lock", async () => {
@@ -637,20 +770,20 @@ test("stale audit completion does not clear a newer dispatch lock", async () => 
   });
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "first goal");
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 1);
 
   await harness.commands.get("goal").handler("replace second goal", harness.ctx);
   await flushTimers();
   harness.sentMessages.length = 0;
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 2);
 
   audits[0].gate.resolve();
   await flushTimers();
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
   assert.equal(audits.length, 2);
 
@@ -692,7 +825,7 @@ test("goal replace aborts the in-flight audit's signal so the subprocess actuall
   });
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "first goal");
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await auditStarted.promise;
 
   assert.ok(receivedSignal, "audit runner must receive a real AbortSignal, not undefined");
@@ -703,6 +836,73 @@ test("goal replace aborts the in-flight audit's signal so the subprocess actuall
 
   auditFinished.resolve();
   await flushTimers();
+});
+
+test("loader cancellation aborts the audit without dispatching a fallback", async () => {
+  initTheme(undefined, false);
+  let receivedSignal = null;
+  const auditStarted = deferred();
+  const auditFinished = deferred();
+  const harness = createHarness({
+    enableAuditLoader: true,
+    auditRunner: async (_goal, _prompt, _ctx, _ssh, signal) => {
+      receivedSignal = signal ?? null;
+      auditStarted.resolve();
+      await auditFinished.promise;
+      return {
+        ok: false,
+        failureReason: "aborted in test",
+        attempts: 0,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "unknown",
+          confidence: "low",
+          summary: "never delivered",
+          completedItems: [],
+          remainingItems: [],
+          evidence: [],
+          sourcePaths: [],
+          continuationMessage: "",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await auditStarted.promise;
+
+  assert.equal(harness.auditLoaders.length, 1);
+  harness.auditLoaders[0].loader.onAbort();
+  assert.equal(receivedSignal?.aborted, true);
+
+  auditFinished.resolve();
+  await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").status, "active");
+});
+
+test("session_shutdown invalidates an audit still waiting in the grace period", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    auditStartDelayMs: 35,
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("audit must not start after shutdown");
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish tests");
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  harness.handlers.get("session_shutdown")({ reason: "switch" }, harness.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 55));
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(harness.statuses.at(-1).text, undefined, "stale timer must not restore status after shutdown");
 });
 
 test("session_shutdown aborts the in-flight audit signal", async () => {
@@ -735,7 +935,7 @@ test("session_shutdown aborts the in-flight audit signal", async () => {
   });
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await auditStarted.promise;
 
   harness.handlers.get("session_shutdown")({ reason: "quit" }, harness.ctx);
@@ -743,6 +943,8 @@ test("session_shutdown aborts the in-flight audit signal", async () => {
 
   auditFinished.resolve();
   await flushTimers();
+
+  assert.equal(harness.sentMessages.length, 0, "shutdown cancellation must not dispatch fallback work");
 });
 
 test("audit failure falls back to unanchored continuation and never completes", async () => {
@@ -768,7 +970,7 @@ test("audit failure falls back to unanchored continuation and never completes", 
   harness.handlers.get("session_start")({}, harness.ctx);
   await createIdleGoalAndClearStarter(harness, "finish tests");
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(harness.sentMessages.length, 1);
@@ -803,9 +1005,9 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
   await createIdleGoalAndClearStarter(harness, "finish tests");
   await harness.commands.get("goal").handler("budget 2", harness.ctx);
 
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
-  harness.handlers.get("agent_end")({}, harness.ctx);
+  harness.handlers.get("agent_settled")({}, harness.ctx);
   await flushTimers();
 
   assert.equal(auditCalls, 1);

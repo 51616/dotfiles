@@ -192,6 +192,15 @@ function buildGoalCompletionNotification(ctx: ExtensionContext, goal: GoalState)
 
 type LoaderCloser = () => void;
 
+// The live @earendil-works/pi-coding-agent runtime exposes this lifecycle event, while the
+// extension workspace's older upstream type package does not. Keep the untyped boundary narrow.
+type AgentSettledExtensionApi = {
+  on(
+    event: "agent_settled",
+    handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>,
+  ): void;
+};
+
 function showAuditLoader(
   ctx: ExtensionContext,
   onCancel: () => void,
@@ -266,7 +275,7 @@ function makeAuditRunner(pi: ExtensionAPI): AuditRunner {
   if (typeof injected === "function") return injected as AuditRunner;
 
   // Use the explicit per-audit signal owned by the goal extension. ctx.signal is undefined at
-  // agent_end (no streaming), so it cannot cancel a hanging `pi -p` audit subprocess. The
+  // agent_settled (no streaming), so it cannot cancel a hanging `pi -p` audit subprocess. The
   // extension owns its own AbortController and wires it into both runGoalAudit and the loader
   // cancel hotkey so the spawned subprocess actually dies on cancel/replace/shutdown.
   return (goal, prompt, ctx, ssh, signal) =>
@@ -355,6 +364,9 @@ export default function goalExtension(pi: ExtensionAPI) {
   let lastUserMessage: { sessionId: string; text: string } | null = null;
   let compactionActive = false;
   let activeAuditController: AbortController | null = null;
+  let agentActivityGeneration = 0;
+  let sessionLifecycleEpoch = 0;
+  let sessionActive = false;
   const runAudit = makeAuditRunner(pi);
   const auditDelayMs = auditStartDelayMs(pi);
   const compactionWatchdogDelayMs = compactionWatchdogMs(pi);
@@ -533,7 +545,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   };
 
   const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
-    if (getAutoCheckpointCycleActive(ctx) || compactionActive) return;
+    if (!sessionActive || getAutoCheckpointCycleActive(ctx) || compactionActive) return;
 
     if (shouldBudgetLimitGoal(currentGoal)) {
       currentGoal = markGoalBudgetLimited(currentGoal as GoalState);
@@ -556,6 +568,7 @@ export default function goalExtension(pi: ExtensionAPI) {
     }
 
     const scheduledGoalId = currentGoal?.goalId;
+    const scheduledSessionEpoch = sessionLifecycleEpoch;
     const scheduledDispatchToken = nextDispatchToken + 1;
     nextDispatchToken = scheduledDispatchToken;
     activeDispatchToken = scheduledDispatchToken;
@@ -565,9 +578,22 @@ export default function goalExtension(pi: ExtensionAPI) {
 
     setTimeout(() => {
       void (async () => {
+        let rescheduleAfterActivity = false;
         try {
+          if (!sessionActive || sessionLifecycleEpoch !== scheduledSessionEpoch) return;
           if (!currentGoal || currentGoal.goalId !== scheduledGoalId) return;
-          if (getAutoCheckpointCycleActive(ctx) || compactionActive) return;
+          // Scheduling and execution are separated by the audit delay. Auto-checkpoint or
+          // another extension can resume the agent during that window. Starting the external
+          // audit anyway races active work, and the post-audit idle guard then discards the
+          // valid result. Recheck every transient scheduling gate before spending audit quota.
+          if (
+            getAutoCheckpointCycleActive(ctx) ||
+            compactionActive ||
+            !ctx.isIdle() ||
+            getHasPendingMessages(ctx)
+          ) {
+            return;
+          }
 
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
@@ -583,6 +609,7 @@ export default function goalExtension(pi: ExtensionAPI) {
           } else {
             let outcome: AuditRunnerOutcome;
             const auditController = new AbortController();
+            const auditActivityGeneration = agentActivityGeneration;
             activeAuditController = auditController;
             const closeAuditLoader = showAuditLoader(ctx, () => {
               auditController.abort(new Error("audit cancelled by user"));
@@ -610,11 +637,20 @@ export default function goalExtension(pi: ExtensionAPI) {
             } finally {
               closeAuditLoader?.();
               if (activeAuditController === auditController) activeAuditController = null;
-              setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
+              if (activeDispatchToken === scheduledDispatchToken) {
+                setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
+              }
             }
 
             if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
             if (activeDispatchToken !== scheduledDispatchToken) return;
+            if (agentActivityGeneration !== auditActivityGeneration) {
+              // The audit inspected a snapshot from before another agent run. Never apply its
+              // completion decision or continuation; retry from the new settled state instead.
+              rescheduleAfterActivity = true;
+              return;
+            }
+            if (auditController.signal.aborted) return;
 
             if (outcome.ok && isHighConfidenceComplete(outcome.audit)) {
               const completedGoal = markGoalCompleteFromAudit(currentGoal, outcome.audit);
@@ -662,6 +698,7 @@ export default function goalExtension(pi: ExtensionAPI) {
             dispatchScheduled = false;
             activeDispatchToken = null;
           }
+          if (rescheduleAfterActivity) scheduleGoalContinuation(ctx);
         }
       })();
     }, dispatchDelayMs);
@@ -683,7 +720,7 @@ export default function goalExtension(pi: ExtensionAPI) {
     // discarded without aborting, so neither the abort listener nor `session_compact` ever
     // fires. Without a self-heal, a single failed compaction would permanently mute /goal until
     // session_start or session_shutdown ran. The watchdog releases the gate after a generous
-    // cap so the next agent_end can resume goal continuation.
+    // cap so the next agent_settled can resume goal continuation.
     if (compactionWatchdog) clearTimeout(compactionWatchdog);
     compactionWatchdog = setTimeout(() => {
       if (!compactionActive) return;
@@ -756,6 +793,8 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event, ctx) => {
+    sessionLifecycleEpoch += 1;
+    sessionActive = true;
     clearCompactionActive();
     restoreGoalForSession(ctx);
   });
@@ -774,7 +813,11 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    sessionActive = false;
+    sessionLifecycleEpoch += 1;
     abortActiveAudit("session shutdown");
+    dispatchScheduled = false;
+    activeDispatchToken = null;
     clearCompactionActive();
     persistGoal(ctx);
     setStatus(ctx, undefined);
@@ -784,6 +827,11 @@ export default function goalExtension(pi: ExtensionAPI) {
     if (isInteractiveUserText(event.text, (event as { source?: unknown }).source)) {
       rememberUserMessage(ctx, String(event.text));
     }
+  });
+
+  pi.on("agent_start", () => {
+    agentActivityGeneration += 1;
+    abortActiveAudit("agent started while goal audit was running");
   });
 
   pi.on("before_agent_start", (_event, _ctx) => {
@@ -796,7 +844,10 @@ export default function goalExtension(pi: ExtensionAPI) {
     clearCompactionActive();
   });
 
-  pi.on("agent_end", (_event, ctx) => {
+  // `agent_end` fires while pi still considers the run active and before retry, compaction,
+  // and queued follow-up handling. `agent_settled` is the first lifecycle point where the
+  // idle scheduling invariant is true and no automatic continuation remains.
+  (pi as unknown as AgentSettledExtensionApi).on("agent_settled", (_event, ctx) => {
     scheduleGoalContinuation(ctx);
   });
 }

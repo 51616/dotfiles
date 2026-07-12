@@ -6,7 +6,7 @@ This extension owns the `/goal` goal-continuation workflow for a single pi sessi
 
 `goal/index.ts` owns the extension wiring for goal state, scheduling gates, UI refresh, and follow-up delivery.
 
-It handles slash commands, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_end` scheduling for later audited continuations, and `pi.sendUserMessage(..., { deliverAs: "followUp" })` delivery.
+It handles slash commands, session start/shutdown restore, previous-user-message capture, immediate first scheduling when an explicit goal is created from idle, idle `agent_settled` scheduling for later audited continuations, and `pi.sendUserMessage(..., { deliverAs: "followUp" })` delivery. `agent_end` is intentionally not a scheduling point because pi still marks the run active there and may still retry, compact, or drain queued continuations.
 
 The helper modules under `goal/lib/` own the contracts that must stay testable without live model calls:
 
@@ -23,7 +23,7 @@ The helper modules under `goal/lib/` own the contracts that must stay testable w
 
 Absence of a goal is represented by `null`, not by a status. Valid statuses are only `active`, `budget_limited`, and `complete`.
 
-An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, no session compaction is active, and the turn budget is not exhausted. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle. `session_before_compact` marks compaction as a hard audit blocker; `session_compact` clears that blocker and asks the normal scheduler to resume when the remaining gates allow it.
+An active goal may schedule a continuation only when pi is idle, there are no queued messages, no dispatch is already scheduled, no session compaction is active, and the turn budget is not exhausted. These transient gates are checked both when the audit is scheduled and again after the 10-second grace period, before the external audit starts. This second check is required because auto-checkpoint or another extension can resume the agent during the delay; an audit started against active work would race the session and its result would be discarded by the post-audit idle guard. Every `agent_start` also increments an activity generation and aborts an in-flight audit. If another agent run starts while an audit is working, the extension rejects that stale audit result even when the intervening run has already settled, then schedules a fresh audit from the new settled state. A session lifecycle epoch invalidates delayed timers across shutdown and session switches, so an audit cannot start after the context that scheduled it has closed. Cancellation, goal replacement, and session shutdown must never turn an aborted audit into a fallback continuation. Creating or replacing an explicit goal while idle schedules the first starter turn immediately without an external audit, because no goal progress exists yet to inspect; later continuations are audited. Creating a goal while a turn is running waits for the normal idle gate. Ordinary user input records the possible previous-message goal but does not arm a continuation cycle. `session_before_compact` marks compaction as a hard audit blocker; `session_compact` clears that blocker and asks the normal scheduler to resume when the remaining gates allow it.
 
 Goal creation rejects known vague, non-verifiable objectives such as `goal`, `task`, `work`, `continue`, `do it`, `finish`, `stuff`, and `things`. The extension reports a concrete-objective example instead of arming an audit loop that cannot honestly complete. Restoring an already-persisted vague goal clears it and writes a null goal entry.
 
@@ -41,7 +41,7 @@ If audit cannot produce trusted completion, the extension uses the fallback cont
 
 That covers audit failures, timeouts, non-zero exits, and invalid JSON after retrying within the cap. This keeps progress moving without letting a failed audit claim completion.
 
-Audit retries must use the same explicit audit session path through `--session`; never use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe.
+Audit retries must use the same explicit audit session path through `--session`; never use `-c` or `--continue`, because concurrent pi instances make “most recent session” unsafe. An aborted audit signal is terminal for the runner: stop retrying immediately and report cancellation instead of repeatedly invoking `pi.exec` with an already-aborted signal until the one-hour cap.
 
 If follow-up dispatch throws, the extension does not increment `turnsUsed`; the user sees a warning when UI is available.
 

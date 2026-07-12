@@ -23,6 +23,15 @@ async function callAll(handlers, eventName, event, ctx) {
   }
 }
 
+async function settleAgent(handlers, ctx, setIdle) {
+  // Match pi 0.80.6: agent_end is emitted while the run is still active; only
+  // agent_settled follows the transition back to idle.
+  setIdle(false);
+  await callAll(handlers, "agent_end", {}, ctx);
+  setIdle(true);
+  await callAll(handlers, "agent_settled", {}, ctx);
+}
+
 function withEnv(overrides, fn) {
   const previous = new Map();
   for (const [key, value] of Object.entries(overrides)) {
@@ -203,7 +212,7 @@ test("session_start restores checkpoint-cycle blocking from an outstanding pendi
         assert.equal(harness.getAuditCalls(), 0);
         assert.equal(harness.sentUserMessages.length, 0, "goal must not start before checkpoint resume is consumed");
 
-        await callAll(handlers, "agent_end", {}, ctx);
+        await settleAgent(handlers, ctx, harness.setIdle);
         await delay();
         assert.equal(harness.getAuditCalls(), 0, "goal audit remains blocked by the restored pending resume");
 
@@ -310,7 +319,7 @@ test("/goal audit stays muted while auto-checkpoint pending resume is outstandin
         assert.equal(isCheckpointCycleActive(ctx), true, "pending resume keeps checkpoint cycle active");
 
         harness.setIdle(true);
-        await callAll(handlers, "agent_end", {}, ctx);
+        await settleAgent(handlers, ctx, harness.setIdle);
         await delay();
 
         assert.equal(harness.getAuditCalls(), 0, "goal audit must not start before resume is consumed");
@@ -320,7 +329,7 @@ test("/goal audit stays muted while auto-checkpoint pending resume is outstandin
         await callAll(handlers, "input", { text: pending.resumeText, source: "extension" }, ctx);
         assert.equal(isCheckpointCycleActive(ctx), false, "resume input clears checkpoint cycle active state");
 
-        await callAll(handlers, "agent_end", {}, ctx);
+        await settleAgent(handlers, ctx, harness.setIdle);
         await delay();
         assert.equal(harness.getAuditCalls(), 1, "goal may audit again after auto-checkpoint resumes");
 

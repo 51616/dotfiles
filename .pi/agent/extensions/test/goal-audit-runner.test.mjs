@@ -105,6 +105,34 @@ test("runGoalAudit retries with the same explicit session and parses JSON", asyn
   }
 });
 
+test("runGoalAudit stops retrying when its audit signal is aborted", async () => {
+  let now = 0;
+  let calls = 0;
+  const controller = new AbortController();
+  const outcome = await runGoalAudit({
+    prompt: "audit prompt",
+    cwd: "/repo",
+    auditSessionPath: "/tmp/audit-session.jsonl",
+    signal: controller.signal,
+    maxTotalMs: 100,
+    retryDelayMs: 10,
+    nowMs: () => now,
+    waitMs: async (ms) => {
+      now += ms;
+    },
+    exec: async () => {
+      calls += 1;
+      controller.abort(new Error("goal replaced"));
+      throw new Error("command aborted");
+    },
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.attempts, 1);
+  assert.equal(calls, 1);
+  assert.match(outcome.failureReason, /goal replaced/);
+});
+
 test("runGoalAudit returns fallback after timeout cap without completion", async () => {
   let now = 0;
   const outcome = await runGoalAudit({

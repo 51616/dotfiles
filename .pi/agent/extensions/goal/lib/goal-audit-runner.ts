@@ -94,6 +94,14 @@ function classifyFailure(result: AuditExecResult): string {
   return "audit did not produce a usable result";
 }
 
+function auditCancellationReason(signal: AbortSignal | undefined): string | null {
+  if (!signal?.aborted) return null;
+  const reason = signal.reason;
+  if (reason instanceof Error && reason.message.trim()) return `audit cancelled: ${reason.message.trim()}`;
+  if (typeof reason === "string" && reason.trim()) return `audit cancelled: ${reason.trim()}`;
+  return "audit cancelled";
+}
+
 export async function runGoalAudit(options: AuditRunnerOptions): Promise<AuditRunnerOutcome> {
   const nowMs = options.nowMs ?? defaultNowMs;
   const waitMs = options.waitMs ?? defaultWaitMs;
@@ -111,6 +119,12 @@ export async function runGoalAudit(options: AuditRunnerOptions): Promise<AuditRu
   }
 
   while (nowMs() - startedAtMs < maxTotalMs) {
+    const cancellationBeforeAttempt = auditCancellationReason(options.signal);
+    if (cancellationBeforeAttempt) {
+      failureReason = cancellationBeforeAttempt;
+      break;
+    }
+
     const remainingMs = Math.max(1, maxTotalMs - (nowMs() - startedAtMs));
     const timeout = Math.max(1, Math.min(perAttemptMaxMs, remainingMs));
     const args = buildAuditCommandArgs({ prompt: options.prompt, model: options.model, auditSessionPath, ssh: options.ssh });
@@ -121,10 +135,17 @@ export async function runGoalAudit(options: AuditRunnerOptions): Promise<AuditRu
     try {
       result = await options.exec("pi", args, { cwd: options.cwd, timeout, signal: options.signal });
     } catch (error) {
-      failureReason = error instanceof Error ? error.message : String(error);
-      if (nowMs() - startedAtMs >= maxTotalMs) break;
+      const cancellation = auditCancellationReason(options.signal);
+      failureReason = cancellation ?? (error instanceof Error ? error.message : String(error));
+      if (cancellation || nowMs() - startedAtMs >= maxTotalMs) break;
       await waitMs(Math.min(retryDelayMs, Math.max(0, maxTotalMs - (nowMs() - startedAtMs))));
       continue;
+    }
+
+    const cancellationAfterAttempt = auditCancellationReason(options.signal);
+    if (cancellationAfterAttempt) {
+      failureReason = cancellationAfterAttempt;
+      break;
     }
 
     if (result.code === 0 && !result.killed) {
