@@ -27,6 +27,8 @@ Verification checks:
   - `ssh <host> "printf %s ok"` must return exit 0 with stdout exactly `ok`
   - `ssh <host> "ls /definitely-missing"` must return nonzero and keep the
     missing-file message on stderr
+  - a file-worker marker probe must preserve stdout exactly, retain structured
+    stderr in the audit log, and exclude the stdout payload from that log
 USAGE
 }
 
@@ -68,10 +70,28 @@ fi
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 LOCAL_LOGGER="$SCRIPT_DIR/pi-ssh-logger.remote.sh"
-if [[ ! -f "$LOCAL_LOGGER" ]]; then
-  echo "Missing local logger template: $LOCAL_LOGGER" >&2
+LOCAL_ENTRY="$SCRIPT_DIR/../index.ts"
+if [[ ! -f "$LOCAL_LOGGER" || ! -f "$LOCAL_ENTRY" ]]; then
+  echo "Missing local logger template or extension entrypoint under: $SCRIPT_DIR/.." >&2
   exit 1
 fi
+
+if ! FILE_WORKER_COMMAND=$(PI_SSH_ENTRY="$LOCAL_ENTRY" node --input-type=module -e 'import { pathToFileURL } from "node:url"; const entry = await import(pathToFileURL(process.env.PI_SSH_ENTRY).href); process.stdout.write(entry.__testInternals.buildRemoteFileWorkerCommand());'); then
+  echo "Failed to build the local file-worker launch command" >&2
+  exit 1
+fi
+FILE_WORKER_COMMAND_SHA256=$(printf '%s' "$FILE_WORKER_COMMAND" | sha256sum | awk '{print $1}')
+if [[ ! "$FILE_WORKER_COMMAND_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Failed to hash the local file-worker launch command" >&2
+  exit 1
+fi
+RENDERED_LOGGER=$(mktemp)
+cleanup_rendered_logger() {
+  rm -f "$RENDERED_LOGGER"
+}
+trap cleanup_rendered_logger EXIT
+sed "s/__PI_SSH_FILE_WORKER_COMMAND_SHA256__/$FILE_WORKER_COMMAND_SHA256/g" "$LOCAL_LOGGER" > "$RENDERED_LOGGER"
+chmod 700 "$RENDERED_LOGGER"
 
 REMOTE_HOME=$(ssh "$HOST" 'printf %s "$HOME"')
 if [[ -z "$REMOTE_HOME" || "$REMOTE_HOME" != /* ]]; then
@@ -94,7 +114,7 @@ echo "==> Creating remote parent dir on $HOST"
 ssh "$HOST" "mkdir -p -- \"\$(dirname -- \"$REMOTE_BIN_PATH\")\""
 
 echo "==> Uploading logger template to $HOST:$REMOTE_TMP_PATH"
-scp -q -O "$LOCAL_LOGGER" "$HOST:$REMOTE_TMP_PATH"
+scp -q -O "$RENDERED_LOGGER" "$HOST:$REMOTE_TMP_PATH"
 
 echo "==> Installing remote logger at $HOST:$REMOTE_BIN_PATH"
 ssh "$HOST" "set -euo pipefail; remote_bin=$REMOTE_BIN_PATH; remote_tmp=$REMOTE_TMP_PATH; backup_suffix=$BACKUP_SUFFIX; if [[ -f \"\$remote_bin\" ]]; then cp \"\$remote_bin\" \"\${remote_bin}.bak-\$backup_suffix\"; fi; mv \"\$remote_tmp\" \"\$remote_bin\"; chmod 700 \"\$remote_bin\"; printf 'installed=%s\n' \"\$remote_bin\"; if [[ -f \"\${remote_bin}.bak-\$backup_suffix\" ]]; then printf 'backup=%s\n' \"\${remote_bin}.bak-\$backup_suffix\"; fi"
@@ -108,8 +128,11 @@ ok_out=$(mktemp)
 ok_err=$(mktemp)
 fail_out=$(mktemp)
 fail_err=$(mktemp)
+worker_out=$(mktemp)
+worker_err=$(mktemp)
+worker_log_copy=$(mktemp)
 cleanup() {
-  rm -f "$ok_out" "$ok_err" "$fail_out" "$fail_err"
+  rm -f "$RENDERED_LOGGER" "$ok_out" "$ok_err" "$fail_out" "$fail_err" "$worker_out" "$worker_err" "$worker_log_copy"
 }
 trap cleanup EXIT
 
@@ -154,6 +177,43 @@ if ! grep -q 'No such file or directory' "$fail_err"; then
   cat "$fail_out" >&2 || true
   echo "--- stderr ---" >&2
   cat "$fail_err" >&2 || true
+  exit 1
+fi
+
+worker_frame_probe='"kind":"hello"'
+worker_event_probe='"event":"worker.ready"'
+
+echo "==> Verifying file-worker stdout privacy and structured stderr logging"
+if ! ssh "$HOST" "$FILE_WORKER_COMMAND" </dev/null >"$worker_out" 2>"$worker_err"; then
+  echo "Verification failed: file-worker marker command returned nonzero" >&2
+  cat "$worker_err" >&2 || true
+  exit 1
+fi
+if ! grep -aFq "$worker_frame_probe" "$worker_out"; then
+  echo "Verification failed: file-worker hello frame was changed or missing" >&2
+  exit 1
+fi
+if ! grep -Fq "$worker_event_probe" "$worker_err"; then
+  echo "Verification failed: file-worker structured stderr was not preserved" >&2
+  cat "$worker_err" >&2 || true
+  exit 1
+fi
+worker_log_path=$(sed -n 's/^\[pi-ssh-logger\] logging to: //p' "$worker_err" | head -n 1)
+if [[ -z "$worker_log_path" || "$worker_log_path" != /* ]]; then
+  echo "Verification failed: could not resolve the file-worker audit log path" >&2
+  cat "$worker_err" >&2 || true
+  exit 1
+fi
+if ! scp -q -O "$HOST:$worker_log_path" "$worker_log_copy"; then
+  echo "Verification failed: could not fetch the file-worker audit log" >&2
+  exit 1
+fi
+if grep -aFq "$worker_frame_probe" "$worker_log_copy"; then
+  echo "Verification failed: file-worker stdout frame was copied into the audit log" >&2
+  exit 1
+fi
+if ! grep -Fq "$worker_event_probe" "$worker_log_copy"; then
+  echo "Verification failed: file-worker structured event is absent from the audit log" >&2
   exit 1
 fi
 

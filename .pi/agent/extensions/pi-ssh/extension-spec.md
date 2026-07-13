@@ -2,230 +2,163 @@
 
 ## Summary
 
-`pi-ssh` makes local pi behave like "remote SSH mode" in editors:
-
-- pi process runs on your local machine
-- model/API keys stay local
-- file and shell tools operate on a remote machine over SSH
-
-This gives you the same main benefit Yoav described:
-
-- remote code/workspace access
-- local model/account usage (for example employer-funded local tooling)
-
-## Problem statement
-
-Current setup patterns are usually one of these:
-
-1. Run pi on the VM
-   - Pro: direct filesystem access
-   - Con: model/API access on VM is harder (network policy, credentials, billing, SSO)
-
-2. Run pi locally
-   - Pro: easiest model/API access
-   - Con: tools only see local filesystem
-
-We want a third mode:
-
-3. Run pi locally, target remote workspace over SSH
-   - Pro: best of both worlds
+`pi-ssh` keeps pi, model credentials, and provider traffic on the local machine while executing shell and workspace file tools on a remote SSH host. Remote mode is explicit through `--ssh`; without that flag, pi keeps its normal local behavior.
 
 ## Goals
 
-- Local model execution path (no reverse model tunnel in MVP)
-- Remote workspace operations via SSH for core coding tools
-- Minimal setup and low operational complexity
-- Keep behavior close to built-in tools
+- Make normal pi `bash`, `read`, `write`, and `edit` behavior available against a remote workspace.
+- Keep SSH setup small: an SSH client locally and standard-library Python remotely.
+- Reuse long-lived channels so warm tool calls do not pay repeated SSH startup costs.
+- Preserve pi tool output, path, mutation-serialization, image, cancellation, and error contracts.
+- Publish one typed SSH session boundary for other extensions instead of duplicating remote logic.
+- Keep remote file payloads out of forced-command audit logs while retaining operational metrics.
 
-## Non-goals (MVP)
+## Non-goals
 
-- Full connection pooling and retry policy beyond one persistent shell
-- Agent-side bidirectional tunnel protocol
-- Remote model proxying
-
-## Architecture options
-
-### Option A: Tool-level SSH delegation (chosen for MVP)
-
-Implement a pi extension that overrides built-in tools and delegates operations over SSH:
-
-- `read`
-- `write`
-- `edit`
-- `bash`
-
-Optional support included in this project for read-only tools:
-
-- `ls`
-- `find`
-- `grep`
-
-How it works:
-
-- Register a `--ssh` flag (`user@host` or `user@host:/remote/path`)
-- Resolve remote cwd on startup (`pwd` if path omitted)
-- Override tools by re-registering tool names
-- Map local absolute paths to remote absolute paths
-- Execute remote commands using `ssh ... bash -lc ...`
-- Reuse built-in tool factories with custom operations
-
-Pros:
-
-- Leverages official extension APIs
-- Small and understandable
-- Works with existing pi tool loop and rendering
-
-Cons:
-
-- SSH process startup overhead per tool call
-- Requires command-line tooling on remote host (bash, rg/fd/file/base64 depending on operation)
-
-### Option B: Reverse tunnel for model requests
-
-Run pi/tooling on VM and send model requests through a local gateway tunnel.
-
-Pros:
-
-- Keeps remote workspace execution native
-- Can avoid per-command SSH startup
-
-Cons:
-
-- More moving parts (proxy/gateway, auth, reconnect, secrets)
-- Harder to share and maintain
-- Better handled as provider/proxy infra than first extension MVP
-
-### Option C: Full custom provider + remote tool bridge
-
-Blend provider override and remote operations in one extension.
-
-Pros:
-
-- Maximum flexibility
-
-Cons:
-
-- Highest complexity
-- Not needed for first release
-
-## Selected design
-
-Use Option A as the first publishable OSS cut.
-
-### Runtime model
-
-- pi starts locally
-- if `--ssh` is set, extension enters remote mode
-- `bash` and user `!` commands run through one persistent remote shell session
-- `read`/`write`/`edit` delegate to remote ops over SSH
-- if `--ssh` is not set, local tools are used
-
-### UX behavior
-
-- status line shows active SSH target
-- startup notification confirms mode
-- `!` user bash commands also execute remotely
-- bash environment persists during session (for example exported vars)
-- Ctrl-C interrupts current remote command
-- if an interrupted or timed-out command never prints its completion marker, the extension force-resets the persistent shell so later commands do not stay wedged behind it
-- system prompt cwd line is rewritten to remote cwd
-
-### Safety
-
-- no credential forwarding by default beyond SSH auth
-- user explicitly enables mode with `--ssh`
-- remote path mapping is deterministic
+- Remote model/provider proxying.
+- Caching remote file contents locally.
+- Replacing SSH authentication or host configuration.
+- Avoiding complete payload upload for overwrite-style `write` calls.
+- Hiding missing remote dependencies behind a slower compatibility fallback.
 
 ## CLI contract
 
-### Flag
-
 - `--ssh user@host`
-- `--ssh user@host:/remote/path`
-- optional SSH port via `--ssh-port 2222` or `--port 2222`
+- `--ssh user@host:/absolute/remote/path`
+- optional port: `--ssh-port 2222` or `--port 2222`
 
-If path is omitted, remote cwd is detected with `pwd`.
+When the path is absent, pi-ssh resolves the remote login cwd with `pwd`. The status/footer identifies the SSH target and remote cwd. User `!` commands follow the same remote bash route.
 
-## Tool behavior details
+## Runtime architecture
 
-### read
+### Connection and reusable runtime
 
-- remote file read and image mime check (`file --mime-type` if present)
-- one-shot SSH reads honor the tool abort signal so cancelled turns can stop in-flight reads
+SSH commands use OpenSSH multiplexing through `ControlMaster`, `ControlPersist`, and a target-derived control path. A process-local runtime cache retains the active transport across `/new`, `/resume`, and `/fork` when the SSH target, port, local cwd, and remote cwd still match. Reload, quit, failed setup, or a changed target disposes the runtime.
 
-### write
+The runtime owns two independent channels:
 
-- remote mkdir support
-- remote file write via SSH stdin streaming
-- one-shot SSH writes honor the tool abort signal so cancelled turns can stop in-flight writes
+1. `PersistentRemoteShell`: one PTY-backed login shell for `bash`, `!`, and low-latency text helpers. Its command queue preserves shell environment and output order.
+2. `PiSshFileWorkerClient`: one non-PTY `ssh -T` child running the dependency-free Python worker. File requests never enter the bash queue.
 
-### edit
+A long bash command therefore does not block an independent file request.
 
-- composed from remote read + write operations
-- remote readability and writability checks honor the tool abort signal
+### Persistent file protocol
 
-### bash
+`lib/pi-ssh-file-protocol.ts` owns the local client. `lib/pi-ssh-file-worker.py` owns remote filesystem behavior. `lib/pi-ssh-file-transport.ts` validates worker metadata before exposing it to the session.
 
-- remote command execution with output streaming
-- supports abort and timeout behavior expected by built-in bash tool
-- if Ctrl-C cannot produce a completion marker from the remote shell, the extension force-resets the persistent shell and rejects the command so the queue recovers cleanly
+Every frame consists of:
 
-### Shared SSH session integration
+1. a 4-byte big-endian JSON-header length;
+2. a UTF-8 JSON header;
+3. exactly `payloadLength` raw payload bytes.
 
-- `pi-ssh` no longer owns canonical `skill://...` behavior
-- instead it publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`
-- `skill-uri` consumes that session for remote read / write / edit operations on normal workspace paths
-- the same session also supplies remote bash execution, remote staging context for `run_skill_script`, repo-root resolution, local→remote path mapping, exact one-shot exec capture, low-latency persistent text execution, and remote exists/stat helpers
-- `self-checkpointing` consumes the same session runtime for SSH-backed checkpoint probing metadata
-- `pi-diff-review` also consumes the same runtime for remote diff inspection and local staged editor writeback
-- the shared helpers assume `git` exists on the remote host for `repoRoot()` and `python3` or `python` exists for `stat()`
-- `execText()` is intentionally text-oriented and may reflect PTY-style combined output; exact-byte consumers should keep using `execCapture()` or transport file reads
-- `stat()` should keep its stdout-only parse path on `execCapture()` even when lower-latency `execText()` is available, because JSON payload consumers must not depend on PTY-clean output
-- this keeps cross-extension SSH behavior consistent without modifying pi core
+Protocol version 1 requires a worker hello frame with all required capabilities before requests. Requests and responses carry positive integer IDs. Multiple requests may be in flight and responses may arrive out of order. An incremental head-indexed chunk queue parses large fragmented frames without repeated buffer copies or array shifting. Frame lengths, response kinds, versions, IDs, operation fields, request-range/result coherence, payload byte/line counts, and operation metadata are validated at their boundaries. Unsolicited or duplicate response IDs poison the worker rather than being ignored.
 
-### forced-command logger contract
+Limits are explicit:
 
-If a `*-pi-agent` SSH key uses a forced command such as `~/bin/pi-ssh-logger`, that wrapper must preserve noninteractive command semantics.
+- header: 8 MiB;
+- request or response payload: 64 MiB;
+- source file read into worker memory: 512 MiB;
+- edit diff returned in response metadata: 256 KiB;
+- normal pi text read output: 2,000 lines and 50 KiB.
 
-Required invariants:
-- stdout from `SSH_ORIGINAL_COMMAND` stays on stdout
-- stderr from `SSH_ORIGINAL_COMMAND` stays on stderr
-- the wrapper exits with the real child exit code
+The source-file limit bounds remote memory. Ranged reads still read the source on the remote host to preserve pi's exact line/truncation behavior, but only selected and truncated output crosses SSH. Images require complete transfer.
 
-Do not wrap noninteractive commands with `script(1)` in a way that collapses stderr into stdout or turns missing-file exits into success. `pi-ssh` uses one-shot SSH reads for exact file bytes, and `skill-uri` depends on those probes returning real exit status.
+### Worker startup and dependencies
 
-The repo-owned repair helper is:
-- `scripts/pi-ssh-logger-setup.sh`
+`index.ts` embeds the Python source in the SSH launch command, resolves `python3` then `python`, and verifies Python 3.9 or newer before evaluating that source. Bootstrap uses remote `base64`; the file-operation payload protocol itself does not.
 
-### ls/find/grep
+Remote Python 3.9+ is mandatory and the worker uses only the standard library. Missing/old Python, missing capabilities, invalid protocol versions, malformed frames, and oversized operations fail clearly. There is no legacy one-shot `cat`/base64/edit fallback.
 
-- optional read-only helpers delegated to remote shell tooling
+Worker exit or protocol corruption rejects all affected requests and tears down that worker instance. A later request starts one clean new worker. A caller aborted during a shared startup settles immediately without disrupting other waiters; silent startup timeout terminates the SSH child before lazy recovery. Startup and process errors include at most eight retained 2,000-character stderr lines, including a bounded unterminated tail decoded safely across UTF-8 chunks.
 
-## Error handling
+## Tool behavior
 
-- explicit errors on SSH failure
-- fallback to local mode only when `--ssh` is not configured
-- invalid SSH target causes startup error notification
-- env-gated debugging is available through `PI_SSH_DEBUG=1`
-- stage-path reads and writes under `~/.cache/pi/skill-stage/...` are logged when debugging is enabled so cross-extension staging failures can be traced precisely
+### `read`
 
-## Packaging and publishing
+A workspace read is one `read_workspace` request after startup. The request carries path, optional 1-indexed `offset`, optional positive `limit`, and pi's output limits. The worker:
 
-Repository:
+- opens the path once without blocking on special files, validates that exact descriptor as regular with `fstat`, and bounds the subsequent read even if the file grows;
+- recognizes PNG, JPEG, GIF, and WebP by signature;
+- returns complete bytes for a supported image;
+- otherwise decodes as UTF-8 with replacement behavior matching Node, applies offset/limit and pi truncation remotely, and returns only visible text plus metadata.
 
-- `hjanuschka/pi-ssh`
+`skill-uri/lib/remote-workspace-tools.ts` formats continuation notices and sends image bytes through pi's built-in resize/model-attachment path without a second remote read.
 
-Contents:
+### `write`
 
-- `index.ts` extension entry
-- `README.md` usage and troubleshooting
-- `extension-spec.md` (this file)
-- minimal `package.json`
+A workspace write is one `write_file` request after startup. Raw UTF-8 content appears once as the frame payload; it is not base64 encoded. The worker creates parent directories, opens the target with nonblocking semantics, validates the exact descriptor as regular, truncates only after validation, and overwrites it. FIFOs/devices fail without occupying executor threads. The skill-uri adapter wraps pi's per-file mutation queue with abort-aware settlement and a pre-dispatch signal guard, so a queued canceled mutation is never sent.
 
-## Future roadmap
+### `edit`
 
-1. Connection reuse (control master / mux)
-2. Optional persistent remote shell channel
-3. Better remote capability detection
-4. Optional remote git metadata widget
-5. Optional provider proxy mode for reverse model tunnel workflows
+A workspace edit is one `edit_workspace` request after startup. Only the path, display path, and old/new replacement blocks are sent. The worker reads and validates the file remotely, matches all edits against the same original content, rejects missing/duplicate/empty/overlapping/no-change edits before mutation, and applies replacements in reverse offset order.
+
+Matching preserves pi's existing behavior:
+
+- UTF-8 BOM is ignored for matching and restored;
+- dominant CRLF/LF style is detected and restored, with the first observed style breaking ties;
+- fuzzy matching normalizes trailing whitespace, smart punctuation, Unicode dashes/spaces, and NFKC text when exact matching fails.
+
+The edited file is replaced atomically while preserving mode bits. The response contains a compact numbered diff, first changed line, and byte counts. The complete old or new file does not cross SSH.
+
+Python `SequenceMatcher(..., autojunk=True)` is used only to generate bounded display diffs; it prevents quadratic behavior on large repeated-line files and does not affect edit matching.
+
+### `bash`
+
+Bash commands stream through `PersistentRemoteShell` and support pi's timeout and abort behavior. If an interrupted or timed-out command never emits its completion marker, pi-ssh resets the PTY shell so later queued commands recover. That reset loses shell-local environment from the old PTY but does not reset the independent file worker.
+
+### Cancellation
+
+An already-aborted file call fails before sending. A caller canceled while the shared worker is starting settles immediately. A request canceled while waiting for the per-file mutation queue or local frame-write queue is skipped and never reaches the worker. Cancellation during a partial frame write resets the channel because the framing boundary is no longer trustworthy. After a complete send, abort settles the caller and retains a bounded response-ID tombstone so a late response can be discarded safely; a request timeout resets the worker because channel health is unknown. A mutation already started remotely may still finish, matching the practical cancellation limit of local filesystem APIs.
+
+## Shared SSH session contract
+
+`lib/pi-ssh-session-runtime.ts` publishes the active `PiSshSession`. It provides:
+
+- `readWorkspaceFile()`, `writeWorkspaceFile()`, and `editWorkspaceFile()` for high-level workspace tools;
+- exact worker-backed `readFile()` and `writeFile()` for remote skill staging;
+- `createBashOps()` for remote command execution;
+- deterministic local cwd/home to remote cwd/home path mapping;
+- remote staging context (`remoteHome` and transport);
+- exact `execCapture()`, PTY-oriented `execText()`, `repoRoot()`, `exists()`, and `stat()` helpers.
+
+`skill-uri` owns normal workspace tool routing because it must keep canonical `skill://...` paths local while sending non-skill paths through the active session. It registers a lifecycle-scoped router token and removes it on session shutdown. SSH mode refuses to initialize without a current token, preventing remote bash from silently coexisting with local workspace mutations. Other extensions consume this same session rather than building ad hoc SSH commands.
+
+`repoRoot()` requires remote `git`. `stat()` requires remote Python and deliberately uses exact capture rather than PTY text output.
+
+## Forced-command logger contract
+
+A `*-pi-agent` key may force `scripts/pi-ssh-logger.remote.sh`. The wrapper must:
+
+- preserve generic command stdout, stderr, and child exit status;
+- recognize the file-worker marker `PI_SSH_FILE_WORKER_PROTOCOL=1; export PI_SSH_FILE_WORKER_PROTOCOL; ` and require the complete command's SHA-256 to match the production launcher hash rendered at installation;
+- reject marker-prefixed lookalikes without executing or logging their raw command;
+- bypass stream logging for transfer protocols only when a fixed system SCP/SFTP/rsync executable also matches its server-mode grammar; transfer-name substrings remain fully audited;
+- pass worker stdout directly and byte-for-byte without `tee`, `script`, or audit-log copying;
+- copy structured worker stderr into the audit log while preserving it on stderr;
+- record only a safe worker command label, not the embedded worker source.
+
+The worker logs `worker.ready`, request ID, operation, path, status, duration, request/response payload bytes, and filesystem read/write byte counts to stderr. It never logs raw payloads.
+
+`scripts/pi-ssh-logger-setup.sh` uses local Node to derive the current production launcher, hashes it with `sha256sum`, renders the wrapper template, backs up and installs it, then verifies generic success/failure semantics by launching the real worker. The probe fetches its audit log and proves the hello frame is absent while `worker.ready` stderr is present. Setup requires local and remote `sha256sum`; an unrendered template and hash mismatches fail closed. Install this wrapper on every new forced-command SSH alias before using the file worker, and reinstall after launcher/source changes.
+
+## Safety and errors
+
+- Remote mode requires an explicit `--ssh` target.
+- SSH authentication is delegated to OpenSSH; pi-ssh does not forward model credentials.
+- Workspace paths are normalized and must become absolute before worker filesystem access.
+- File requests fail closed on invalid protocol or malformed operation metadata.
+- Filesystem errors identify missing paths, non-regular files, permission failures, and size limits.
+- `PI_SSH_DEBUG=1` exposes lifecycle, request IDs, operation names, and byte counts locally without payload data.
+- Remote prompt-context loading from exact `remoteCwd/AGENTS.md` or `CLAUDE.md` is high-trust and should only target trusted workspaces.
+
+## Verification contract
+
+The extension suite must cover:
+
+- out-of-order response routing, startup/queued/sent/partial-write aborts, startup child termination, stream errors, bounded unterminated stderr, capability errors, fragmented large frames, unsolicited/duplicate responses, malformed frames, worker exit, lazy restart, and size limits;
+- ranged transfer bounds and request/result coherence, one-open regular-file validation, read/write FIFO rejection and pool recovery, image signatures, exact raw writes, large-file remote edits, BOM/dominant-line-ending/fuzzy matching including lone-CR ties, multi-edit success, invalid-edit atomicity, concurrency, and structured logs;
+- file-call independence from the bash queue and signal/path forwarding;
+- forced logger stdout privacy, stderr observability, exit status, exact launcher-hash enforcement, worker/transfer lookalike rejection, legitimate live SCP behavior, and setup behavior.
+
+The skill-uri suite must cover tool-level notices/images, one-request writes/edits, mutation serialization, path mapping, and unchanged local/skill behavior. Live rollout requires logger installation, `/reload`, a temporary remote write/read/edit/read scenario, benchmark evidence, and vault health checks.

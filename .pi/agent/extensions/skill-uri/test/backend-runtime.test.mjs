@@ -8,7 +8,9 @@ import skillUriExtension from "../index.ts";
 import {
   __publishActivePiSshSessionForTests,
   __resetPiSshSessionForTests,
+  __resetPiSshWorkspaceFileRouterForTests,
   createPiSshSession,
+  hasPiSshWorkspaceFileRouter,
 } from "../../pi-ssh/lib/pi-ssh-session-runtime.ts";
 
 function createFakePi() {
@@ -43,15 +45,57 @@ function makeSession(options = {}) {
     transport: {
       exec: async () => ({ exitCode: 0 }),
       readFile: async (path) => Buffer.from(options.readText ?? state.currentText ?? `from-session:${path}\n`, "utf-8"),
-      ensureReadable: async () => {},
-      ensureReadableWritable: async () => {},
-      detectImageMimeType: async () => null,
-      mkdir: async (path) => {
-        options.onMkdir?.(path);
-      },
       writeFile: async (path, content) => {
         state.currentText = content.toString("utf-8");
         options.onWrite?.(path, state.currentText);
+      },
+      readWorkspaceFile: async (path, readOptions, signal) => {
+        const content = options.readText ?? state.currentText ?? `from-session:${path}\n`;
+        options.onRead?.(path, readOptions, signal);
+        return {
+          kind: "text",
+          content,
+          sourceBytes: Buffer.byteLength(content),
+          totalFileLines: content.split("\n").length,
+          startLineDisplay: readOptions.offset ?? 1,
+          userLimitedLines: readOptions.limit ?? null,
+          hasMoreAfterUserLimit: false,
+          firstLineBytes: Buffer.byteLength(content.split("\n", 1)[0]),
+          truncation: {
+            content,
+            truncated: false,
+            truncatedBy: null,
+            totalLines: content.split("\n").length,
+            totalBytes: Buffer.byteLength(content),
+            outputLines: content.split("\n").length,
+            outputBytes: Buffer.byteLength(content),
+            lastLinePartial: false,
+            firstLineExceedsLimit: false,
+            maxLines: readOptions.maxLines,
+            maxBytes: readOptions.maxBytes,
+          },
+        };
+      },
+      editWorkspaceFile: async (path, displayPath, edits, signal) => {
+        const original = state.currentText;
+        let content = original;
+        for (const edit of edits) {
+          const index = content.indexOf(edit.oldText);
+          if (index < 0 || content.indexOf(edit.oldText, index + edit.oldText.length) >= 0) {
+            throw new Error(`Could not uniquely replace edit in ${displayPath}`);
+          }
+          content = content.slice(0, index) + edit.newText + content.slice(index + edit.oldText.length);
+        }
+        state.currentText = content;
+        options.onEdit?.(path, displayPath, edits, signal);
+        options.onWrite?.(path, content);
+        return {
+          diff: `-${original}+${content}`,
+          diffTruncated: false,
+          firstChangedLine: 1,
+          sourceBytes: Buffer.byteLength(original),
+          writtenBytes: Buffer.byteLength(content),
+        };
       },
     },
     execCapture: async () => ({
@@ -63,6 +107,15 @@ function makeSession(options = {}) {
     }),
   });
 }
+
+test("skill-uri router registration is removed when its extension instance shuts down", () => {
+  __resetPiSshWorkspaceFileRouterForTests();
+  const fake = createFakePi();
+  skillUriExtension(fake.api);
+  assert.equal(hasPiSshWorkspaceFileRouter(), true);
+  fake.events.get("session_shutdown")({ reason: "reload" }, {});
+  assert.equal(hasPiSshWorkspaceFileRouter(), false);
+});
 
 test("read keeps local behavior when no active pi-ssh session exists", async () => {
   __resetPiSshSessionForTests();

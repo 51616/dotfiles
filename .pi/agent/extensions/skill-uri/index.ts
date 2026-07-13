@@ -5,8 +5,16 @@ import { dirname, extname } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createBashTool, createEditTool, createReadTool, createWriteTool, type EditOperations, type ReadOperations, type WriteOperations } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { getActivePiSshSession } from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
+import {
+  getActivePiSshSession,
+  registerPiSshWorkspaceFileRouter,
+} from "../pi-ssh/lib/pi-ssh-session-runtime.ts";
 import { SkillPathGuard } from "./lib/skill-path-guard.ts";
+import {
+  executeRemoteEditTool,
+  executeRemoteReadTool,
+  executeRemoteWriteTool,
+} from "./lib/remote-workspace-tools.ts";
 import {
   buildRunSkillScriptCommand,
   prepareRunSkillScript,
@@ -117,6 +125,7 @@ function warn(ctx: ExtensionContext, message: string): void {
 }
 
 export default function skillUriExtension(pi: ExtensionAPI): void {
+  const unregisterWorkspaceFileRouter = registerPiSshWorkspaceFileRouter();
   const localCwd = process.cwd();
   const localHome = homedir();
   const localRead = createReadTool(localCwd);
@@ -131,6 +140,10 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
     warnedDuplicateFingerprints.clear();
     skillRegistry.clear();
     skillPathGuard.clear();
+  });
+
+  pi.on("session_shutdown", () => {
+    unregisterWorkspaceFileRouter();
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -179,58 +192,55 @@ export default function skillUriExtension(pi: ExtensionAPI): void {
 
   pi.registerTool({
     ...localRead,
-    async execute(id, params, signal, onUpdate) {
+    async execute(id, params, signal, onUpdate, context) {
       const rewrittenParams = isSkillUri(params.path) ? { ...params, path: skillUriToVirtualPath(params.path) } : params;
       if (shouldUseSkillOps(rewrittenParams.path)) {
         const tool = createReadTool(localCwd, { operations: createLocalSkillReadOps(skillRegistry, skillPathGuard) });
-        return tool.execute(id, rewrittenParams, signal, onUpdate);
+        return tool.execute(id, rewrittenParams, signal, onUpdate, context);
       }
 
       const session = getActivePiSshSession();
       if (!session) {
-        return localRead.execute(id, params, signal, onUpdate);
+        return localRead.execute(id, params, signal, onUpdate, context);
       }
 
-      const tool = createReadTool(localCwd, { operations: session.createReadOps(signal) });
-      return tool.execute(id, rewrittenParams, signal, onUpdate);
+      return executeRemoteReadTool(session, localCwd, id, rewrittenParams, signal, onUpdate, context);
     },
   });
 
   pi.registerTool({
     ...localWrite,
-    async execute(id, params, signal, onUpdate) {
+    async execute(id, params, signal, onUpdate, context) {
       const rewrittenParams = isSkillUri(params.path) ? { ...params, path: skillUriToVirtualPath(params.path) } : params;
       if (shouldUseSkillOps(rewrittenParams.path)) {
         const tool = createWriteTool(localCwd, { operations: createLocalSkillWriteOps(skillRegistry, skillPathGuard) });
-        return tool.execute(id, rewrittenParams, signal, onUpdate);
+        return tool.execute(id, rewrittenParams, signal, onUpdate, context);
       }
 
       const session = getActivePiSshSession();
       if (!session) {
-        return localWrite.execute(id, params, signal, onUpdate);
+        return localWrite.execute(id, params, signal, onUpdate, context);
       }
 
-      const tool = createWriteTool(localCwd, { operations: session.createWriteOps(signal) });
-      return tool.execute(id, rewrittenParams, signal, onUpdate);
+      return executeRemoteWriteTool(session, localCwd, rewrittenParams, signal);
     },
   });
 
   pi.registerTool({
     ...localEdit,
-    async execute(id, params, signal, onUpdate) {
+    async execute(id, params, signal, onUpdate, context) {
       const rewrittenParams = isSkillUri(params.path) ? { ...params, path: skillUriToVirtualPath(params.path) } : params;
       if (shouldUseSkillOps(rewrittenParams.path)) {
         const tool = createEditTool(localCwd, { operations: createLocalSkillEditOps(skillRegistry, skillPathGuard) });
-        return tool.execute(id, rewrittenParams, signal, onUpdate);
+        return tool.execute(id, rewrittenParams, signal, onUpdate, context);
       }
 
       const session = getActivePiSshSession();
       if (!session) {
-        return localEdit.execute(id, params, signal, onUpdate);
+        return localEdit.execute(id, params, signal, onUpdate, context);
       }
 
-      const tool = createEditTool(localCwd, { operations: session.createEditOps(signal) });
-      return tool.execute(id, rewrittenParams, signal, onUpdate);
+      return executeRemoteEditTool(session, localCwd, rewrittenParams, signal);
     },
   });
 

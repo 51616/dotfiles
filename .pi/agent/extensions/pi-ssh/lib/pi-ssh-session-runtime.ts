@@ -1,6 +1,8 @@
-import type { BashOperations, EditOperations, ReadOperations, WriteOperations } from "@mariozechner/pi-coding-agent";
+import { posix as pathPosix } from "node:path";
+import type { BashOperations, TruncationResult } from "@mariozechner/pi-coding-agent";
 
 const ACTIVE_SESSION_KEY = "__PI_SSH_ACTIVE_SESSION__";
+const WORKSPACE_FILE_ROUTER_KEY = "__PI_SSH_WORKSPACE_FILE_ROUTER__";
 const DEFAULT_SESSION_HELPER_TIMEOUT_SECONDS = 15;
 
 type GlobalState = Record<string, unknown>;
@@ -40,16 +42,64 @@ export interface PiSshStageTransport {
   writeFile(path: string, content: Buffer, signal?: AbortSignal): Promise<void>;
 }
 
+export interface PiSshWorkspaceReadOptions {
+  offset?: number;
+  limit?: number;
+  maxLines: number;
+  maxBytes: number;
+}
+
+export interface PiSshWorkspaceTextReadResult {
+  kind: "text";
+  content: string;
+  sourceBytes: number;
+  totalFileLines: number;
+  startLineDisplay: number;
+  userLimitedLines: number | null;
+  hasMoreAfterUserLimit: boolean;
+  firstLineBytes: number;
+  truncation: TruncationResult;
+}
+
+export interface PiSshWorkspaceImageReadResult {
+  kind: "image";
+  content: Buffer;
+  sourceBytes: number;
+  mimeType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+}
+
+export type PiSshWorkspaceReadResult = PiSshWorkspaceTextReadResult | PiSshWorkspaceImageReadResult;
+
+export interface PiSshWorkspaceEdit {
+  oldText: string;
+  newText: string;
+}
+
+export interface PiSshWorkspaceEditResult {
+  diff: string;
+  firstChangedLine?: number;
+  diffTruncated: boolean;
+  sourceBytes: number;
+  writtenBytes: number;
+}
+
 export interface PiSshTransport extends PiSshStageTransport {
   exec(
     command: string,
     cwd: string,
     options: { onData: (data: Buffer) => void; signal?: AbortSignal; timeout?: number },
   ): Promise<{ exitCode: number | null }>;
-  ensureReadable(remotePath: string, signal?: AbortSignal): Promise<void>;
-  ensureReadableWritable(remotePath: string, signal?: AbortSignal): Promise<void>;
-  detectImageMimeType(remotePath: string, signal?: AbortSignal): Promise<string | null>;
-  mkdir(remoteDir: string, signal?: AbortSignal): Promise<void>;
+  readWorkspaceFile(
+    remotePath: string,
+    options: PiSshWorkspaceReadOptions,
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceReadResult>;
+  editWorkspaceFile(
+    remotePath: string,
+    displayPath: string,
+    edits: PiSshWorkspaceEdit[],
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceEditResult>;
 }
 
 export interface PiSshRemoteContext {
@@ -83,9 +133,18 @@ export interface PiSshRemoteStat {
 export interface PiSshSession {
   getConnectionInfo(): PiSshConnectionInfo;
   getRemoteContext(signal?: AbortSignal): PiSshRemoteContext;
-  createReadOps(signal?: AbortSignal): ReadOperations;
-  createWriteOps(signal?: AbortSignal): WriteOperations;
-  createEditOps(signal?: AbortSignal): EditOperations;
+  readWorkspaceFile(
+    localPath: string,
+    options: PiSshWorkspaceReadOptions,
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceReadResult>;
+  writeWorkspaceFile(localPath: string, content: Buffer, signal?: AbortSignal): Promise<void>;
+  editWorkspaceFile(
+    localPath: string,
+    displayPath: string,
+    edits: PiSshWorkspaceEdit[],
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceEditResult>;
   createBashOps(options?: { onCommandComplete?: (cwd: string) => void }): BashOperations;
   mapLocalPathToRemote(localPath: string): string;
   execCapture(command: string, options?: PiSshExecCaptureOptions): Promise<PiSshExecCaptureResult>;
@@ -200,65 +259,27 @@ function parseRemoteStat(stdout: Buffer): PiSshRemoteStat {
   };
 }
 
+function pathIsWithin(candidate: string, root: string): boolean {
+  return root === "/" ? candidate.startsWith("/") : candidate === root || candidate.startsWith(`${root}/`);
+}
+
 export function mapLocalPathToRemote(
   localPath: string,
   connection: Pick<PiSshConnection, "localCwd" | "localHome" | "remoteCwd" | "remoteHome">,
 ): string {
-  if (localPath === connection.localCwd) return connection.remoteCwd;
-  if (localPath.startsWith(`${connection.localCwd}/`)) {
-    return `${connection.remoteCwd}${localPath.slice(connection.localCwd.length)}`;
-  }
-  if (localPath === connection.localHome) return connection.remoteHome;
-  if (localPath.startsWith(`${connection.localHome}/`)) {
-    return `${connection.remoteHome}${localPath.slice(connection.localHome.length)}`;
-  }
-  return localPath;
-}
-
-export function createRemoteReadOps(
-  connection: Pick<PiSshConnection, "localCwd" | "localHome" | "remoteCwd" | "remoteHome">,
-  transport: PiSshTransport,
-  signal?: AbortSignal,
-): ReadOperations {
-  return {
-    readFile: async (absolutePath) => transport.readFile(mapLocalPathToRemote(absolutePath, connection), signal),
-    access: async (absolutePath) => transport.ensureReadable(mapLocalPathToRemote(absolutePath, connection), signal),
-    detectImageMimeType: async (absolutePath) => {
-      try {
-        return await transport.detectImageMimeType(mapLocalPathToRemote(absolutePath, connection), signal);
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-export function createRemoteWriteOps(
-  connection: Pick<PiSshConnection, "localCwd" | "localHome" | "remoteCwd" | "remoteHome">,
-  transport: PiSshTransport,
-  signal?: AbortSignal,
-): WriteOperations {
-  return {
-    mkdir: async (absoluteDir) => transport.mkdir(mapLocalPathToRemote(absoluteDir, connection), signal),
-    writeFile: async (absolutePath, content) =>
-      transport.writeFile(mapLocalPathToRemote(absolutePath, connection), Buffer.from(content, "utf-8"), signal),
-  };
-}
-
-export function createRemoteEditOps(
-  connection: Pick<PiSshConnection, "localCwd" | "localHome" | "remoteCwd" | "remoteHome">,
-  transport: PiSshTransport,
-  signal?: AbortSignal,
-): EditOperations {
-  const readOps = createRemoteReadOps(connection, transport, signal);
-  const writeOps = createRemoteWriteOps(connection, transport, signal);
-
-  return {
-    readFile: readOps.readFile,
-    writeFile: writeOps.writeFile,
-    access: async (absolutePath) =>
-      transport.ensureReadableWritable(mapLocalPathToRemote(absolutePath, connection), signal),
-  };
+  const normalizedPath = pathPosix.normalize(localPath);
+  const mappings = [
+    { localRoot: pathPosix.normalize(connection.localCwd), remoteRoot: pathPosix.normalize(connection.remoteCwd) },
+    { localRoot: pathPosix.normalize(connection.localHome), remoteRoot: pathPosix.normalize(connection.remoteHome) },
+  ]
+    .filter(({ localRoot }) => pathIsWithin(normalizedPath, localRoot))
+    .sort((left, right) => right.localRoot.length - left.localRoot.length);
+  const mapping = mappings[0];
+  if (!mapping) return normalizedPath;
+  const relative = mapping.localRoot === "/"
+    ? normalizedPath.slice(1)
+    : normalizedPath.slice(mapping.localRoot.length).replace(/^\//, "");
+  return relative ? pathPosix.join(mapping.remoteRoot, relative) : mapping.remoteRoot;
 }
 
 export function createRemoteBashOps(
@@ -314,16 +335,21 @@ export function createPiSshSession(options: {
       };
     },
 
-    createReadOps(signal) {
-      return createRemoteReadOps(connection, transport, signal);
+    async readWorkspaceFile(localPath, readOptions, signal) {
+      return transport.readWorkspaceFile(mapLocalPathToRemote(localPath, connection), readOptions, signal);
     },
 
-    createWriteOps(signal) {
-      return createRemoteWriteOps(connection, transport, signal);
+    async writeWorkspaceFile(localPath, content, signal) {
+      return transport.writeFile(mapLocalPathToRemote(localPath, connection), content, signal);
     },
 
-    createEditOps(signal) {
-      return createRemoteEditOps(connection, transport, signal);
+    async editWorkspaceFile(localPath, displayPath, edits, signal) {
+      return transport.editWorkspaceFile(
+        mapLocalPathToRemote(localPath, connection),
+        displayPath,
+        edits,
+        signal,
+      );
     },
 
     createBashOps(runtimeOptions) {
@@ -385,6 +411,29 @@ export function createPiSshSession(options: {
       return root || null;
     },
   };
+}
+
+export function registerPiSshWorkspaceFileRouter(): () => void {
+  const registration = {};
+  getGlobalState()[WORKSPACE_FILE_ROUTER_KEY] = registration;
+  return () => {
+    if (getGlobalState()[WORKSPACE_FILE_ROUTER_KEY] === registration) {
+      delete getGlobalState()[WORKSPACE_FILE_ROUTER_KEY];
+    }
+  };
+}
+
+export function hasPiSshWorkspaceFileRouter(): boolean {
+  const registration = getGlobalState()[WORKSPACE_FILE_ROUTER_KEY];
+  return typeof registration === "object" && registration !== null;
+}
+
+export function requirePiSshWorkspaceFileRouter(): void {
+  if (!hasPiSshWorkspaceFileRouter()) {
+    throw new Error(
+      "pi-ssh remote file tools require the skill-uri extension. Install and enable both pi-ssh and skill-uri; refusing to start remote mode because file tools would otherwise remain local.",
+    );
+  }
 }
 
 export function getActivePiSshSession(): PiSshSession | null {
@@ -491,4 +540,8 @@ export async function resolveActivePiSshRepoIdentity(localCwd: string): Promise<
 
 export function __resetPiSshSessionForTests(): void {
   clearPublishedPiSshSession();
+}
+
+export function __resetPiSshWorkspaceFileRouterForTests(): void {
+  delete getGlobalState()[WORKSPACE_FILE_ROUTER_KEY];
 }

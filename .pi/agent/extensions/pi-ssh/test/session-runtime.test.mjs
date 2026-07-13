@@ -4,9 +4,13 @@ import assert from "node:assert/strict";
 import {
   __publishActivePiSshSessionForTests,
   __resetPiSshSessionForTests,
+  __resetPiSshWorkspaceFileRouterForTests,
   clearPublishedPiSshSession,
   createPiSshSession,
   getActivePiSshSession,
+  hasPiSshWorkspaceFileRouter,
+  registerPiSshWorkspaceFileRouter,
+  requirePiSshWorkspaceFileRouter,
   resolveActivePiSshRepoIdentity,
 } from "../lib/pi-ssh-session-runtime.ts";
 
@@ -25,11 +29,36 @@ function makeTransport() {
   return {
     exec: async () => ({ exitCode: 0 }),
     readFile: async () => Buffer.alloc(0),
-    ensureReadable: async () => {},
-    ensureReadableWritable: async () => {},
-    detectImageMimeType: async () => null,
-    mkdir: async () => {},
     writeFile: async () => {},
+    readWorkspaceFile: async () => ({
+      kind: "text",
+      content: "",
+      sourceBytes: 0,
+      totalFileLines: 1,
+      startLineDisplay: 1,
+      userLimitedLines: null,
+      hasMoreAfterUserLimit: false,
+      firstLineBytes: 0,
+      truncation: {
+        content: "",
+        truncated: false,
+        truncatedBy: null,
+        totalLines: 1,
+        totalBytes: 0,
+        outputLines: 1,
+        outputBytes: 0,
+        lastLinePartial: false,
+        firstLineExceedsLimit: false,
+        maxLines: 2_000,
+        maxBytes: 50 * 1024,
+      },
+    }),
+    editWorkspaceFile: async () => ({
+      diff: "",
+      diffTruncated: false,
+      sourceBytes: 0,
+      writtenBytes: 0,
+    }),
   };
 }
 
@@ -82,7 +111,37 @@ test("PiSshSession maps local cwd and home paths onto the remote workspace", () 
   assert.equal(session.mapLocalPathToRemote("/local/worktree"), "/remote/worktree");
   assert.equal(session.mapLocalPathToRemote("/local/worktree/src/app.ts"), "/remote/worktree/src/app.ts");
   assert.equal(session.mapLocalPathToRemote("/local/home/.config/pi/config.json"), "/remote/home/.config/pi/config.json");
+  assert.equal(session.mapLocalPathToRemote("/local/worktree/../home/notes.md"), "/remote/home/notes.md");
   assert.equal(session.mapLocalPathToRemote("/already/remote/path.txt"), "/already/remote/path.txt");
+
+  const rootSession = createPiSshSession({
+    connection: { ...makeConnection(), localCwd: "/", remoteCwd: "/remote/root" },
+    transport: makeTransport(),
+    execCapture: async () => ({
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      exitCode: 0,
+      timedOut: false,
+      aborted: false,
+    }),
+  });
+  assert.equal(rootSession.mapLocalPathToRemote("/opt/project/file.ts"), "/remote/root/opt/project/file.ts");
+  assert.equal(rootSession.mapLocalPathToRemote("/local/home/notes.md"), "/remote/home/notes.md");
+});
+
+test("remote mode fails closed until a workspace file router is registered", () => {
+  __resetPiSshWorkspaceFileRouterForTests();
+  assert.equal(hasPiSshWorkspaceFileRouter(), false);
+  assert.throws(requirePiSshWorkspaceFileRouter, /require the skill-uri extension.*otherwise remain local/);
+  const unregisterFirst = registerPiSshWorkspaceFileRouter();
+  assert.equal(hasPiSshWorkspaceFileRouter(), true);
+  assert.doesNotThrow(requirePiSshWorkspaceFileRouter);
+
+  const unregisterCurrent = registerPiSshWorkspaceFileRouter();
+  unregisterFirst();
+  assert.equal(hasPiSshWorkspaceFileRouter(), true, "stale cleanup must not remove a newer registration");
+  unregisterCurrent();
+  assert.equal(hasPiSshWorkspaceFileRouter(), false);
 });
 
 test("PiSshSession execCapture preserves exact stdout/stderr/exit details", async () => {

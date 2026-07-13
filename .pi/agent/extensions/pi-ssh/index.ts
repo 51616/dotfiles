@@ -7,14 +7,18 @@ import { createBashTool, type BashOperations } from "@mariozechner/pi-coding-age
 import {
   clearPublishedPiSshSession,
   createPiSshSession,
-  createRemoteEditOps,
-  createRemoteReadOps,
-  createRemoteWriteOps,
   mapLocalPathToRemote,
+  requirePiSshWorkspaceFileRouter,
   publishActivePiSshSession,
   resolveActivePiSshRepoIdentity,
   type PiSshConnection,
+  type PiSshWorkspaceEdit,
+  type PiSshWorkspaceEditResult,
+  type PiSshWorkspaceReadOptions,
+  type PiSshWorkspaceReadResult,
 } from "./lib/pi-ssh-session-runtime.ts";
+import { PiSshFileWorkerClient } from "./lib/pi-ssh-file-protocol.ts";
+import { PiSshRemoteFileTransport } from "./lib/pi-ssh-file-transport.ts";
 import {
   buildReusablePiSshRuntimeKey,
   clearReusablePiSshRuntime,
@@ -507,6 +511,35 @@ function buildSshBaseArgs(port: number): string[] {
     "-o",
     "ControlPath=/tmp/pi-ssh-%C",
   ];
+}
+
+const PI_SSH_FILE_WORKER_SOURCE = readFileSync(new URL("./lib/pi-ssh-file-worker.py", import.meta.url), "utf8");
+
+function buildRemoteFileWorkerCommand(): string {
+  const encodedSource = Buffer.from(PI_SSH_FILE_WORKER_SOURCE, "utf8").toString("base64");
+  return [
+    "PI_SSH_FILE_WORKER_PROTOCOL=1",
+    "export PI_SSH_FILE_WORKER_PROTOCOL",
+    "if command -v python3 >/dev/null 2>&1; then PI_SSH_FILE_PYTHON=python3",
+    "elif command -v python >/dev/null 2>&1; then PI_SSH_FILE_PYTHON=python",
+    "else echo 'pi-ssh file worker requires Python 3.9+ as python3 or python on the remote host' >&2; exit 127",
+    "fi",
+    "if ! \"$PI_SSH_FILE_PYTHON\" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then echo 'pi-ssh file worker requires Python 3.9 or newer on the remote host' >&2; exit 127; fi",
+    `exec \"$PI_SSH_FILE_PYTHON\" -u -c \"$(printf '%s' ${shellQuote(encodedSource)} | base64 -d)\"`,
+  ].join("; ");
+}
+
+function createRemoteFileWorker(connection: SshConnection): PiSshRemoteFileTransport {
+  const remoteCommand = buildRemoteFileWorkerCommand();
+  const worker = new PiSshFileWorkerClient({
+    launcher: () => spawn(
+      "ssh",
+      [...buildSshBaseArgs(connection.port), "-T", connection.remote, remoteCommand],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    ),
+    onDebug: (event, details) => logPiSshDebug(`file-worker.${event}`, details),
+  });
+  return new PiSshRemoteFileTransport(worker);
 }
 
 function readSshConfigText(): string | null {
@@ -1083,49 +1116,51 @@ class PersistentRemoteShell {
   }
 }
 
-const PERSISTENT_WRITE_MAX_BYTES = 256 * 1024;
-
-interface RemoteTransport {
+interface RemoteFileTransport {
   dispose(): Promise<void>;
+  readFile(remotePath: string, signal?: AbortSignal): Promise<Buffer>;
+  writeFile(remotePath: string, content: Buffer, signal?: AbortSignal): Promise<void>;
+  readWorkspaceFile(
+    remotePath: string,
+    options: PiSshWorkspaceReadOptions,
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceReadResult>;
+  editWorkspaceFile(
+    remotePath: string,
+    displayPath: string,
+    edits: PiSshWorkspaceEdit[],
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceEditResult>;
+}
+
+interface RemoteTransport extends RemoteFileTransport {
   exec(
     command: string,
     cwd: string,
     options: { onData: (data: Buffer) => void; signal?: AbortSignal; timeout?: number },
   ): Promise<{ exitCode: number | null }>;
   execText(command: string, options?: { timeout?: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; output: string }>;
-  readFile(remotePath: string, signal?: AbortSignal): Promise<Buffer>;
-  ensureReadable(remotePath: string, signal?: AbortSignal): Promise<void>;
-  ensureReadableWritable(remotePath: string, signal?: AbortSignal): Promise<void>;
-  detectImageMimeType(remotePath: string, signal?: AbortSignal): Promise<string | null>;
-  mkdir(remoteDir: string, signal?: AbortSignal): Promise<void>;
-  writeFile(remotePath: string, content: Buffer, signal?: AbortSignal): Promise<void>;
-}
-
-function remoteDirname(path: string): string {
-  const slashIndex = path.lastIndexOf("/");
-  if (slashIndex <= 0) return "/";
-  return path.slice(0, slashIndex);
 }
 
 interface SshTransportOptions {
   shell?: Pick<PersistentRemoteShell, "dispose" | "exec">;
-  sshExecFn?: typeof sshExec;
+  fileTransport?: RemoteFileTransport;
 }
 
 class SshTransport implements RemoteTransport {
   private connection: SshConnection;
   private shell: Pick<PersistentRemoteShell, "dispose" | "exec">;
-  private readonly sshExecFn: typeof sshExec;
+  private fileTransport: RemoteFileTransport;
   private queue = new CommandQueue();
 
   constructor(connection: SshConnection, options: SshTransportOptions = {}) {
     this.connection = connection;
     this.shell = options.shell ?? new PersistentRemoteShell(connection);
-    this.sshExecFn = options.sshExecFn ?? sshExec;
+    this.fileTransport = options.fileTransport ?? createRemoteFileWorker(connection);
   }
 
   async dispose(): Promise<void> {
-    await this.shell.dispose();
+    await Promise.all([this.shell.dispose(), this.fileTransport.dispose()]);
   }
 
   exec(
@@ -1145,118 +1180,60 @@ class SshTransport implements RemoteTransport {
   }
 
   async readFile(remotePath: string, signal?: AbortSignal): Promise<Buffer> {
-    // Read files over a one-shot SSH exec so bytes are preserved exactly.
-    // The persistent shell runs through a PTY and normalizes output for
-    // streaming, which is fine for text commands but corrupts binary reads.
-    if (isSkillStagePath(remotePath)) {
-      logPiSshDebug("transport.read-file.begin", { remotePath });
-    }
-    return this.queue.enqueue(async () => {
-      try {
-        const result = await this.sshExecFn(this.connection.remote, this.connection.port, `cat -- ${shellQuote(remotePath)}`, {
-          timeoutSeconds: DEFAULT_EXEC_TIMEOUT_SECONDS,
-          signal,
-        });
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.read-file.ok", { remotePath, bytes: result.length });
-        }
-        return result;
-      } catch (error) {
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.read-file.error", {
-            remotePath,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-        throw error;
+    if (isSkillStagePath(remotePath)) logPiSshDebug("transport.read-file.begin", { remotePath });
+    try {
+      const result = await this.fileTransport.readFile(remotePath, signal);
+      if (isSkillStagePath(remotePath)) {
+        logPiSshDebug("transport.read-file.ok", { remotePath, bytes: result.length, mode: "file-worker" });
       }
-    });
-  }
-
-  async ensureReadable(remotePath: string, signal?: AbortSignal): Promise<void> {
-    await this.runChecked(`test -r ${shellQuote(remotePath)}`, undefined, signal);
-  }
-
-  async ensureReadableWritable(remotePath: string, signal?: AbortSignal): Promise<void> {
-    await this.runChecked(`test -r ${shellQuote(remotePath)} && test -w ${shellQuote(remotePath)}`, undefined, signal);
-  }
-
-  async detectImageMimeType(remotePath: string, signal?: AbortSignal): Promise<string | null> {
-    const result = await this.capture(`file --mime-type -b -- ${shellQuote(remotePath)} 2>/dev/null || true`, { signal });
-    const mime = result.output.toString("utf-8").trim();
-    if (["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mime)) {
-      return mime;
+      return result;
+    } catch (error) {
+      if (isSkillStagePath(remotePath)) {
+        logPiSshDebug("transport.read-file.error", {
+          remotePath,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
     }
-    return null;
-  }
-
-  async mkdir(remoteDir: string, signal?: AbortSignal): Promise<void> {
-    await this.runChecked(`mkdir -p -- ${shellQuote(remoteDir)}`, undefined, signal);
   }
 
   async writeFile(remotePath: string, content: Buffer, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      throw new Error("aborted");
-    }
-
     if (isSkillStagePath(remotePath)) {
       logPiSshDebug("transport.write-file.begin", { remotePath, bytes: content.length });
     }
-
-    if (content.length <= PERSISTENT_WRITE_MAX_BYTES) {
-      const remoteDir = remoteDirname(remotePath);
-      const encodedContent = content.toString("base64");
-      const command = [
-        `mkdir -p -- ${shellQuote(remoteDir)}`,
-        `printf '%s' ${shellQuote(encodedContent)} | base64 -d > ${shellQuote(remotePath)}`,
-      ].join(" && ");
-
-      try {
-        await this.runChecked(command, undefined, signal);
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.write-file.ok", { remotePath, bytes: content.length, mode: "persistent" });
-        }
-        return;
-      } catch (error) {
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.write-file.retry", {
-            remotePath,
-            bytes: content.length,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-        if (signal?.aborted) {
-          throw error;
-        }
-        if (error instanceof Error && (error.message === "aborted" || error.message.startsWith("timeout:"))) {
-          throw error;
-        }
-        // fall through to one-shot streaming fallback
+    try {
+      await this.fileTransport.writeFile(remotePath, content, signal);
+      if (isSkillStagePath(remotePath)) {
+        logPiSshDebug("transport.write-file.ok", { remotePath, bytes: content.length, mode: "file-worker" });
       }
-    }
-
-    await this.queue.enqueue(async () => {
-      const remoteDir = remoteDirname(remotePath);
-      const command = [`mkdir -p -- ${shellQuote(remoteDir)}`, `cat > ${shellQuote(remotePath)}`].join(" && ");
-      try {
-        await this.sshExecFn(this.connection.remote, this.connection.port, command, {
-          stdin: content,
-          signal,
+    } catch (error) {
+      if (isSkillStagePath(remotePath)) {
+        logPiSshDebug("transport.write-file.error", {
+          remotePath,
+          bytes: content.length,
+          message: error instanceof Error ? error.message : String(error),
         });
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.write-file.ok", { remotePath, bytes: content.length, mode: "stream" });
-        }
-      } catch (error) {
-        if (isSkillStagePath(remotePath)) {
-          logPiSshDebug("transport.write-file.error", {
-            remotePath,
-            bytes: content.length,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-        throw error;
       }
-    });
+      throw error;
+    }
+  }
+
+  readWorkspaceFile(
+    remotePath: string,
+    options: PiSshWorkspaceReadOptions,
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceReadResult> {
+    return this.fileTransport.readWorkspaceFile(remotePath, options, signal);
+  }
+
+  editWorkspaceFile(
+    remotePath: string,
+    displayPath: string,
+    edits: PiSshWorkspaceEdit[],
+    signal?: AbortSignal,
+  ): Promise<PiSshWorkspaceEditResult> {
+    return this.fileTransport.editWorkspaceFile(remotePath, displayPath, edits, signal);
   }
 
   private async capture(
@@ -1268,24 +1245,10 @@ class SshTransport implements RemoteTransport {
       const result = await this.shell.exec(command, this.connection.localCwd, {
         timeout: options.timeout,
         signal: options.signal,
-        onData: (data) => {
-          outputChunks.push(data);
-        },
+        onData: (data) => outputChunks.push(data),
       });
-      return {
-        exitCode: result.exitCode,
-        output: Buffer.concat(outputChunks),
-      };
+      return { exitCode: result.exitCode, output: Buffer.concat(outputChunks) };
     });
-  }
-
-  private async runChecked(command: string, timeout?: number, signal?: AbortSignal): Promise<Buffer> {
-    const result = await this.capture(command, { timeout, signal });
-    if (result.exitCode !== 0) {
-      const stderr = result.output.toString("utf-8").trim();
-      throw new Error(stderr || `SSH command failed with exit code ${result.exitCode}`);
-    }
-    return result.output;
   }
 }
 
@@ -1588,6 +1551,7 @@ export default function piSshExtension(pi: ExtensionAPI): void {
     }
 
     try {
+      requirePiSshWorkspaceFileRouter();
       const rawPort = (pi.getFlag("port") as string | undefined) ?? (pi.getFlag("ssh-port") as string | undefined);
       const port = parseSshPort(rawPort);
       const runtimeCacheKey = buildReusablePiSshRuntimeKey({ sshFlag: flag, port, localCwd, localHome });
@@ -1799,9 +1763,8 @@ export const __testInternals = {
   SshTransport,
   sshCapture,
   sshExec,
-  createRemoteReadOps,
-  createRemoteWriteOps,
-  createRemoteEditOps,
+  createRemoteFileWorker,
+  buildRemoteFileWorkerCommand,
   buildFooterPathLabel,
   buildRemoteFooterLabel,
   buildRemoteFooterLines,

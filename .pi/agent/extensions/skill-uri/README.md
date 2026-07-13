@@ -29,10 +29,17 @@ all follow the same rule without reimplementing pi core discovery.
 
 `skill-uri` does not implement remote transport itself.
 
-In this vault, `pi-ssh` publishes one canonical SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. When an active `pi-ssh` session exists:
-- non-skill workspace reads/writes/edits are delegated through that session
-- `skill://...` paths still resolve to the local skill source
+In this vault, `pi-ssh` publishes one canonical SSH session contract at `pi-ssh/lib/pi-ssh-session-runtime.ts`. `skill-uri` registers itself as the lifecycle-scoped workspace file router and unregisters on session shutdown. `pi-ssh` deliberately refuses SSH mode when this registration is absent; both extensions must be installed and enabled so remote bash can never coexist with accidental local file mutations.
+
+When an active `pi-ssh` session exists:
+- non-skill workspace reads/writes/edits use the session's high-level persistent file-worker methods
+- one ranged read, raw write, or remote edit becomes one logical worker request after startup
+- read continuation notices and image attachments keep pi's built-in UX through `lib/remote-workspace-tools.ts`
+- writes and edits to the same path remain serialized through pi's mutation queue; an abort while waiting settles promptly and prevents later dispatch
+- `skill://...` paths still resolve to the local skill source and never use the remote workspace worker
 - `run_skill_script` stages the local skill root remotely and executes the requested file there automatically
+
+There is no slow operation-builder fallback. If the active SSH worker or required remote Python 3.9+ is unavailable, the workspace tool fails with the pi-ssh diagnostic.
 
 ## `run_skill_script`
 
