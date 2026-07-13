@@ -49,6 +49,9 @@ const DEFAULT_MAX_SESSION_FILES = 80;
 const DEFAULT_TAIL_BYTES = 1024 * 1024;
 const DEFAULT_APP_SERVER_TIMEOUT_MS = 8_000;
 const FALLBACK_FRESH_MS = 10 * 60 * 1000;
+const FIVE_HOUR_WINDOW_MINUTES = 5 * 60;
+const WEEKLY_WINDOW_MINUTES = 7 * 24 * 60;
+const WINDOW_DURATION_TOLERANCE_MINUTES = 1;
 const BAR_CHAR = "━";
 const BAR_FILLED_COLOR = "#a6adc8";
 const BAR_EMPTY_COLOR = "#45475a";
@@ -356,7 +359,13 @@ export async function readCodexAppServerRateLimits(
 export async function readCurrentCodexRateLimits(options: ReadCurrentQuotaOptions = {}): Promise<QuotaSnapshot | null> {
   const nowMs = options.observedAtMs ?? Date.now();
   const latestLogSnapshot = await readLatestCodexSessionRateLimits(options);
-  if (latestLogSnapshot && quotaSnapshotIsFresh(latestLogSnapshot, nowMs)) return latestLogSnapshot;
+  if (
+    latestLogSnapshot?.primary &&
+    latestLogSnapshot.secondary &&
+    quotaSnapshotIsFresh(latestLogSnapshot, nowMs)
+  ) {
+    return latestLogSnapshot;
+  }
 
   return (await readCodexAppServerRateLimits({ ...options, observedAtMs: nowMs })) ?? latestLogSnapshot;
 }
@@ -397,11 +406,40 @@ function windowIsFresh(window: QuotaWindow, observedAtMs: number, nowMs: number)
 }
 
 export function quotaSnapshotIsFresh(snapshot: QuotaSnapshot, nowMs: number): boolean {
-  if (!snapshot.primary || !snapshot.secondary) return false;
-  return (
-    windowIsFresh(snapshot.primary, snapshot.observedAtMs, nowMs) &&
-    windowIsFresh(snapshot.secondary, snapshot.observedAtMs, nowMs)
+  const windows = [snapshot.primary, snapshot.secondary].filter(
+    (window): window is QuotaWindow => window !== null,
   );
+  return (
+    windows.length > 0 &&
+    windows.every((window) => windowIsFresh(window, snapshot.observedAtMs, nowMs))
+  );
+}
+
+type StandardQuotaWindows = {
+  fiveHour: QuotaWindow | null;
+  weekly: QuotaWindow | null;
+};
+
+function hasWindowDuration(window: QuotaWindow, expectedMinutes: number): boolean {
+  return (
+    window.windowMinutes !== null &&
+    Math.abs(window.windowMinutes - expectedMinutes) <= WINDOW_DURATION_TOLERANCE_MINUTES
+  );
+}
+
+function selectStandardQuotaWindows(snapshot: QuotaSnapshot): StandardQuotaWindows {
+  const windows = [snapshot.primary, snapshot.secondary].filter(
+    (window): window is QuotaWindow => window !== null,
+  );
+  let fiveHour = windows.find((window) => hasWindowDuration(window, FIVE_HOUR_WINDOW_MINUTES)) ?? null;
+  let weekly = windows.find((window) => hasWindowDuration(window, WEEKLY_WINDOW_MINUTES)) ?? null;
+
+  // Older payloads did not always include durations. Preserve their documented
+  // positional meaning without mislabeling newer single-window payloads.
+  if (!fiveHour && snapshot.primary?.windowMinutes === null) fiveHour = snapshot.primary;
+  if (!weekly && snapshot.secondary?.windowMinutes === null) weekly = snapshot.secondary;
+
+  return { fiveHour, weekly };
 }
 
 function formatQuotaWindow(label: string, window: QuotaWindow, width: number): string {
@@ -411,19 +449,28 @@ function formatQuotaWindow(label: string, window: QuotaWindow, width: number): s
   return `${prefix}${renderProgressBar(availablePercent, width)}${suffix}`;
 }
 
+function formatUnavailableQuotaWindow(label: string): string {
+  return ansiTrueColor(`${label} n/a`, TEXT_COLOR);
+}
+
 export function formatQuotaStatus(
   snapshot: QuotaSnapshot | null,
   nowMs = Date.now(),
   options: FormatQuotaOptions = {},
 ): string | undefined {
   if (!snapshot) return undefined;
-  if (!snapshot.primary || !snapshot.secondary) return undefined;
   if (!quotaSnapshotIsFresh(snapshot, nowMs)) return "quota stale";
 
+  const { fiveHour, weekly } = selectStandardQuotaWindows(snapshot);
+  if (!fiveHour && !weekly) return undefined;
+
   const width = options.barWidth ?? DEFAULT_BAR_WIDTH;
-  const status = `${formatQuotaWindow("5h", snapshot.primary, width)}${ansiTrueColor(
-    " · ",
-    TEXT_COLOR,
-  )}${formatQuotaWindow("weekly", snapshot.secondary, width)}`;
+  const fiveHourStatus = fiveHour
+    ? formatQuotaWindow("5h", fiveHour, width)
+    : formatUnavailableQuotaWindow("5h");
+  const weeklyStatus = weekly
+    ? formatQuotaWindow("weekly", weekly, width)
+    : formatUnavailableQuotaWindow("weekly");
+  const status = `${fiveHourStatus}${ansiTrueColor(" · ", TEXT_COLOR)}${weeklyStatus}`;
   return snapshot.rateLimitReachedType ? `${status} !` : status;
 }

@@ -39,6 +39,10 @@ function expectedStatus(primaryPercent, primaryFilledCells, secondaryPercent, se
   return `${expectedWindow("5h", primaryPercent, primaryFilledCells, 6 - primaryFilledCells)}${TEXT_OPEN} · ${ANSI_RESET}${expectedWindow("weekly", secondaryPercent, secondaryFilledCells, 6 - secondaryFilledCells)}`;
 }
 
+function expectedWeeklyOnlyStatus(weeklyPercent, weeklyFilledCells) {
+  return `${TEXT_OPEN}5h n/a${ANSI_RESET}${TEXT_OPEN} · ${ANSI_RESET}${expectedWindow("weekly", weeklyPercent, weeklyFilledCells, 6 - weeklyFilledCells)}`;
+}
+
 function snapshot(primaryUsedPercent, secondaryUsedPercent, resetsAt = FUTURE_RESET) {
   return {
     primary: { usedPercent: primaryUsedPercent, windowMinutes: 300, resetsAt },
@@ -196,7 +200,7 @@ test("readLatestCodexSessionRateLimits scans newest session tails first", async 
   }
 });
 
-test("readCurrentCodexRateLimits falls back to app-server when session logs are stale", async () => {
+test("readCurrentCodexRateLimits renders a weekly-only app-server response when session logs are stale", async () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-quota-current-"));
   const sessionDir = path.join(codexHome, "sessions", "2026", "05", "23");
   fs.mkdirSync(sessionDir, { recursive: true });
@@ -216,8 +220,8 @@ test("readCurrentCodexRateLimits falls back to app-server when session logs are 
     rateLimitsByLimitId: {
       codex: {
         limitId: "codex",
-        primary: { usedPercent: 2, windowDurationMins: 300, resetsAt: FUTURE_RESET },
-        secondary: { usedPercent: 59, windowDurationMins: 10080, resetsAt: FUTURE_RESET + 3600 },
+        primary: { usedPercent: 3, windowDurationMins: 10080, resetsAt: FUTURE_RESET + 3600 },
+        secondary: null,
         planType: "pro",
         rateLimitReachedType: null,
       },
@@ -233,8 +237,10 @@ test("readCurrentCodexRateLimits falls back to app-server when session logs are 
     });
 
     assert.equal(latest?.source, "codex-app-server");
-    assert.equal(latest?.primary?.usedPercent, 2);
-    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedStatus(98, 5, 41, 2));
+    assert.equal(latest?.primary?.usedPercent, 3);
+    assert.equal(latest?.secondary, null);
+    assert.equal(formatQuotaStatus(latest, NOW_MS), expectedWeeklyOnlyStatus(97, 5));
+    assert.equal(stripAnsi(formatQuotaStatus(latest, NOW_MS)), "5h n/a · weekly ━━━━━━ 97%");
   } finally {
     fs.rmSync(codexHome, { recursive: true, force: true });
   }
