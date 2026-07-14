@@ -14,40 +14,57 @@ function contentToText(content: unknown): string {
     .trim();
 }
 
-function messageTextFromEntry(entry: unknown): string {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return "";
-  const entryRecord = entry as Record<string, unknown>;
-  if (entryRecord.type !== "message") return "";
-
-  const message = entryRecord.message;
-  if (!message || typeof message !== "object" || Array.isArray(message)) return "";
-  const messageRecord = message as Record<string, unknown>;
-  if (messageRecord.role !== "user") return "";
-
-  return contentToText(messageRecord.content).trim();
-}
-
-// Sentinels that mark a message as goal-authored (the initial starter and the audited
-// continuations built by goal-continuation.ts). Anything starting with these strings is a
-// goal-emitted follow-up, not a human-typed objective, and must be ignored when blank /goal
-// adopts the previous user message. The old marker "Continue the active /goal objective." is
-// no longer produced anywhere, so leaving it as the only filter would let the lookup happily
-// return an audit transcript as the new goal objective.
+// Historical goal versions emitted starters and audited continuations as user messages.
+// Keep those sentinels so blank /goal never adopts a legacy goal-authored entry as a human
+// objective. Current tokenized dispatch uses custom messages, which this lookup ignores by role.
 const GOAL_CONTINUATION_PREFIXES = ["Original objective:\n", "Objective:\n"];
 
 function isGoalContinuationText(text: string): boolean {
   return GOAL_CONTINUATION_PREFIXES.some((prefix) => text.startsWith(prefix));
 }
 
-export function findPreviousUserMessageForGoal(entries: readonly unknown[]): string | null {
+function parseTimestampMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export type PreviousUserMessageForGoal = {
+  text: string;
+  startedAtMs: number | null;
+};
+
+function userMessageFromEntry(entry: unknown): PreviousUserMessageForGoal | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const entryRecord = entry as Record<string, unknown>;
+  if (entryRecord.type !== "message") return null;
+
+  const message = entryRecord.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  const messageRecord = message as Record<string, unknown>;
+  if (messageRecord.role !== "user") return null;
+
+  const text = contentToText(messageRecord.content).trim();
+  if (!text || text.startsWith("/") || isGoalContinuationText(text)) return null;
+  return {
+    text,
+    startedAtMs: parseTimestampMs(messageRecord.timestamp) ?? parseTimestampMs(entryRecord.timestamp),
+  };
+}
+
+export function findPreviousUserMessageForGoalDetails(
+  entries: readonly unknown[],
+): PreviousUserMessageForGoal | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const text = messageTextFromEntry(entries[i]).trim();
-    if (!text) continue;
-    if (text.startsWith("/")) continue;
-    if (isGoalContinuationText(text)) continue;
-    return text;
+    const message = userMessageFromEntry(entries[i]);
+    if (message) return message;
   }
   return null;
+}
+
+export function findPreviousUserMessageForGoal(entries: readonly unknown[]): string | null {
+  return findPreviousUserMessageForGoalDetails(entries)?.text ?? null;
 }
 
 export type AuditPromptInput = {

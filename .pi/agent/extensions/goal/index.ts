@@ -1,5 +1,6 @@
 // @lat: [[goal#Goal]]
 
+import { randomUUID } from "node:crypto";
 import { BorderedLoader, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import {
@@ -37,7 +38,7 @@ import {
   saveGoalSnapshot,
   snapshotFromSessionBranch,
 } from "./lib/goal-runtime.ts";
-import { buildAuditPrompt, findPreviousUserMessageForGoal } from "./lib/goal-session.ts";
+import { buildAuditPrompt, findPreviousUserMessageForGoalDetails } from "./lib/goal-session.ts";
 import { isCheckpointCycleActive } from "../lib/autockpt/autockpt-runtime-state.ts";
 
 type BorderColorFn = (str: string) => string;
@@ -50,6 +51,7 @@ type AuditRunner = (
 ) => Promise<AuditRunnerOutcome>;
 
 export const DEFAULT_AUDIT_START_DELAY_MS = 10_000;
+export const GOAL_DISPATCH_START_WATCHDOG_MS = 30_000;
 // Safety cap for the compactionActive latch. Long enough to outlast any real compaction call
 // but short enough that a silent compaction failure does not permanently mute /goal.
 export const COMPACTION_WATCHDOG_MS = 10 * 60_000;
@@ -192,12 +194,82 @@ function buildGoalCompletionNotification(ctx: ExtensionContext, goal: GoalState)
 
 type LoaderCloser = () => void;
 
-// The live @earendil-works/pi-coding-agent runtime exposes this lifecycle event, while the
+export const GOAL_DISPATCH_MARKER_TYPE = "goal-dispatch-marker";
+export const GOAL_DISPATCH_INSTRUCTION_TYPE = "goal-dispatch-instruction";
+const GOAL_DISPATCH_MARKER_TEXT =
+  "Internal /goal dispatch marker. This message carries no objective without a matching goal instruction.";
+
+type GoalDispatchMarkerDetails = {
+  goalId: string;
+  dispatchToken: number;
+  sessionEpoch: number;
+  extensionInstanceId: string;
+};
+
+type GoalDispatchAttempt = GoalDispatchMarkerDetails & {
+  prompt: string;
+  expectedTurnsUsed: number;
+  cancelled: boolean;
+};
+
+function parseGoalDispatchMarker(message: unknown): GoalDispatchMarkerDetails | null {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  const record = message as Record<string, unknown>;
+  if (record.role !== "custom" || record.customType !== GOAL_DISPATCH_MARKER_TYPE) return null;
+  if (!record.details || typeof record.details !== "object" || Array.isArray(record.details)) return null;
+
+  const details = record.details as Record<string, unknown>;
+  if (typeof details.goalId !== "string" || !details.goalId) return null;
+  if (typeof details.extensionInstanceId !== "string" || !details.extensionInstanceId) return null;
+  if (
+    typeof details.dispatchToken !== "number" ||
+    !Number.isSafeInteger(details.dispatchToken) ||
+    details.dispatchToken <= 0
+  ) {
+    return null;
+  }
+  if (
+    typeof details.sessionEpoch !== "number" ||
+    !Number.isSafeInteger(details.sessionEpoch) ||
+    details.sessionEpoch < 0
+  ) {
+    return null;
+  }
+  return {
+    goalId: details.goalId,
+    dispatchToken: details.dispatchToken,
+    sessionEpoch: details.sessionEpoch,
+    extensionInstanceId: details.extensionInstanceId,
+  };
+}
+
+function sameGoalDispatch(
+  left: GoalDispatchMarkerDetails,
+  right: GoalDispatchMarkerDetails,
+): boolean {
+  return (
+    left.goalId === right.goalId &&
+    left.dispatchToken === right.dispatchToken &&
+    left.sessionEpoch === right.sessionEpoch &&
+    left.extensionInstanceId === right.extensionInstanceId
+  );
+}
+
+// The live @earendil-works/pi-coding-agent runtime exposes these lifecycle events, while the
 // extension workspace's older upstream type package does not. Keep the untyped boundary narrow.
-type AgentSettledExtensionApi = {
+type LocalLifecycleExtensionApi = {
   on(
     event: "agent_settled",
     handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>,
+  ): void;
+  on(
+    event: "before_turn_response",
+    handler: (
+      event: { triggerMessages?: readonly unknown[] },
+      ctx: ExtensionContext,
+    ) =>
+      | { message: { customType: string; content: string; display: boolean; details: GoalDispatchMarkerDetails } }
+      | undefined,
   ): void;
 };
 
@@ -304,6 +376,14 @@ function compactionWatchdogMs(pi: ExtensionAPI): number {
     : COMPACTION_WATCHDOG_MS;
 }
 
+function dispatchStartWatchdogMs(pi: ExtensionAPI): number {
+  const override = (pi as unknown as { __goalExtensionDispatchStartWatchdogMs?: unknown })
+    .__goalExtensionDispatchStartWatchdogMs;
+  return typeof override === "number" && Number.isFinite(override) && override >= 0
+    ? Math.floor(override)
+    : GOAL_DISPATCH_START_WATCHDOG_MS;
+}
+
 class GoalEditor extends CustomEditor {
   private baseBorderColor: BorderColorFn;
   private readonly hasGoal: () => boolean;
@@ -355,9 +435,13 @@ class GoalEditor extends CustomEditor {
 }
 
 export default function goalExtension(pi: ExtensionAPI) {
+  const extensionInstanceId = randomUUID();
   let currentGoal: GoalState | null = null;
   let dispatchScheduled = false;
   let activeDispatchToken: number | null = null;
+  let pendingGoalDispatch: GoalDispatchAttempt | null = null;
+  let activeGoalDispatch: GoalDispatchAttempt | null = null;
+  let dispatchStartWatchdog: ReturnType<typeof setTimeout> | null = null;
   let nextDispatchToken = 0;
   let editorOverrideActive = false;
   let activeSessionId = "";
@@ -370,6 +454,28 @@ export default function goalExtension(pi: ExtensionAPI) {
   const runAudit = makeAuditRunner(pi);
   const auditDelayMs = auditStartDelayMs(pi);
   const compactionWatchdogDelayMs = compactionWatchdogMs(pi);
+  const dispatchStartWatchdogDelayMs = dispatchStartWatchdogMs(pi);
+
+  const clearDispatchStartWatchdog = (): void => {
+    if (!dispatchStartWatchdog) return;
+    clearTimeout(dispatchStartWatchdog);
+    dispatchStartWatchdog = null;
+  };
+
+  const armDispatchStartWatchdog = (ctx: ExtensionContext, attempt: GoalDispatchAttempt): void => {
+    clearDispatchStartWatchdog();
+    dispatchStartWatchdog = setTimeout(() => {
+      dispatchStartWatchdog = null;
+      if (!pendingGoalDispatch || !sameGoalDispatch(pendingGoalDispatch, attempt)) return;
+      const state = pendingGoalDispatch.cancelled ? "cancelled" : "active";
+      notify(
+        ctx,
+        `goal ${state} dispatch has not reached message_start; retaining its lock to prevent duplicate work (run /reload if it remains stuck)`,
+        "warning",
+      );
+    }, dispatchStartWatchdogDelayMs);
+    dispatchStartWatchdog.unref?.();
+  };
 
   const abortActiveAudit = (reason: string): void => {
     if (!activeAuditController) return;
@@ -456,14 +562,34 @@ export default function goalExtension(pi: ExtensionAPI) {
 
   const setCurrentGoal = (ctx: ExtensionContext, goal: GoalState | null) => {
     const previousGoalId = currentGoal?.goalId ?? null;
+    const previousGoalStatus = currentGoal?.status ?? null;
     const nextGoalId = goal?.goalId ?? null;
+    const nextGoalStatus = goal?.status ?? null;
     currentGoal = goal;
-    if (previousGoalId !== nextGoalId) {
-      // Any in-flight audit is now bound to a stale goal. Cancel its `pi -p` subprocess so
-      // we don't burn quota auditing a goal the user just cleared or replaced.
-      abortActiveAudit(nextGoalId === null ? "goal cleared" : "goal replaced");
-      dispatchScheduled = false;
-      activeDispatchToken = null;
+    const identityChanged = previousGoalId !== nextGoalId;
+    const activeGoalStopped =
+      previousGoalId !== null &&
+      previousGoalId === nextGoalId &&
+      previousGoalStatus === "active" &&
+      nextGoalStatus !== "active";
+    if (identityChanged || activeGoalStopped) {
+      // Any in-flight audit is now bound to stale or stopped goal state. Cancel its `pi -p`
+      // subprocess so we don't burn quota auditing work the user cleared, replaced, or limited.
+      const reason = activeGoalStopped ? "goal stopped" : nextGoalId === null ? "goal cleared" : "goal replaced";
+      abortActiveAudit(reason);
+
+      // A marker already handed to Pi cannot be retracted through the extension API. Retain its
+      // lock and mark it cancelled: message_start can then abort that exact custom-message turn.
+      // This also prevents a replacement marker from racing an unresolved old attempt.
+      if (pendingGoalDispatch) {
+        pendingGoalDispatch = { ...pendingGoalDispatch, cancelled: true };
+      } else if (activeGoalDispatch) {
+        activeGoalDispatch = { ...activeGoalDispatch, cancelled: true };
+        ctx.abort();
+      } else {
+        dispatchScheduled = false;
+        activeDispatchToken = null;
+      }
     }
     setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
     applyEditorOverride(ctx);
@@ -478,7 +604,11 @@ export default function goalExtension(pi: ExtensionAPI) {
     if (!currentGoal && activeSessionId) {
       currentGoal = getGoalSnapshotForSession(activeSessionId);
     }
+    clearDispatchStartWatchdog();
+    pendingGoalDispatch = null;
+    activeGoalDispatch = null;
     dispatchScheduled = false;
+    activeDispatchToken = null;
 
     if (currentGoal && !validateGoalObjective(currentGoal.objective).ok) {
       const invalidObjective = currentGoal.objective;
@@ -499,7 +629,12 @@ export default function goalExtension(pi: ExtensionAPI) {
   const createOrReplaceGoal = async (
     ctx: ExtensionContext,
     objective: string,
-    options: { explicitReplace?: boolean; allowUiConfirm?: boolean } = {},
+    options: {
+      explicitReplace?: boolean;
+      allowUiConfirm?: boolean;
+      attachToActiveTurn?: boolean;
+      activeTurnStartedAtMs?: number;
+    } = {},
   ) => {
     const validation = validateGoalObjective(objective);
     if (!validation.ok) {
@@ -523,10 +658,22 @@ export default function goalExtension(pi: ExtensionAPI) {
       }
     }
 
-    const next = currentGoal ? replaceGoal(currentGoal, objective) : createGoal(objective);
-    setCurrentGoal(ctx, next);
-    notify(ctx, `goal active: ${next.objective}`, "info");
-    scheduleGoalContinuation(ctx, { skipAudit: true });
+    const createdGoal = currentGoal ? replaceGoal(currentGoal, objective) : createGoal(objective);
+    const next =
+      options.attachToActiveTurn && options.activeTurnStartedAtMs !== undefined
+        ? { ...createdGoal, startedAtMs: Math.min(createdGoal.startedAtMs, options.activeTurnStartedAtMs) }
+        : createdGoal;
+    // Blank /goal adopts the user request already being processed, so that active run is its
+    // first goal turn. Explicit objectives remain at zero turns until their starter is queued.
+    const activatedGoal = options.attachToActiveTurn ? incrementGoalTurnsUsed(next) : next;
+    setCurrentGoal(ctx, activatedGoal);
+    notify(ctx, `goal active: ${activatedGoal.objective}`, "info");
+
+    // Pi consumes extension commands before applying Alt+Enter's follow-up routing. A busy
+    // explicit goal therefore remains at turnsUsed === 0 until agent_settled reaches the first
+    // fully idle boundary. Keeping the starter in goal state lets clear/replace invalidate it;
+    // a plain Pi queue message cannot be selectively retracted by an extension.
+    scheduleGoalContinuation(ctx);
   };
 
   const buildPromptForGoal = async (goal: GoalState, ctx: ExtensionContext): Promise<{ prompt: string; ssh?: { remote: string; port: number; remoteCwd: string } }> => {
@@ -544,14 +691,11 @@ export default function goalExtension(pi: ExtensionAPI) {
     };
   };
 
-  const scheduleGoalContinuation = (ctx: ExtensionContext, options: { skipAudit?: boolean } = {}): void => {
+  const scheduleGoalContinuation = (ctx: ExtensionContext): void => {
     if (!sessionActive || getAutoCheckpointCycleActive(ctx) || compactionActive) return;
 
     if (shouldBudgetLimitGoal(currentGoal)) {
-      currentGoal = markGoalBudgetLimited(currentGoal as GoalState);
-      applyEditorOverride(ctx);
-      refreshTuiBrokerEditor();
-      persistGoal(ctx);
+      setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal as GoalState));
       notify(ctx, "goal stopped: turn budget exhausted", "warning");
       return;
     }
@@ -567,6 +711,15 @@ export default function goalExtension(pi: ExtensionAPI) {
       return;
     }
 
+    if (!ctx.model) {
+      notify(ctx, "goal cannot dispatch without an active model", "warning");
+      return;
+    }
+    if (!ctx.modelRegistry.hasConfiguredAuth(ctx.model)) {
+      notify(ctx, `goal cannot dispatch: authentication is not configured for ${ctx.model.provider}`, "warning");
+      return;
+    }
+
     const scheduledGoalId = currentGoal?.goalId;
     const scheduledSessionEpoch = sessionLifecycleEpoch;
     const scheduledDispatchToken = nextDispatchToken + 1;
@@ -574,7 +727,9 @@ export default function goalExtension(pi: ExtensionAPI) {
     activeDispatchToken = scheduledDispatchToken;
     dispatchScheduled = true;
 
-    const dispatchDelayMs = options.skipAudit ? 0 : auditDelayMs;
+    // turnsUsed === 0 is the durable contract for an unstarted explicit goal. Deriving the
+    // starter path from state keeps transient idle/pending gates from losing a one-call option.
+    const dispatchDelayMs = currentGoal?.turnsUsed === 0 ? 0 : auditDelayMs;
 
     setTimeout(() => {
       void (async () => {
@@ -601,11 +756,11 @@ export default function goalExtension(pi: ExtensionAPI) {
             return;
           }
 
-          const goalAtAuditStart = currentGoal;
+          const goalAtDispatchStart = currentGoal;
           let continuation: string;
 
-          if (options.skipAudit) {
-            continuation = buildInitialGoalMessage(goalAtAuditStart);
+          if (goalAtDispatchStart.turnsUsed === 0) {
+            continuation = buildInitialGoalMessage(goalAtDispatchStart);
           } else {
             let outcome: AuditRunnerOutcome;
             const auditController = new AbortController();
@@ -616,9 +771,9 @@ export default function goalExtension(pi: ExtensionAPI) {
             });
             try {
               setStatus(ctx, "⚑ auditing |");
-              const auditInput = await buildPromptForGoal(goalAtAuditStart, ctx);
+              const auditInput = await buildPromptForGoal(goalAtDispatchStart, ctx);
               outcome = await runAudit(
-                goalAtAuditStart,
+                goalAtDispatchStart,
                 auditInput.prompt,
                 ctx,
                 auditInput.ssh,
@@ -631,7 +786,7 @@ export default function goalExtension(pi: ExtensionAPI) {
                 audit: fallbackAuditResult(failureReason),
                 failureReason,
                 attempts: 0,
-                auditSessionPath: defaultAuditSessionPath(goalAtAuditStart.goalId),
+                auditSessionPath: defaultAuditSessionPath(goalAtDispatchStart.goalId),
                 commands: [],
               };
             } finally {
@@ -642,7 +797,7 @@ export default function goalExtension(pi: ExtensionAPI) {
               }
             }
 
-            if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
+            if (!currentGoal || currentGoal.goalId !== goalAtDispatchStart.goalId) return;
             if (activeDispatchToken !== scheduledDispatchToken) return;
             if (agentActivityGeneration !== auditActivityGeneration) {
               // The audit inspected a snapshot from before another agent run. Never apply its
@@ -665,7 +820,7 @@ export default function goalExtension(pi: ExtensionAPI) {
               : buildFallbackContinuationMessage(currentGoal, outcome.failureReason ?? "audit failed");
           }
 
-          if (!currentGoal || currentGoal.goalId !== goalAtAuditStart.goalId) return;
+          if (!currentGoal || currentGoal.goalId !== goalAtDispatchStart.goalId) return;
           if (shouldBudgetLimitGoal(currentGoal)) {
             setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
             notify(ctx, "goal stopped: turn budget exhausted", "warning");
@@ -683,10 +838,41 @@ export default function goalExtension(pi: ExtensionAPI) {
             return;
           }
 
+          const dispatchAttempt: GoalDispatchAttempt = {
+            goalId: goalAtDispatchStart.goalId,
+            prompt: continuation,
+            dispatchToken: scheduledDispatchToken,
+            sessionEpoch: scheduledSessionEpoch,
+            extensionInstanceId,
+            expectedTurnsUsed: goalAtDispatchStart.turnsUsed,
+            cancelled: false,
+          };
           try {
-            pi.sendUserMessage(continuation, { deliverAs: "followUp" });
-            setCurrentGoal(ctx, incrementGoalTurnsUsed(currentGoal));
+            // A custom trigger preserves an attempt token through message_start. The marker itself
+            // contains no objective; before_turn_response injects work only after the exact live
+            // attempt starts. Clear/replacement can therefore abort stale work without relying on
+            // prompt equality or retrying an unresolved fire-and-forget send.
+            pendingGoalDispatch = dispatchAttempt;
+            armDispatchStartWatchdog(ctx, dispatchAttempt);
+            pi.sendMessage<GoalDispatchMarkerDetails>(
+              {
+                customType: GOAL_DISPATCH_MARKER_TYPE,
+                content: GOAL_DISPATCH_MARKER_TEXT,
+                display: false,
+                details: {
+                  goalId: dispatchAttempt.goalId,
+                  dispatchToken: dispatchAttempt.dispatchToken,
+                  sessionEpoch: dispatchAttempt.sessionEpoch,
+                  extensionInstanceId: dispatchAttempt.extensionInstanceId,
+                },
+              },
+              { triggerTurn: true, deliverAs: "followUp" },
+            );
           } catch (error) {
+            if (pendingGoalDispatch?.dispatchToken === scheduledDispatchToken) {
+              pendingGoalDispatch = null;
+              clearDispatchStartWatchdog();
+            }
             const messageText = error instanceof Error ? error.message : String(error);
             notify(ctx, `goal failed to queue continuation: ${messageText}`, "warning");
           }
@@ -694,7 +880,10 @@ export default function goalExtension(pi: ExtensionAPI) {
           const message = error instanceof Error ? error.message : String(error);
           notify(ctx, `goal continuation failed: ${message}`, "warning");
         } finally {
-          if (activeDispatchToken === scheduledDispatchToken) {
+          const awaitingGoalTurn =
+            pendingGoalDispatch?.dispatchToken === scheduledDispatchToken ||
+            activeGoalDispatch?.dispatchToken === scheduledDispatchToken;
+          if (activeDispatchToken === scheduledDispatchToken && !awaitingGoalTurn) {
             dispatchScheduled = false;
             activeDispatchToken = null;
           }
@@ -741,9 +930,17 @@ export default function goalExtension(pi: ExtensionAPI) {
           return;
         }
         if (!ctx.isIdle()) {
-          const objective = getRememberedUserMessage(ctx) ?? findPreviousUserMessageForGoal(getBranchEntries(ctx));
+          // The branch contains the user message actually being processed. A later Alt+Enter
+          // submission is remembered by `input` immediately but is not the active task yet.
+          const branchMessage = findPreviousUserMessageForGoalDetails(getBranchEntries(ctx));
+          const objective = branchMessage?.text ?? getRememberedUserMessage(ctx);
           if (objective) {
-            await createOrReplaceGoal(ctx, objective, { explicitReplace: false, allowUiConfirm: false });
+            await createOrReplaceGoal(ctx, objective, {
+              explicitReplace: false,
+              allowUiConfirm: false,
+              attachToActiveTurn: true,
+              activeTurnStartedAtMs: branchMessage?.startedAtMs ?? undefined,
+            });
             return;
           }
           notify(ctx, "goal could not find a previous user message to use as the goal.", "warning");
@@ -778,7 +975,17 @@ export default function goalExtension(pi: ExtensionAPI) {
           notify(ctx, "goal budget requires an active goal", "warning");
           return;
         }
-        setCurrentGoal(ctx, setGoalBudget(currentGoal, parsed.turnBudget));
+        const budgetedGoal = setGoalBudget(currentGoal, parsed.turnBudget);
+        if (shouldBudgetLimitGoal(budgetedGoal)) {
+          setCurrentGoal(ctx, markGoalBudgetLimited(budgetedGoal));
+          notify(
+            ctx,
+            `goal budget set to ${parsed.turnBudget}; goal stopped: turn budget exhausted`,
+            "warning",
+          );
+          return;
+        }
+        setCurrentGoal(ctx, budgetedGoal);
         notify(ctx, `goal budget set to ${parsed.turnBudget === null ? "unlimited" : parsed.turnBudget}`, "info");
         return;
       }
@@ -797,6 +1004,15 @@ export default function goalExtension(pi: ExtensionAPI) {
     sessionActive = true;
     clearCompactionActive();
     restoreGoalForSession(ctx);
+    // Reload is the explicit recovery for an unresolved fire-and-forget marker. Restoring the
+    // persisted goal must therefore re-arm its starter/audit without waiting for unrelated work.
+    scheduleGoalContinuation(ctx);
+  });
+
+  pi.on("model_select", (_event, ctx) => {
+    // A goal may have been persisted while no model/auth was available. Model selection is the
+    // recovery event in Pi; it does not emit agent_settled merely because configuration changed.
+    scheduleGoalContinuation(ctx);
   });
 
   pi.on("session_before_compact", (event, ctx) => {
@@ -816,6 +1032,9 @@ export default function goalExtension(pi: ExtensionAPI) {
     sessionActive = false;
     sessionLifecycleEpoch += 1;
     abortActiveAudit("session shutdown");
+    clearDispatchStartWatchdog();
+    pendingGoalDispatch = null;
+    activeGoalDispatch = null;
     dispatchScheduled = false;
     activeDispatchToken = null;
     clearCompactionActive();
@@ -830,24 +1049,102 @@ export default function goalExtension(pi: ExtensionAPI) {
   });
 
   pi.on("agent_start", () => {
+    clearCompactionActive();
     agentActivityGeneration += 1;
     abortActiveAudit("agent started while goal audit was running");
   });
 
-  pi.on("before_agent_start", (_event, _ctx) => {
-    // Upstream BeforeAgentStartEvent has no `source` field, so checking event.source === "user"
-    // was permanently false and the rememberUserMessage call here was dead code. The user-typed
-    // prompt is already captured by the `input` handler, which receives a real InputSource
-    // ("interactive" | "rpc" | "extension") from emitInput() and correctly drops messages that
-    // pi.sendUserMessage() sent from inside an extension (including goal's own continuations).
-    // We only need this handler to clear stale compactionActive state at the start of each turn.
-    clearCompactionActive();
+  pi.on("message_start", (event, ctx) => {
+    const marker = parseGoalDispatchMarker(event.message);
+    if (!marker) return;
+
+    const pending = pendingGoalDispatch;
+    if (!pending || !sameGoalDispatch(marker, pending)) {
+      // A marker from an invalidated session or superseded attempt has reached the exact point
+      // where the agent owns an abort signal. Stop that turn before stale goal work is injected.
+      ctx.abort();
+      return;
+    }
+
+    clearDispatchStartWatchdog();
+    pendingGoalDispatch = null;
+    activeGoalDispatch = pending;
+    if (
+      !pending.cancelled &&
+      currentGoal?.goalId === pending.goalId &&
+      shouldBudgetLimitGoal(currentGoal)
+    ) {
+      setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
+      notify(ctx, "goal stopped: turn budget exhausted", "warning");
+      return;
+    }
+    if (
+      pending.cancelled ||
+      !sessionActive ||
+      sessionLifecycleEpoch !== pending.sessionEpoch ||
+      activeDispatchToken !== pending.dispatchToken ||
+      !currentGoal ||
+      currentGoal.goalId !== pending.goalId ||
+      currentGoal.status !== "active" ||
+      currentGoal.turnsUsed !== pending.expectedTurnsUsed
+    ) {
+      activeGoalDispatch = { ...pending, cancelled: true };
+      ctx.abort();
+      return;
+    }
+
+    setCurrentGoal(ctx, incrementGoalTurnsUsed(currentGoal));
+  });
+
+  (pi as unknown as LocalLifecycleExtensionApi).on("before_turn_response", (event, ctx) => {
+    const active = activeGoalDispatch;
+    if (!active) return undefined;
+    const marker = (event.triggerMessages ?? [])
+      .map((message) => parseGoalDispatchMarker(message))
+      .find((candidate): candidate is GoalDispatchMarkerDetails => candidate !== null && sameGoalDispatch(candidate, active));
+    if (!marker) return undefined;
+
+    if (
+      active.cancelled ||
+      !sessionActive ||
+      sessionLifecycleEpoch !== active.sessionEpoch ||
+      activeDispatchToken !== active.dispatchToken ||
+      !currentGoal ||
+      currentGoal.goalId !== active.goalId ||
+      currentGoal.status !== "active" ||
+      currentGoal.turnsUsed !== active.expectedTurnsUsed + 1
+    ) {
+      activeGoalDispatch = { ...active, cancelled: true };
+      if (!active.cancelled) ctx.abort();
+      return undefined;
+    }
+
+    return {
+      message: {
+        customType: GOAL_DISPATCH_INSTRUCTION_TYPE,
+        content: active.prompt,
+        display: true,
+        details: marker,
+      },
+    };
   });
 
   // `agent_end` fires while pi still considers the run active and before retry, compaction,
   // and queued follow-up handling. `agent_settled` is the first lifecycle point where the
   // idle scheduling invariant is true and no automatic continuation remains.
-  (pi as unknown as AgentSettledExtensionApi).on("agent_settled", (_event, ctx) => {
+  (pi as unknown as LocalLifecycleExtensionApi).on("agent_settled", (_event, ctx) => {
+    if (activeGoalDispatch) {
+      const settledDispatchToken = activeGoalDispatch.dispatchToken;
+      activeGoalDispatch = null;
+      if (activeDispatchToken === settledDispatchToken) {
+        dispatchScheduled = false;
+        activeDispatchToken = null;
+      }
+    }
+
+    // An issued marker that has not reached message_start has no failure/cancellation callback.
+    // Retrying here could overlap the unresolved attempt, so retain its lock and fail safely.
+    if (pendingGoalDispatch) return;
     scheduleGoalContinuation(ctx);
   });
 }

@@ -40,6 +40,7 @@ function createHarness(options = {}) {
   const handlers = new Map();
   const commands = new Map();
   const sentMessages = [];
+  const dispatches = [];
   const notifications = [];
   const editorComponentCalls = [];
   const appendedEntries = [];
@@ -47,10 +48,52 @@ function createHarness(options = {}) {
   const confirmations = [];
   const auditLoaders = [];
   const branchEntries = options.branchEntries ?? [];
+  let agentBusy = false;
+  let abortCalls = 0;
+
+  const getDispatch = (dispatchOrIndex) => {
+    const dispatch =
+      typeof dispatchOrIndex === "number" ? dispatches[dispatchOrIndex] : dispatchOrIndex;
+    assert.ok(dispatch, "goal dispatch must exist before it can start");
+    return dispatch;
+  };
+
+  const beginDispatch = async (dispatchOrIndex) => {
+    const dispatch = getDispatch(dispatchOrIndex);
+    assert.equal(dispatch.started, false, "goal dispatch can start only once");
+    dispatch.started = true;
+    await handlers.get("agent_start")?.({}, ctx);
+    await handlers.get("message_start")?.({ message: dispatch.message }, ctx);
+  };
+
+  const prepareDispatchResponse = async (dispatchOrIndex) => {
+    const dispatch = getDispatch(dispatchOrIndex);
+    assert.equal(dispatch.started, true, "goal dispatch must start before response preparation");
+    assert.equal(dispatch.prepared, false, "goal dispatch response can be prepared only once");
+    dispatch.prepared = true;
+    const turnResult = await handlers.get("before_turn_response")?.(
+      { triggerMessages: [dispatch.message] },
+      ctx,
+    );
+    if (turnResult?.message) {
+      sentMessages.push({
+        text: String(turnResult.message.content ?? ""),
+        sendOptions: dispatch.sendOptions,
+        message: turnResult.message,
+      });
+    }
+    return turnResult;
+  };
+
+  const startDispatch = async (dispatchOrIndex) => {
+    await beginDispatch(dispatchOrIndex);
+    return prepareDispatchResponse(dispatchOrIndex);
+  };
 
   const pi = {
     __goalExtensionAuditStartDelayMs: options.auditStartDelayMs ?? 0,
     __goalExtensionCompactionWatchdogMs: options.compactionWatchdogMs,
+    __goalExtensionDispatchStartWatchdogMs: options.dispatchStartWatchdogMs,
     __goalExtensionAuditRunner:
       options.auditRunner ??
       (async () => ({
@@ -70,7 +113,12 @@ function createHarness(options = {}) {
         },
       })),
     on(name, handler) {
-      handlers.set(String(name), handler);
+      const eventName = String(name);
+      handlers.set(eventName, (...args) => {
+        if (eventName === "agent_start") agentBusy = true;
+        if (eventName === "agent_settled") agentBusy = false;
+        return handler(...args);
+      });
     },
     registerCommand(name, spec) {
       commands.set(String(name), spec);
@@ -82,22 +130,44 @@ function createHarness(options = {}) {
     exec() {
       throw new Error("live audit must be mocked in tests");
     },
-    sendUserMessage(text, sendOptions) {
-      sentMessages.push({ text, sendOptions });
-      if (typeof options.sendUserMessage === "function") {
-        return options.sendUserMessage(text, sendOptions);
+    sendMessage(message, sendOptions) {
+      const triggerMessage = { role: "custom", ...message };
+      const dispatch = { message: triggerMessage, sendOptions, started: false, prepared: false };
+      dispatches.push(dispatch);
+      if (typeof options.sendMessage === "function") {
+        options.sendMessage(triggerMessage, sendOptions);
       }
-      return undefined;
+      const shouldStart =
+        typeof options.startDispatch === "function"
+          ? options.startDispatch(triggerMessage, sendOptions)
+          : options.startDispatch !== false;
+      if (shouldStart) void startDispatch(dispatch);
+    },
+    sendUserMessage() {
+      throw new Error("goal must use tokenized custom-message dispatch");
     },
   };
 
   const ctx = {
     cwd: options.cwd ?? "/tmp/pi-goal-test",
-    model: options.model ?? { provider: "test-provider", id: "test-model" },
+    get model() {
+      return typeof options.model === "function"
+        ? options.model()
+        : options.model ?? { provider: "test-provider", id: "test-model" };
+    },
+    modelRegistry: {
+      hasConfiguredAuth: () =>
+        typeof options.hasConfiguredAuth === "function"
+          ? options.hasConfiguredAuth()
+          : options.hasConfiguredAuth ?? true,
+    },
     signal: undefined,
     hasUI: options.hasUI ?? true,
-    isIdle: () => options.isIdle?.() ?? true,
+    isIdle: () => !agentBusy && (options.isIdle?.() ?? true),
     hasPendingMessages: () => options.hasPendingMessages?.() ?? false,
+    abort() {
+      abortCalls += 1;
+    },
     sessionManager: {
       getSessionId: () => (typeof options.sessionId === "function" ? options.sessionId() : options.sessionId ?? "session-1"),
       getSessionFile: () => options.sessionFile ?? "/tmp/pi-goal-session.jsonl",
@@ -141,6 +211,13 @@ function createHarness(options = {}) {
     handlers,
     commands,
     sentMessages,
+    dispatches,
+    beginDispatch,
+    prepareDispatchResponse,
+    startDispatch,
+    get abortCalls() {
+      return abortCalls;
+    },
     notifications,
     editorComponentCalls,
     appendedEntries,
@@ -149,6 +226,9 @@ function createHarness(options = {}) {
     auditLoaders,
     branchEntries,
     ctx,
+    reloadExtension() {
+      goalExtension(pi);
+    },
   };
 }
 
@@ -182,6 +262,304 @@ test("/goal creates an active unlimited goal and starts the first continuation f
 
   harness.handlers.get("input")({ text: "ordinary user input", source: "interactive" }, harness.ctx);
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("model selection re-arms an unstarted goal created without model availability", async () => {
+  let model;
+  let hasConfiguredAuth = false;
+  const harness = createHarness({
+    model: () => model,
+    hasConfiguredAuth: () => hasConfiguredAuth,
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish after model configuration", harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+  assert.match(harness.notifications.at(-1).message, /without an active model/);
+
+  model = { provider: "configured-provider", id: "configured-model" };
+  hasConfiguredAuth = true;
+  harness.handlers.get("model_select")({ model }, harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.dispatches.length, 1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish after model configuration/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("explicit /goal while busy defers one no-audit starter until fully idle", async () => {
+  let idle = false;
+  let auditCalls = 0;
+  const harness = createHarness({
+    isIdle: () => idle,
+    sendMessage: () => {
+      idle = false;
+    },
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "queued goal made progress",
+          completedItems: ["starter turn"],
+          remainingItems: ["finish verification"],
+          evidence: ["test"],
+          sourcePaths: ["test/goal-follow-up.test.mjs"],
+          continuationMessage: "Finish verification.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish the queued migration", harness.ctx);
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.equal(harness.sentMessages[0].sendOptions.deliverAs, "followUp");
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish the queued migration/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(auditCalls, 0, "the started goal turn must block a duplicate continuation");
+  assert.equal(harness.sentMessages.length, 1);
+
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.sentMessages.length, 2);
+  assert.match(harness.sentMessages[1].text, /Finish verification/);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 2);
+});
+
+test("clearing a busy pending goal prevents its starter from running", async () => {
+  let idle = false;
+  let auditCalls = 0;
+  const harness = createHarness({
+    isIdle: () => idle,
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("a cleared goal must not be audited");
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("obsolete queued objective", harness.ctx);
+  await harness.commands.get("goal").handler("clear", harness.ctx);
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
+});
+
+test("replacing a busy pending goal dispatches only the replacement starter", async () => {
+  let idle = false;
+  let auditCalls = 0;
+  const harness = createHarness({
+    isIdle: () => idle,
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("an unstarted replacement must not be audited");
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("obsolete queued objective", harness.ctx);
+  await harness.commands.get("goal").handler("replace canonical queued objective", harness.ctx);
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\ncanonical queued objective/m);
+  assert.doesNotMatch(harness.sentMessages[0].text, /obsolete queued objective/);
+  assert.equal(getGoalSnapshotForSession("session-1").objective, "canonical queued objective");
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("a deferred first dispatch retries the starter instead of auditing an unstarted goal", async () => {
+  let idle = true;
+  let auditCalls = 0;
+  const harness = createHarness({
+    isIdle: () => idle,
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("an unstarted goal must not be audited");
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish the deferred migration", harness.ctx);
+  idle = false;
+  await flushTimers();
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+
+  idle = true;
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(auditCalls, 0);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish the deferred migration/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("an unresolved starter retains one attempt-specific lock without auditing or retrying", async () => {
+  let auditCalls = 0;
+  const harness = createHarness({
+    startDispatch: false,
+    dispatchStartWatchdogMs: 5,
+    auditRunner: async () => {
+      auditCalls += 1;
+      throw new Error("an unresolved starter must not be audited");
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish after delayed dispatch start", harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.dispatches.length, 1);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(auditCalls, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+  assert.match(
+    harness.notifications.at(-1).message,
+    /has not reached message_start; retaining its lock/,
+  );
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 1, "settlement must not duplicate an unresolved attempt");
+  assert.equal(auditCalls, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+
+  await harness.startDispatch(0);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish after delayed dispatch start/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("clear after marker dispatch aborts the exact stale turn before objective injection", async () => {
+  const harness = createHarness({ startDispatch: false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("obsolete dispatched objective", harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 1);
+
+  await harness.commands.get("goal").handler("clear", harness.ctx);
+  await harness.startDispatch(0);
+
+  assert.equal(harness.abortCalls, 1);
+  assert.equal(harness.sentMessages.length, 0, "a cancelled marker must carry no objective");
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
+});
+
+test("replacement waits for the old marker to abort, then authorizes only its own token", async () => {
+  const harness = createHarness({ startDispatch: false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("obsolete dispatched objective", harness.ctx);
+  await flushTimers();
+  const obsoleteMarker = harness.dispatches[0].message;
+
+  await harness.commands.get("goal").handler("replace canonical dispatched objective", harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 1, "replacement must retain the unresolved old lock");
+
+  await harness.startDispatch(0);
+  assert.equal(harness.abortCalls, 1);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 2);
+  const replacementMarker = harness.dispatches[1].message;
+  assert.notEqual(
+    obsoleteMarker.details.dispatchToken,
+    replacementMarker.details.dispatchToken,
+    "every dispatch marker needs a unique correlation token",
+  );
+
+  await harness.startDispatch(1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\ncanonical dispatched objective/m);
+  assert.doesNotMatch(harness.sentMessages[0].text, /obsolete dispatched objective/);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("reload re-arms the restored goal with a new marker incarnation", async () => {
+  const harness = createHarness({ startDispatch: false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish after extension reload", harness.ctx);
+  await flushTimers();
+  const oldMarker = harness.dispatches[0].message;
+
+  harness.handlers.get("session_shutdown")({}, harness.ctx);
+  harness.reloadExtension();
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await flushTimers();
+
+  assert.equal(harness.dispatches.length, 2, "session_start must re-arm the restored goal");
+  const newMarker = harness.dispatches[1].message;
+  assert.notEqual(
+    oldMarker.details.extensionInstanceId,
+    newMarker.details.extensionInstanceId,
+    "marker identity must survive token and epoch reuse across reload",
+  );
+
+  await harness.startDispatch(0);
+  assert.equal(harness.abortCalls, 1, "the pre-reload marker must be rejected by the new instance");
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await harness.startDispatch(1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish after extension reload/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+});
+
+test("clear after message_start aborts before the authorized objective response is prepared", async () => {
+  const harness = createHarness({ startDispatch: false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("objective cleared during turn startup", harness.ctx);
+  await flushTimers();
+  await harness.beginDispatch(0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  await harness.commands.get("goal").handler("clear", harness.ctx);
+  await harness.prepareDispatchResponse(0);
+
+  assert.ok(harness.abortCalls >= 1);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1"), null);
 });
 
 test("/goal rejects vague objectives without arming a goal", async () => {
@@ -234,6 +612,36 @@ test("blank command during a running turn adopts the previous user message", asy
   const snapshot = getGoalSnapshotForSession("session-1");
   assert.equal(snapshot.objective, "fix the failing auth tests");
   assert.equal(snapshot.status, "active");
+  assert.equal(snapshot.turnsUsed, 1, "the adopted active turn is the goal's first turn");
+  assert.equal(harness.sentMessages.length, 0);
+});
+
+test("blank command prefers the active branch task over a later queued input", async () => {
+  const harness = createHarness({
+    isIdle: () => false,
+    branchEntries: [
+      {
+        type: "message",
+        timestamp: "2026-07-14T00:00:00.000Z",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "finish the active migration" }],
+        },
+      },
+    ],
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  harness.handlers.get("input")(
+    { text: "summarize everything afterward", source: "interactive" },
+    harness.ctx,
+  );
+
+  await harness.commands.get("goal").handler("", harness.ctx);
+
+  const snapshot = getGoalSnapshotForSession("session-1");
+  assert.equal(snapshot.objective, "finish the active migration");
+  assert.equal(snapshot.turnsUsed, 1);
+  assert.equal(snapshot.startedAtMs, Date.parse("2026-07-14T00:00:00.000Z"));
   assert.equal(harness.sentMessages.length, 0);
 });
 
@@ -976,6 +1384,52 @@ test("audit failure falls back to unanchored continuation and never completes", 
   assert.equal(harness.sentMessages.length, 1);
   assert.match(harness.sentMessages[0].text, /audit timed out/);
   assert.notEqual(getGoalSnapshotForSession("session-1").status, "complete");
+});
+
+test("lowering the budget cancels a submitted continuation before objective injection", async () => {
+  let dispatchCount = 0;
+  let auditCalls = 0;
+  const harness = createHarness({
+    startDispatch: () => {
+      dispatchCount += 1;
+      return dispatchCount === 1;
+    },
+    auditRunner: async () => {
+      auditCalls += 1;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "This continuation must be cancelled by the lower budget.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish within the revised budget");
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(auditCalls, 1);
+  assert.equal(harness.dispatches.length, 2);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+
+  await harness.commands.get("goal").handler("budget 1", harness.ctx);
+  assert.equal(getGoalSnapshotForSession("session-1").status, "budget_limited");
+
+  await harness.startDispatch(1);
+  assert.ok(harness.abortCalls >= 1);
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
 test("budget exhaustion marks budget_limited and stops scheduling", async () => {

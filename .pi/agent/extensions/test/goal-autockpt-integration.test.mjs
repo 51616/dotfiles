@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-import goalExtension from "../goal/index.ts";
+import goalExtension, { GOAL_DISPATCH_MARKER_TYPE } from "../goal/index.ts";
 import { __resetGoalRuntimeStoreForTests } from "../goal/lib/goal-runtime.ts";
 import selfCheckpointing from "../self-checkpointing/index.ts";
 import {
@@ -129,8 +129,31 @@ function createHarness(tmpDir, options = {}) {
     },
     sendUserMessage(text, options) {
       sentUserMessages.push({ text, options });
+      void callAll(
+        handlers,
+        "before_agent_start",
+        {
+          prompt: text,
+          source: "user",
+          triggerMessage: { role: "user", content: [{ type: "text", text }] },
+        },
+        ctx,
+      );
     },
-    sendMessage() {},
+    sendMessage(message) {
+      if (message.customType !== GOAL_DISPATCH_MARKER_TYPE) return;
+      const triggerMessage = { role: "custom", ...message };
+      void (async () => {
+        await callAll(handlers, "agent_start", {}, ctx);
+        await callAll(handlers, "message_start", { message: triggerMessage }, ctx);
+        for (const fn of handlers.get("before_turn_response") || []) {
+          const result = await fn({ triggerMessages: [triggerMessage] }, ctx);
+          if (result?.message) {
+            sentUserMessages.push({ text: String(result.message.content ?? ""), options: { triggerTurn: true } });
+          }
+        }
+      })();
+    },
     exec() {
       throw new Error("live audit must be mocked in tests");
     },
@@ -139,10 +162,12 @@ function createHarness(tmpDir, options = {}) {
   const ctx = {
     cwd: tmpDir,
     model: { provider: "test-provider", id: "test-model" },
+    modelRegistry: { hasConfiguredAuth: () => true },
     signal: undefined,
     hasUI: false,
     isIdle: () => isIdle,
     hasPendingMessages: () => false,
+    abort() {},
     getContextUsage: () => ({ tokens: 90, contextWindow: 100, percent: 90 }),
     compact(options) {
       compactOptions = options;
