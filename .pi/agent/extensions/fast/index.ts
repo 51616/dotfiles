@@ -1,6 +1,6 @@
 // @lat: [[extensions#Fast service tier toggle]]
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -12,13 +12,14 @@ import {
 
 type ServiceTier = "default" | "priority";
 type PlainPayload = Record<string, unknown>;
+type PersistResult = { ok: true } | { ok: false; error: string };
 
 const BROKER_KEY = "fast-service-tier";
 const FAST_LABEL = "⚡Fast";
 const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOG_BYTES = 256 * 1024;
 
-let serviceTier: ServiceTier = "default";
+let serviceTier: ServiceTier = readPersistedServiceTier();
 
 function agentDir(): string {
   return process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
@@ -28,8 +29,67 @@ function logPath(): string {
   return join(agentDir(), "logs", "fast-service-tier.jsonl");
 }
 
+function statePath(): string {
+  return join(agentDir(), "fast-service-tier.json");
+}
+
 function isPlainPayload(value: unknown): value is PlainPayload {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseServiceTier(value: unknown): ServiceTier | undefined {
+  return value === "default" || value === "priority" ? value : undefined;
+}
+
+function readPersistedServiceTier(): ServiceTier {
+  const path = statePath();
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return "default";
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainPayload(parsed)) {
+      logEvent({ event: "state_invalid", reason: "not_object", path });
+      return "default";
+    }
+
+    const parsedTier = parseServiceTier(parsed.serviceTier);
+    if (!parsedTier) {
+      logEvent({ event: "state_invalid", reason: "invalid_service_tier", path });
+      return "default";
+    }
+
+    return parsedTier;
+  } catch (error) {
+    logEvent({ event: "state_invalid", reason: "invalid_json", path, error: formatError(error) });
+    return "default";
+  }
+}
+
+function writePersistedServiceTier(nextTier: ServiceTier): PersistResult {
+  const path = statePath();
+  const tempPath = `${path}.tmp-${process.pid}`;
+  const state = {
+    serviceTier: nextTier,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    renameSync(tempPath, path);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: formatError(error) };
+  }
 }
 
 function isSupportedOpenAiProvider(ctx: ExtensionContext): boolean {
@@ -104,18 +164,22 @@ function describeTier(): string {
     : "Fast mode disabled: OpenAI requests use the provider default service tier.";
 }
 
-function setServiceTier(nextTier: ServiceTier, ctx: ExtensionContext, source: string): void {
+function setServiceTier(nextTier: ServiceTier, ctx: ExtensionContext, source: string): PersistResult {
   const previousTier = serviceTier;
   serviceTier = nextTier;
+  const persistResult = writePersistedServiceTier(nextTier);
   refreshFastLabel();
   logEvent({
     event: "service_tier_set",
     source,
     previousTier,
     serviceTier,
+    persisted: persistResult.ok,
+    persistError: persistResult.ok ? null : persistResult.error,
     provider: ctx.model?.provider ?? null,
     model: ctx.model?.id ?? null,
   });
+  return persistResult;
 }
 
 export default function fastServiceTier(pi: ExtensionAPI): void {
@@ -131,20 +195,23 @@ export default function fastServiceTier(pi: ExtensionAPI): void {
         return;
       }
 
-      if (parsed !== "status") {
-        setServiceTier(parsed, ctx, "command");
-      } else {
+      const persistResult = parsed !== "status" ? setServiceTier(parsed, ctx, "command") : { ok: true as const };
+      if (parsed === "status") {
         refreshFastLabel();
       }
 
       ctx.ui.notify(describeTier(), "info");
+      if (!persistResult.ok) {
+        ctx.ui.notify(`Fast mode changed for this session, but persistence failed: ${persistResult.error}`, "warning");
+      }
     },
   });
 
   pi.on("session_start", (_event, _ctx) => {
+    serviceTier = readPersistedServiceTier();
     registerFastLabelProvider();
     refreshFastLabel();
-    logEvent({ event: "session_start", serviceTier });
+    logEvent({ event: "session_start", serviceTier, statePath: statePath() });
   });
 
   pi.on("model_select", () => {
