@@ -4,11 +4,17 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import {
+  registerTuiBrokerFooterModelEffortSuffixProvider,
+  requestTuiBrokerFooterRefresh,
+  unregisterTuiBrokerFooterModelEffortSuffixProvider,
+} from "../tui-broker/lib/runtime.ts";
 
 type ServiceTier = "default" | "priority";
 type PlainPayload = Record<string, unknown>;
 
-const STATUS_KEY = "fast-service-tier";
+const BROKER_KEY = "fast-service-tier";
+const FAST_LABEL = "⚡ Fast";
 const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOG_BYTES = 256 * 1024;
 
@@ -71,13 +77,16 @@ function logEvent(event: PlainPayload): void {
   }
 }
 
-function statusText(): string | undefined {
-  return serviceTier === "priority" ? "fast:priority" : undefined;
+function refreshFastLabel(): void {
+  requestTuiBrokerFooterRefresh();
 }
 
-function publishStatus(ctx: ExtensionContext): void {
-  if (!ctx.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, statusText());
+function registerFastLabelProvider(): void {
+  registerTuiBrokerFooterModelEffortSuffixProvider(BROKER_KEY, ({ provider }) => {
+    if (serviceTier !== "priority") return null;
+    if (provider !== "openai" && provider !== "openai-codex") return null;
+    return { text: FAST_LABEL, priority: 100 };
+  });
 }
 
 function parseFastCommand(args: string): ServiceTier | "status" | "invalid" {
@@ -98,7 +107,7 @@ function describeTier(): string {
 function setServiceTier(nextTier: ServiceTier, ctx: ExtensionContext, source: string): void {
   const previousTier = serviceTier;
   serviceTier = nextTier;
-  publishStatus(ctx);
+  refreshFastLabel();
   logEvent({
     event: "service_tier_set",
     source,
@@ -110,6 +119,8 @@ function setServiceTier(nextTier: ServiceTier, ctx: ExtensionContext, source: st
 }
 
 export default function fastServiceTier(pi: ExtensionAPI): void {
+  registerFastLabelProvider();
+
   pi.registerCommand("fast", {
     description: "Toggle OpenAI fast mode by switching service_tier between priority and provider default. Use /fast status, /fast on, or /fast off.",
     handler: async (args, ctx) => {
@@ -123,20 +134,21 @@ export default function fastServiceTier(pi: ExtensionAPI): void {
       if (parsed !== "status") {
         setServiceTier(parsed, ctx, "command");
       } else {
-        publishStatus(ctx);
+        refreshFastLabel();
       }
 
       ctx.ui.notify(describeTier(), "info");
     },
   });
 
-  pi.on("session_start", (_event, ctx) => {
-    publishStatus(ctx);
+  pi.on("session_start", (_event, _ctx) => {
+    registerFastLabelProvider();
+    refreshFastLabel();
     logEvent({ event: "session_start", serviceTier });
   });
 
-  pi.on("model_select", (_event, ctx) => {
-    publishStatus(ctx);
+  pi.on("model_select", () => {
+    refreshFastLabel();
   });
 
   pi.on("before_provider_request", (event, ctx) => {
@@ -163,7 +175,8 @@ export default function fastServiceTier(pi: ExtensionAPI): void {
     return { ...payload, service_tier: "priority" };
   });
 
-  pi.on("session_shutdown", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+  pi.on("session_shutdown", () => {
+    unregisterTuiBrokerFooterModelEffortSuffixProvider(BROKER_KEY);
+    refreshFastLabel();
   });
 }
