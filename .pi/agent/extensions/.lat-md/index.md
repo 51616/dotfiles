@@ -10,6 +10,7 @@ Installable extension folders under `.pi/extensions/` are expected to be symlink
 - [[command-palette]] — slash-command overlay with fuzzy filtering and editor insertion behavior
 - [[command-context-for-tools]] — session-control hooks exposed on plain tool contexts
 - [[goal]] — bounded autonomous follow-up loop behavior
+- [[extensions#Extensions#Fast service tier toggle]] — `/fast` command for OpenAI priority service tier
 - [[git-state]] — live Git working-tree meter for the editor top-right border
 - [[quota-footer]] — Codex quota parsing and compact footer meter
 - [[remote-fff-forward]] — SSH-aware `fffind` / `ffgrep` forwarding through a persistent remote FFF worker

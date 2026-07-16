@@ -40,6 +40,14 @@ See also [[goal]].
 
 Entrypoint: [[goal/index.ts]].
 
+## Fast service tier toggle
+
+Owns `/fast`, the session-local OpenAI service-tier toggle for priority processing.
+
+The extension only injects `service_tier=priority` while fast mode is enabled, and only for direct `openai` or `openai-codex` providers. Default mode leaves provider requests untouched. Runtime diagnostics are bounded in `~/.pi/agent/logs/fast-service-tier.jsonl`; the log path is intentionally outside tracked extension source.
+
+Entrypoint: [[fast/index.ts]].
+
 ## git-state
 
 Owns the live Git working-tree meter that contributes to the `tui-broker` editor top-right border slot.
