@@ -44,7 +44,7 @@ Entrypoint: [[goal/index.ts]].
 
 Owns `/fast`, the session-local OpenAI service-tier toggle for priority processing.
 
-The extension only injects `service_tier=priority` while fast mode is enabled, and only for direct `openai` or `openai-codex` providers. Default mode leaves provider requests untouched. While active, it contributes `⚡ Fast` through the `tui-broker` footer model-effort suffix slot so the label renders immediately after the model reasoning effort. Runtime diagnostics are bounded in `~/.pi/agent/logs/fast-service-tier.jsonl`; the log path is intentionally outside tracked extension source.
+The extension only injects `service_tier=priority` while fast mode is enabled, and only for direct `openai` or `openai-codex` providers. Default mode leaves provider requests untouched. While active, it contributes `⚡Fast` through the `tui-broker` footer model-effort suffix slot so the label renders immediately after the model reasoning effort. Runtime diagnostics are bounded in `~/.pi/agent/logs/fast-service-tier.jsonl`; the log path is intentionally outside tracked extension source.
 
 Entrypoint: [[fast/index.ts]].
 

@@ -14,7 +14,7 @@ type ServiceTier = "default" | "priority";
 type PlainPayload = Record<string, unknown>;
 
 const BROKER_KEY = "fast-service-tier";
-const FAST_LABEL = "⚡ Fast";
+const FAST_LABEL = "⚡Fast";
 const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOG_BYTES = 256 * 1024;
 
