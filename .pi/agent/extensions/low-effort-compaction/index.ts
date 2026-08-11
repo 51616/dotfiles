@@ -7,8 +7,8 @@ const COMPACTING_STATUS = "⧉ compacting |";
 // Substitute a cheaper model for compaction when the active model is overkill
 // for a summarization task. Keyed by `${provider}/${id}` of the active model;
 // value is the model to use for the compaction request only (the session model
-// is not changed). If the target isn't in the registry we fall back to the
-// active model silently so compaction still runs.
+// is not changed). If the target isn't in the registry, or the low-effort
+// request fails, we fall back to pi's built-in default compaction path.
 const COMPACTION_MODEL_OVERRIDES: Record<string, { provider: string; modelId: string }> = {
   "sakana/fugu-ultra": { provider: "sakana", modelId: "fugu-mini" },
 };
@@ -47,51 +47,91 @@ function resolveCompactionModel(active: ActiveModel, registry: ModelRegistry): A
   return alternate ?? active;
 }
 
+function clearStatus(ctx: ExtensionContext): void {
+  if (ctx.hasUI) {
+    ctx.ui.setStatus(STATUS_KEY, undefined);
+  }
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
+}
+
+function notifyDefaultFallback(
+  ctx: ExtensionContext,
+  model: Pick<ModelSnapshot, "provider" | "id">,
+  reason: string,
+): void {
+  ctx.ui.notify(
+    `Low-effort compaction failed for ${formatModel(model)}: ${reason}. Falling back to default compaction.`,
+    "warning",
+  );
+}
+
 export default function lowEffortCompaction(pi: ExtensionAPI) {
   let compactionModel: ModelSnapshot | null = null;
 
   pi.on("session_before_compact", async (event, ctx) => {
-    const model = ctx.model;
-    if (!model) {
-      ctx.ui.notify("Low-effort compaction skipped: no active model", "warning");
-      return;
-    }
+    let modelForCompaction: ActiveModel | undefined;
 
-    // Snapshot the *session* model so we can restore it after compaction,
-    // even if we use a different model for the compaction request itself.
-    compactionModel = snapshotModel(model);
-    if (ctx.hasUI) {
-      ctx.ui.setStatus(STATUS_KEY, COMPACTING_STATUS);
-    }
+    try {
+      const model = ctx.model;
+      if (!model) {
+        ctx.ui.notify("Low-effort compaction skipped: no active model", "warning");
+        return;
+      }
 
-    const modelForCompaction = resolveCompactionModel(model, ctx.modelRegistry);
+      // Snapshot the *session* model so we can restore it after compaction,
+      // even if we use a different model for the compaction request itself.
+      compactionModel = snapshotModel(model);
+      if (ctx.hasUI) {
+        ctx.ui.setStatus(STATUS_KEY, COMPACTING_STATUS);
+      }
 
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(modelForCompaction);
-    if (!auth.ok) {
-      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
-      ctx.ui.notify(`Low-effort compaction auth failed: ${auth.error}`, "warning");
-      return;
-    }
-    if (!auth.apiKey) {
-      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
-      ctx.ui.notify(
-        `Low-effort compaction auth failed: no API key for ${modelForCompaction.provider}`,
-        "warning",
+      modelForCompaction = resolveCompactionModel(model, ctx.modelRegistry);
+
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(modelForCompaction);
+      if (!auth.ok) {
+        notifyDefaultFallback(ctx, modelForCompaction, auth.error);
+        return;
+      }
+      if (!auth.apiKey) {
+        notifyDefaultFallback(ctx, modelForCompaction, `no API key for ${modelForCompaction.provider}`);
+        return;
+      }
+
+      const result = await compact(
+        event.preparation,
+        modelForCompaction,
+        auth.apiKey,
+        auth.headers,
+        event.customInstructions,
+        event.signal,
+        COMPACTION_THINKING_LEVEL,
       );
+
+      return { compaction: result };
+    } catch (error) {
+      if (isAbortError(error, event.signal)) {
+        return { cancel: true };
+      }
+
+      if (modelForCompaction) {
+        notifyDefaultFallback(ctx, modelForCompaction, formatError(error));
+      } else {
+        ctx.ui.notify(
+          `Low-effort compaction failed before model resolution: ${formatError(error)}. Falling back to default compaction.`,
+          "warning",
+        );
+      }
       return;
+    } finally {
+      clearStatus(ctx);
     }
-
-    const result = await compact(
-      event.preparation,
-      modelForCompaction,
-      auth.apiKey,
-      auth.headers,
-      event.customInstructions,
-      event.signal,
-      COMPACTION_THINKING_LEVEL,
-    );
-
-    return { compaction: result };
   });
 
   pi.on("session_compact", async (_event, ctx) => {

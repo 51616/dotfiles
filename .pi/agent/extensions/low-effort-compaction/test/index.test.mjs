@@ -7,6 +7,7 @@ function createHarness({
   activeModel = { provider: "test-provider", id: "test-model" },
   knownModels = [],
   authResult = { ok: false, error: "missing test key" },
+  authError,
 } = {}) {
   const handlers = new Map();
   const statusCalls = [];
@@ -33,6 +34,7 @@ function createHarness({
       },
       async getApiKeyAndHeaders(target) {
         authCalls.push({ provider: target.provider, id: target.id });
+        if (authError) throw authError;
         return authResult;
       },
     },
@@ -85,6 +87,30 @@ test("session_compact clears stacked-pages compacting footer", async () => {
       text: undefined,
     },
   ]);
+});
+
+test("session_before_compact falls back and clears footer when low-effort try throws", async () => {
+  const harness = createHarness({ authError: new Error("WebSocket error") });
+  const signal = new AbortController().signal;
+
+  const result = await harness.handlers.get("session_before_compact")(
+    { preparation: { messages: [] }, customInstructions: "", signal },
+    harness.ctx,
+  );
+
+  assert.equal(result, undefined);
+  assert.deepEqual(harness.statusCalls, [
+    {
+      key: "low-effort-compaction",
+      text: "⧉ compacting |",
+    },
+    {
+      key: "low-effort-compaction",
+      text: undefined,
+    },
+  ]);
+  assert.match(harness.notifications.at(-1).message, /WebSocket error/);
+  assert.match(harness.notifications.at(-1).message, /Falling back to default compaction/);
 });
 
 test("session_before_compact swaps sakana/fugu-ultra to sakana/fugu-mini for compaction", async () => {
