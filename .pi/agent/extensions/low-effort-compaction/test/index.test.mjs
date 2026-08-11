@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import lowEffortCompaction from "../index.ts";
+import { registerLowEffortCompaction } from "../index.ts";
 
 function createHarness({
   activeModel = { provider: "test-provider", id: "test-model" },
   knownModels = [],
   authResult = { ok: false, error: "missing test key" },
   authError,
+  compactResult = { summary: "summary", firstKeptEntryId: "kept-entry", tokensBefore: 123 },
+  compactErrors = [],
 } = {}) {
   const handlers = new Map();
   const statusCalls = [];
   const notifications = [];
   const authCalls = [];
+  const compactCalls = [];
+  const delayCalls = [];
   const model = { ...activeModel };
 
   const pi = {
@@ -48,9 +52,29 @@ function createHarness({
     },
   };
 
-  lowEffortCompaction(pi);
+  async function compactImpl(...args) {
+    compactCalls.push(args);
+    const error = compactErrors[compactCalls.length - 1];
+    if (error) throw error;
+    return compactResult;
+  }
 
-  return { handlers, statusCalls, notifications, authCalls, ctx };
+  async function delayImpl(delayMs, signal) {
+    delayCalls.push({ delayMs, aborted: signal?.aborted === true });
+  }
+
+  registerLowEffortCompaction(pi, { compact: compactImpl, delay: delayImpl });
+
+  return {
+    handlers,
+    statusCalls,
+    notifications,
+    authCalls,
+    compactCalls,
+    delayCalls,
+    compactResult,
+    ctx,
+  };
 }
 
 test("session_before_compact shows stacked-pages compacting footer without thinking-level suffix", async () => {
@@ -89,8 +113,56 @@ test("session_compact clears stacked-pages compacting footer", async () => {
   ]);
 });
 
-test("session_before_compact falls back and clears footer when low-effort try throws", async () => {
-  const harness = createHarness({ authError: new Error("WebSocket error") });
+test("session_before_compact retries low-effort compaction before returning success", async () => {
+  const harness = createHarness({
+    authResult: { ok: true, apiKey: "test-key", headers: {} },
+    compactErrors: [new Error("WebSocket error"), new Error("WebSocket error")],
+  });
+  const signal = new AbortController().signal;
+
+  const result = await harness.handlers.get("session_before_compact")(
+    { preparation: { messages: [] }, customInstructions: "", signal },
+    harness.ctx,
+  );
+
+  assert.deepEqual(result, { compaction: harness.compactResult });
+  assert.equal(harness.compactCalls.length, 3);
+  assert.deepEqual(harness.delayCalls, [
+    { delayMs: 2_000, aborted: false },
+    { delayMs: 2_000, aborted: false },
+  ]);
+  assert.deepEqual(harness.statusCalls, [
+    {
+      key: "low-effort-compaction",
+      text: "⧉ compacting |",
+    },
+    {
+      key: "low-effort-compaction",
+      text: "⧉ compacting | retry 2/3",
+    },
+    {
+      key: "low-effort-compaction",
+      text: "⧉ compacting | retry 3/3",
+    },
+    {
+      key: "low-effort-compaction",
+      text: undefined,
+    },
+  ]);
+  assert.equal(harness.notifications.length, 2);
+  assert.match(harness.notifications[0].message, /attempt 1\/3 failed/);
+  assert.match(harness.notifications[1].message, /attempt 2\/3 failed/);
+});
+
+test("session_before_compact falls back and clears footer after retry exhaustion", async () => {
+  const harness = createHarness({
+    authResult: { ok: true, apiKey: "test-key", headers: {} },
+    compactErrors: [
+      new Error("WebSocket error"),
+      new Error("WebSocket error"),
+      new Error("WebSocket error"),
+    ],
+  });
   const signal = new AbortController().signal;
 
   const result = await harness.handlers.get("session_before_compact")(
@@ -99,16 +171,15 @@ test("session_before_compact falls back and clears footer when low-effort try th
   );
 
   assert.equal(result, undefined);
-  assert.deepEqual(harness.statusCalls, [
-    {
-      key: "low-effort-compaction",
-      text: "⧉ compacting |",
-    },
-    {
-      key: "low-effort-compaction",
-      text: undefined,
-    },
+  assert.equal(harness.compactCalls.length, 3);
+  assert.deepEqual(harness.delayCalls, [
+    { delayMs: 2_000, aborted: false },
+    { delayMs: 2_000, aborted: false },
   ]);
+  assert.deepEqual(harness.statusCalls.at(-1), {
+    key: "low-effort-compaction",
+    text: undefined,
+  });
   assert.match(harness.notifications.at(-1).message, /WebSocket error/);
   assert.match(harness.notifications.at(-1).message, /Falling back to default compaction/);
 });
