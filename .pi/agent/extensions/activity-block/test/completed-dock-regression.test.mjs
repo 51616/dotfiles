@@ -90,7 +90,7 @@ function renderTranscriptBlock(renderer, details) {
 	return component.render(80);
 }
 
-test("responding turns pop out of the above-editor dock and complete in the transcript", async () => {
+test("responding turns stay in the above-editor dock until completion", async () => {
 	const { pi, handlers, appended, getRenderer } = makePiStub();
 	const { ctx, widgetCalls } = makeCtx();
 	activityBlockExtension(pi);
@@ -99,7 +99,8 @@ test("responding turns pop out of the above-editor dock and complete in the tran
 	const prepared = await startActivityBlockTurn(handlers, ctx);
 	const details = prepared?.message?.details;
 	assert.ok(details?.turnId, "activity-block turn message was created");
-	assert.equal(typeof widgetCalls.at(-1)?.content, "function");
+	const dockCall = widgetCalls.at(-1);
+	assert.equal(typeof dockCall?.content, "function");
 	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
 
 	await handlers.get("message_update")({
@@ -108,9 +109,9 @@ test("responding turns pop out of the above-editor dock and complete in the tran
 		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "done", partial: { role: "assistant", content: [] } },
 	}, ctx);
 
-	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
-	assert.equal(widgetCalls.at(-1)?.content, undefined);
-	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /Responding/);
+	assert.equal(widgetCalls.at(-1), dockCall);
+	assert.match(dockCall.content({}, colorTheme).render(80).join("\n"), /Responding/);
+	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
 
 	await handlers.get("agent_end")({
 		type: "agent_end",
@@ -119,6 +120,7 @@ test("responding turns pop out of the above-editor dock and complete in the tran
 
 	assert.equal(appended.length, 1);
 	assert.equal(appended[0].type, "activity-block-state");
+	assert.equal(widgetCalls.at(-1)?.content, undefined);
 	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
 });
 

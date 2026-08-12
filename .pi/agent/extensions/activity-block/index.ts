@@ -558,7 +558,6 @@ class ActivityBlockController {
 	private getDockedTurnIdForDisplay(): string | undefined {
 		if (this.transcriptViewMode !== "block") return undefined;
 		if (this.zenMode) return undefined;
-		if (this.activeTurn?.state.isResponding) return undefined;
 		return this.dockedTurnId;
 	}
 
