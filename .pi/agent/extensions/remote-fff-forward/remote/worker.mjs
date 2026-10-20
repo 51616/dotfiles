@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
@@ -15,7 +15,6 @@ const cacheDir = process.env.PI_REMOTE_FFF_CACHE_DIR || join(process.env.HOME ||
 const idleTtlMs = Number.parseInt(process.env.PI_REMOTE_FFF_IDLE_TTL_MS || "1800000", 10);
 
 const { FileFinder } = await import(pathToFileURL(nodeEntry).href);
-const { createGrepCursor } = await import(pathToFileURL(join(dirname(nodeEntry), "types.js")).href);
 
 let finder = null;
 let finderBasePath = null;
@@ -66,6 +65,13 @@ function optionalNumber(value, label) {
     throw new Error(`${label} must be a finite number`);
   }
   return value;
+}
+
+// fff-node's GrepCursor is opaque and has no public constructor (>= 0.11). It is a plain JSON object, so the
+// worker returns `nextCursor` as-is and accepts it back unchanged; never construct or edit its fields here.
+function optionalCursor(value) {
+  if (value === undefined || value === null) return null;
+  return assertObject(value, "cursor");
 }
 
 function pathKey(basePath) {
@@ -125,23 +131,18 @@ async function handleRequest(request) {
   if (method === "grep") {
     const basePath = assertString(params.basePath, "basePath");
     const query = assertString(params.query, "query");
-    const cursorOffset = optionalNumber(params.cursorOffset, "cursorOffset");
+    const cursor = optionalCursor(params.cursor);
     const f = await ensureFinder(basePath, optionalNumber(params.scanTimeoutMs, "scanTimeoutMs"));
     const value = unwrap(f.grep(query, {
       mode: params.mode === "regex" || params.mode === "fuzzy" ? params.mode : "plain",
       smartCase: params.smartCase !== false,
       maxMatchesPerFile: optionalNumber(params.maxMatchesPerFile, "maxMatchesPerFile") ?? 20,
-      cursor: cursorOffset === undefined ? null : createGrepCursor(cursorOffset),
+      cursor,
       beforeContext: optionalNumber(params.beforeContext, "beforeContext") ?? 0,
       afterContext: optionalNumber(params.afterContext, "afterContext") ?? 0,
       classifyDefinitions: true,
     }));
-    const nextCursor = value.nextCursor;
-    return {
-      ...value,
-      nextCursor: undefined,
-      nextCursorOffset: nextCursor && typeof nextCursor._offset === "number" ? nextCursor._offset : null,
-    };
+    return { ...value, nextCursor: value.nextCursor ?? null };
   }
 
   if (method === "rescan") {

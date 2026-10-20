@@ -1,3 +1,5 @@
+import type { FffGrepCursor } from "./cursors.ts";
+
 export const DEFAULT_GREP_LIMIT = 20;
 export const DEFAULT_FIND_LIMIT = 30;
 export const GREP_MAX_LINE_LENGTH = 500;
@@ -42,7 +44,7 @@ export interface FffGrepResult {
   totalMatched: number;
   totalFiles: number;
   regexFallbackError?: string;
-  nextCursorOffset?: number | null;
+  nextCursor?: FffGrepCursor | null;
 }
 
 export interface FormattedFind {

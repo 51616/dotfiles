@@ -15,7 +15,11 @@ export interface RemoteFffRuntime {
   cacheDir: string;
 }
 
-const REMOTE_WORKER_VERSION = "v1";
+// v2: worker passes fff-node's grep cursor through opaquely (fff-node >= 0.11 has no public cursor constructor).
+const REMOTE_WORKER_VERSION = "v2";
+
+/** Oldest supported `@ff-labs/fff-node`. 0.11.0 moved the entry to `dist/index.js` and dropped `dist/types.js`. */
+export const MIN_FFF_NODE_VERSION = "0.11.0";
 
 function shellQuote(value: string): string {
   if (!value) return "''";
@@ -36,14 +40,40 @@ function getBundledWorkerPath(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "remote", "worker.mjs");
 }
 
-function buildRuntimeProbeCommand(): string {
-  const checkScript = [
-    "const entry = process.env.PI_REMOTE_FFF_NODE_ENTRY;",
-    "if (!entry) throw new Error('missing PI_REMOTE_FFF_NODE_ENTRY');",
-    "const mod = await import('file://' + entry);",
-    "mod.FileFinder.ensureLoaded();",
-  ].join(" ");
+/**
+ * Node ESM script that validates an installed `@ff-labs/fff-node` package and prints `nodeEntry=<abs path>`.
+ * Input: env `PI_REMOTE_FFF_PACKAGE_ROOT`. The entry comes from the package's own `exports` map instead of a
+ * hardcoded `dist/...` path, because fff-node 0.11 silently moved its entry and broke the old hardcoded path.
+ */
+export function buildFffNodeResolveScript(): string {
+  return `
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const root = process.env.PI_REMOTE_FFF_PACKAGE_ROOT;
+if (!root) throw new Error("missing PI_REMOTE_FFF_PACKAGE_ROOT");
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const parse = (v) => String(v).split("-")[0].split(".").map((n) => Number.parseInt(n, 10));
+const [have, min] = [parse(pkg.version), parse(${JSON.stringify(MIN_FFF_NODE_VERSION)})];
+const cmp = have.map((n, i) => n - min[i]).find((d) => d !== 0) ?? 0;
+if (have.some(Number.isNaN) || cmp < 0) {
+  console.error("@ff-labs/fff-node " + pkg.version + " at " + root + " is too old; need >= ${MIN_FFF_NODE_VERSION}. Run: npm install -g @ff-labs/fff-node@latest");
+  process.exit(65);
+}
+const exp = pkg.exports && pkg.exports["."];
+const rel = (exp && (exp.import || exp.default)) || pkg.module;
+if (typeof rel !== "string") {
+  console.error("@ff-labs/fff-node " + pkg.version + " has no ESM entry in package.json exports");
+  process.exit(65);
+}
+const entry = join(root, rel);
+const mod = await import(pathToFileURL(entry).href);
+mod.FileFinder.ensureLoaded();
+console.log("nodeEntry=" + entry);
+`;
+}
 
+function buildRuntimeProbeCommand(): string {
   return [
     "set -eu",
     'export NVM_DIR="$HOME/.nvm"',
@@ -52,11 +82,10 @@ function buildRuntimeProbeCommand(): string {
     'if [ -z "$node_path" ]; then echo "node was not found after loading nvm" >&2; exit 127; fi',
     'npm_root=$(npm root -g 2>/dev/null || true)',
     'if [ -z "$npm_root" ]; then echo "npm root -g returned no path" >&2; exit 127; fi',
-    'node_entry="$npm_root/@ff-labs/fff-node/dist/src/index.js"',
-    'if [ ! -r "$node_entry" ]; then echo "@ff-labs/fff-node is not readable at $node_entry" >&2; exit 127; fi',
-    `PI_REMOTE_FFF_NODE_ENTRY="$node_entry" "$node_path" --input-type=module -e ${shellQuote(checkScript)}`,
+    'package_root="$npm_root/@ff-labs/fff-node"',
+    'if [ ! -r "$package_root/package.json" ]; then echo "@ff-labs/fff-node is not installed at $package_root. Run: npm install -g @ff-labs/fff-node@latest" >&2; exit 127; fi',
+    `PI_REMOTE_FFF_PACKAGE_ROOT="$package_root" "$node_path" --input-type=module -e ${shellQuote(buildFffNodeResolveScript())}`,
     'printf "nodePath=%s\\n" "$node_path"',
-    'printf "nodeEntry=%s\\n" "$node_entry"',
   ].join("\n");
 }
 

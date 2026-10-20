@@ -1,5 +1,8 @@
 import { Buffer } from "node:buffer";
 
+/** fff-node's opaque grep cursor, carried verbatim between worker calls. Never read or build its fields. */
+export type FffGrepCursor = Readonly<Record<string, unknown>>;
+
 export interface GrepCursorToken {
   kind: "grep";
   basePath: string;
@@ -10,7 +13,7 @@ export interface GrepCursorToken {
   maxMatchesPerFile: number;
   beforeContext: number;
   afterContext: number;
-  cursorOffset: number;
+  cursor: FffGrepCursor;
 }
 
 export interface FindCursorToken {
@@ -59,6 +62,13 @@ function assertNumber(value: unknown, name: string): number {
   return value;
 }
 
+function assertCursorObject(value: unknown): FffGrepCursor {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid remote FFF cursor: cursor must be an object");
+  }
+  return value as FffGrepCursor;
+}
+
 function assertGrepMode(value: unknown): "plain" | "regex" | "fuzzy" {
   if (value === "plain" || value === "regex" || value === "fuzzy") return value;
   throw new Error("Invalid remote FFF cursor: mode is invalid");
@@ -91,7 +101,7 @@ export function decodeGrepCursor(raw: string): GrepCursorToken {
     maxMatchesPerFile: assertNumber(input.maxMatchesPerFile, "maxMatchesPerFile"),
     beforeContext: assertNumber(input.beforeContext, "beforeContext"),
     afterContext: assertNumber(input.afterContext, "afterContext"),
-    cursorOffset: assertNumber(input.cursorOffset, "cursorOffset"),
+    cursor: assertCursorObject(input.cursor),
   };
 }
 

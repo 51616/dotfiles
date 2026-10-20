@@ -14,9 +14,9 @@ The extension also registers `/remote-fff-health` and `/remote-fff-restart` for 
 
 [[remote-fff-forward/lib/remote-runtime.ts]] owns remote runtime discovery and worker staging. It uses the shared `PiSshSession` exact-capture/write-file boundary.
 
-It loads remote `nvm` when present, discovers `node` and `npm root -g`, verifies `@ff-labs/fff-node/dist/src/index.js`, and stages [[remote-fff-forward/remote/worker.mjs]] under `~/.cache/pi/remote-fff-forward/`.
+It loads remote `nvm` when present, discovers `node` and `npm root -g`, then runs `buildFffNodeResolveScript()` against the global `@ff-labs/fff-node` package. That script reads the entry file from the package's own `package.json` `exports` map (never a hardcoded `dist/...` path), rejects versions older than `MIN_FFF_NODE_VERSION` (0.11.0) with an install hint, loads the native library, and prints the entry. Setup then stages [[remote-fff-forward/remote/worker.mjs]] under `~/.cache/pi/remote-fff-forward/<worker version>/`.
 
-The remote worker imports the absolute global `fff-node` entry because Node ESM does not resolve global npm packages from arbitrary working directories. If remote Node or `@ff-labs/fff-node` is missing, setup fails clearly instead of falling back to local search.
+The remote worker imports the absolute global `fff-node` entry because Node ESM does not resolve global npm packages from arbitrary working directories. If remote Node or `@ff-labs/fff-node` is missing or too old, setup fails clearly instead of falling back to local search. Only fff-node 0.11.0 and newer are supported; there is no code path for the older `dist/src/index.js` + `dist/types.js` layout.
 
 ## Worker lifecycle
 
@@ -30,10 +30,14 @@ Workers must not survive normal session shutdown or local client crashes. Normal
 
 Include/exclude constraints are normalized against the local workspace root and the remote base path so an agent can pass either representation safely.
 
-[[remote-fff-forward/lib/cursors.ts]] uses stateless base64url cursor tokens instead of an in-memory cursor map. This lets grep/find pagination survive worker restarts and keeps the remote worker protocol simple. [[remote-fff-forward/lib/format.ts]] preserves the local `pi-fff` output contract: native frecency order, git/frecency annotations, weak fuzzy-match trimming, grep context lines, and terse no-match messages.
+[[remote-fff-forward/lib/cursors.ts]] uses stateless base64url cursor tokens instead of an in-memory cursor map. This lets grep/find pagination survive worker restarts and keeps the remote worker protocol simple.
+
+The grep token carries fff-node's own `nextCursor` object verbatim. fff-node treats that cursor as opaque and has no public constructor, so neither the worker nor the extension may read or build its fields; they only pass it back. Tokens from the old offset-based format are rejected with an invalid-cursor error. [[remote-fff-forward/lib/format.ts]] preserves the local `pi-fff` output contract: native frecency order, git/frecency annotations, weak fuzzy-match trimming, grep context lines, and terse no-match messages.
 
 ## Verification
 
-The proving tests live under `remote-fff-forward/test/`. They cover query normalization, formatting, stateless cursor tokens, local worker stdio behavior, worker reuse, invalid worker output, and abort cleanup.
+The proving tests live under `remote-fff-forward/test/`. They cover query normalization, formatting, cursor tokens, the fff-node version gate, local worker stdio including grep pagination, worker reuse, invalid worker output, and abort cleanup.
+
+The local worker test resolves pi's own `@ff-labs/fff-node` copy through the same resolve script the remote probe uses, and fails rather than skips when it is missing. A hardcoded path plus a skip guard previously hid the fff-node 0.11 layout break.
 
 For behavior changes, run `node --test remote-fff-forward/test/*.test.mjs`, the TypeScript no-emit check for `remote-fff-forward/**/*.ts`, `remote-fff-forward/test/live-smoke.mjs` against `gcp_slurm_sakana_eu`, and the pi-ssh shared-runtime regression tests named in [[pi-ssh#Verification]].

@@ -77,7 +77,11 @@ test("remote cursor tokens round-trip all fields without an in-memory cursor map
     maxMatchesPerFile: 20,
     beforeContext: 1,
     afterContext: 1,
-    cursorOffset: 42,
+    // Opaque fff-node cursor: carried verbatim, whatever its fields are.
+    cursor: { __brand: "GrepCursor", _offset: 42 },
   };
   assert.deepEqual(decodeGrepCursor(encodeGrepCursor(grep)), grep);
+
+  const legacy = encodeGrepCursor({ ...grep, cursor: undefined, cursorOffset: 42 });
+  assert.throws(() => decodeGrepCursor(legacy), /cursor must be an object/);
 });

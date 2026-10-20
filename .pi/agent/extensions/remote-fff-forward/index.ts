@@ -211,7 +211,7 @@ async function runRemoteGrep(
     mode,
     smartCase,
     maxMatchesPerFile,
-    cursorOffset: resumed?.cursorOffset,
+    cursor: resumed?.cursor ?? null,
     beforeContext,
     afterContext,
     scanTimeoutMs: SCAN_TIMEOUT_MS,
@@ -240,7 +240,7 @@ async function runRemoteGrep(
   if (result.regexFallbackError) {
     notices.push(`Invalid regex: ${result.regexFallbackError}, used literal match`);
   }
-  if (typeof result.nextCursorOffset === "number") {
+  if (result.nextCursor) {
     const cursor = encodeGrepCursor({
       kind: "grep",
       basePath: resumed?.basePath ?? basePath,
@@ -251,7 +251,7 @@ async function runRemoteGrep(
       maxMatchesPerFile,
       beforeContext,
       afterContext,
-      cursorOffset: result.nextCursorOffset,
+      cursor: result.nextCursor,
     });
     notices.push(`Continue with cursor="${cursor}"`);
   }
