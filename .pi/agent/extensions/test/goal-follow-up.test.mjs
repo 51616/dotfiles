@@ -58,36 +58,37 @@ function createHarness(options = {}) {
     return dispatch;
   };
 
-  const beginDispatch = async (dispatchOrIndex) => {
+  // Mirrors pi 1.3.0 AgentSession._startRun for an idle custom trigger: before_agent_start runs
+  // first (its returned message joins the run), then agent_start, then message_start per message.
+  const startDispatch = async (dispatchOrIndex) => {
     const dispatch = getDispatch(dispatchOrIndex);
     assert.equal(dispatch.started, false, "goal dispatch can start only once");
     dispatch.started = true;
-    await handlers.get("agent_start")?.({}, ctx);
-    await handlers.get("message_start")?.({ message: dispatch.message }, ctx);
-  };
-
-  const prepareDispatchResponse = async (dispatchOrIndex) => {
-    const dispatch = getDispatch(dispatchOrIndex);
-    assert.equal(dispatch.started, true, "goal dispatch must start before response preparation");
-    assert.equal(dispatch.prepared, false, "goal dispatch response can be prepared only once");
-    dispatch.prepared = true;
-    const turnResult = await handlers.get("before_turn_response")?.(
-      { triggerMessages: [dispatch.message] },
+    const startResult = await handlers.get("before_agent_start")?.(
+      { type: "before_agent_start", messageType: "custom", message: dispatch.message },
       ctx,
     );
-    if (turnResult?.message) {
+    if (startResult?.message) {
       sentMessages.push({
-        text: String(turnResult.message.content ?? ""),
+        text: String(startResult.message.content ?? ""),
         sendOptions: dispatch.sendOptions,
-        message: turnResult.message,
+        message: startResult.message,
       });
     }
-    return turnResult;
+    await handlers.get("agent_start")?.({}, ctx);
+    await handlers.get("message_start")?.({ message: dispatch.message }, ctx);
+    if (startResult?.message) {
+      await handlers.get("message_start")?.({ message: { role: "custom", ...startResult.message } }, ctx);
+    }
+    return startResult;
   };
 
-  const startDispatch = async (dispatchOrIndex) => {
-    await beginDispatch(dispatchOrIndex);
-    return prepareDispatchResponse(dispatchOrIndex);
+  // A marker queued behind another run (agent.followUp) skips before_agent_start entirely.
+  const deliverQueuedDispatch = async (dispatchOrIndex) => {
+    const dispatch = getDispatch(dispatchOrIndex);
+    assert.equal(dispatch.started, false, "goal dispatch can start only once");
+    dispatch.started = true;
+    await handlers.get("message_start")?.({ message: dispatch.message }, ctx);
   };
 
   const pi = {
@@ -212,9 +213,8 @@ function createHarness(options = {}) {
     commands,
     sentMessages,
     dispatches,
-    beginDispatch,
-    prepareDispatchResponse,
     startDispatch,
+    deliverQueuedDispatch,
     get abortCalls() {
       return abortCalls;
     },
@@ -447,7 +447,7 @@ test("an unresolved starter retains one attempt-specific lock without auditing o
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0);
   assert.match(
     harness.notifications.at(-1).message,
-    /has not reached message_start; retaining its lock/,
+    /has not started \(before_agent_start\); retaining its lock/,
   );
 
   harness.handlers.get("agent_settled")({}, harness.ctx);
@@ -545,21 +545,46 @@ test("reload re-arms the restored goal with a new marker incarnation", async () 
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
-test("clear after message_start aborts before the authorized objective response is prepared", async () => {
+test("clear after the goal run started aborts that exact run", async () => {
   const harness = createHarness({ startDispatch: false });
   harness.handlers.get("session_start")({}, harness.ctx);
 
-  await harness.commands.get("goal").handler("objective cleared during turn startup", harness.ctx);
+  await harness.commands.get("goal").handler("objective cleared during the goal run", harness.ctx);
   await flushTimers();
-  await harness.beginDispatch(0);
+  await harness.startDispatch(0);
   assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
+  assert.equal(harness.abortCalls, 0);
 
   await harness.commands.get("goal").handler("clear", harness.ctx);
-  await harness.prepareDispatchResponse(0);
 
-  assert.ok(harness.abortCalls >= 1);
-  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(harness.abortCalls, 1);
   assert.equal(getGoalSnapshotForSession("session-1"), null);
+});
+
+test("a marker queued behind a user run is dropped without aborting that run, then retried", async () => {
+  const harness = createHarness({ startDispatch: false });
+  harness.handlers.get("session_start")({}, harness.ctx);
+
+  await harness.commands.get("goal").handler("finish despite a racing user prompt", harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 1);
+
+  // The user's prompt won the idle race; pi delivered the marker as a queued follow-up.
+  await harness.handlers.get("agent_start")({}, harness.ctx);
+  await harness.deliverQueuedDispatch(0);
+
+  assert.equal(harness.abortCalls, 0, "the user's run must not be aborted");
+  assert.equal(harness.sentMessages.length, 0, "no objective is injected into the user's run");
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 0, "a dropped attempt costs no turn");
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(harness.dispatches.length, 2, "settlement retries with a fresh marker");
+
+  await harness.startDispatch(1);
+  assert.equal(harness.sentMessages.length, 1);
+  assert.match(harness.sentMessages[0].text, /^Objective:\nfinish despite a racing user prompt/m);
+  assert.equal(getGoalSnapshotForSession("session-1").turnsUsed, 1);
 });
 
 test("/goal rejects vague objectives without arming a goal", async () => {

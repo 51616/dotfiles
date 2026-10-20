@@ -143,15 +143,16 @@ function createHarness(tmpDir, options = {}) {
     sendMessage(message) {
       if (message.customType !== GOAL_DISPATCH_MARKER_TYPE) return;
       const triggerMessage = { role: "custom", ...message };
+      // pi 1.3.0 order for an idle custom trigger: before_agent_start, agent_start, message_start.
       void (async () => {
-        await callAll(handlers, "agent_start", {}, ctx);
-        await callAll(handlers, "message_start", { message: triggerMessage }, ctx);
-        for (const fn of handlers.get("before_turn_response") || []) {
-          const result = await fn({ triggerMessages: [triggerMessage] }, ctx);
+        for (const fn of handlers.get("before_agent_start") || []) {
+          const result = await fn({ type: "before_agent_start", messageType: "custom", message: triggerMessage }, ctx);
           if (result?.message) {
             sentUserMessages.push({ text: String(result.message.content ?? ""), options: { triggerTurn: true } });
           }
         }
+        await callAll(handlers, "agent_start", {}, ctx);
+        await callAll(handlers, "message_start", { message: triggerMessage }, ctx);
       })();
     },
     exec() {

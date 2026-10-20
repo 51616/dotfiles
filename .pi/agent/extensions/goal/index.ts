@@ -255,23 +255,6 @@ function sameGoalDispatch(
   );
 }
 
-// The live @earendil-works/pi-coding-agent runtime exposes these lifecycle events, while the
-// extension workspace's older upstream type package does not. Keep the untyped boundary narrow.
-type LocalLifecycleExtensionApi = {
-  on(
-    event: "agent_settled",
-    handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>,
-  ): void;
-  on(
-    event: "before_turn_response",
-    handler: (
-      event: { triggerMessages?: readonly unknown[] },
-      ctx: ExtensionContext,
-    ) =>
-      | { message: { customType: string; content: string; display: boolean; details: GoalDispatchMarkerDetails } }
-      | undefined,
-  ): void;
-};
 
 function showAuditLoader(
   ctx: ExtensionContext,
@@ -470,7 +453,7 @@ export default function goalExtension(pi: ExtensionAPI) {
       const state = pendingGoalDispatch.cancelled ? "cancelled" : "active";
       notify(
         ctx,
-        `goal ${state} dispatch has not reached message_start; retaining its lock to prevent duplicate work (run /reload if it remains stuck)`,
+        `goal ${state} dispatch has not started (before_agent_start); retaining its lock to prevent duplicate work (run /reload if it remains stuck)`,
         "warning",
       );
     }, dispatchStartWatchdogDelayMs);
@@ -848,8 +831,8 @@ export default function goalExtension(pi: ExtensionAPI) {
             cancelled: false,
           };
           try {
-            // A custom trigger preserves an attempt token through message_start. The marker itself
-            // contains no objective; before_turn_response injects work only after the exact live
+            // A custom trigger carries an attempt token into before_agent_start. The marker itself
+            // contains no objective; before_agent_start injects work only after the exact live
             // attempt starts. Clear/replacement can therefore abort stale work without relying on
             // prompt equality or retrying an unresolved fire-and-forget send.
             pendingGoalDispatch = dispatchAttempt;
@@ -1054,16 +1037,22 @@ export default function goalExtension(pi: ExtensionAPI) {
     abortActiveAudit("agent started while goal audit was running");
   });
 
-  pi.on("message_start", (event, ctx) => {
+  // Stock pi (>= 1.3.0) emits `before_agent_start` for an idle `sendMessage(..., { triggerTurn })`
+  // with the triggering custom message, and appends any returned message right after it in the
+  // same run. That is the single activation point: validate the exact attempt, count the turn, and
+  // inject the objective-bearing instruction. `ctx.abort()` here is honored at `agent_start`,
+  // before any provider request, so stale attempts never reach the model.
+  pi.on("before_agent_start", (event, ctx) => {
+    if (event.messageType !== "custom") return undefined;
     const marker = parseGoalDispatchMarker(event.message);
-    if (!marker) return;
+    if (!marker) return undefined;
 
     const pending = pendingGoalDispatch;
     if (!pending || !sameGoalDispatch(marker, pending)) {
-      // A marker from an invalidated session or superseded attempt has reached the exact point
-      // where the agent owns an abort signal. Stop that turn before stale goal work is injected.
+      // A marker from an invalidated session, a previous extension instance, or a superseded
+      // attempt. This run exists only for that marker, so stop it before stale work starts.
       ctx.abort();
-      return;
+      return undefined;
     }
 
     clearDispatchStartWatchdog();
@@ -1074,9 +1063,11 @@ export default function goalExtension(pi: ExtensionAPI) {
       currentGoal?.goalId === pending.goalId &&
       shouldBudgetLimitGoal(currentGoal)
     ) {
+      activeGoalDispatch = { ...pending, cancelled: true };
       setCurrentGoal(ctx, markGoalBudgetLimited(currentGoal));
       notify(ctx, "goal stopped: turn budget exhausted", "warning");
-      return;
+      ctx.abort();
+      return undefined;
     }
     if (
       pending.cancelled ||
@@ -1090,49 +1081,46 @@ export default function goalExtension(pi: ExtensionAPI) {
     ) {
       activeGoalDispatch = { ...pending, cancelled: true };
       ctx.abort();
-      return;
-    }
-
-    setCurrentGoal(ctx, incrementGoalTurnsUsed(currentGoal));
-  });
-
-  (pi as unknown as LocalLifecycleExtensionApi).on("before_turn_response", (event, ctx) => {
-    const active = activeGoalDispatch;
-    if (!active) return undefined;
-    const marker = (event.triggerMessages ?? [])
-      .map((message) => parseGoalDispatchMarker(message))
-      .find((candidate): candidate is GoalDispatchMarkerDetails => candidate !== null && sameGoalDispatch(candidate, active));
-    if (!marker) return undefined;
-
-    if (
-      active.cancelled ||
-      !sessionActive ||
-      sessionLifecycleEpoch !== active.sessionEpoch ||
-      activeDispatchToken !== active.dispatchToken ||
-      !currentGoal ||
-      currentGoal.goalId !== active.goalId ||
-      currentGoal.status !== "active" ||
-      currentGoal.turnsUsed !== active.expectedTurnsUsed + 1
-    ) {
-      activeGoalDispatch = { ...active, cancelled: true };
-      if (!active.cancelled) ctx.abort();
       return undefined;
     }
 
+    setCurrentGoal(ctx, incrementGoalTurnsUsed(currentGoal));
     return {
       message: {
         customType: GOAL_DISPATCH_INSTRUCTION_TYPE,
-        content: active.prompt,
+        content: pending.prompt,
         display: true,
         details: marker,
       },
     };
   });
 
+  // Subtle race: if the user submits between the idle check and `sendMessage`, pi queues the
+  // marker as a follow-up of the user's run, and queued messages skip `before_agent_start`. The
+  // marker then reaches `message_start` still pending. Aborting here would kill the user's run, so
+  // drop the attempt instead (no turn counted, no objective injected) and let `agent_settled`
+  // reschedule. The model sees only the objective-free marker text once.
+  pi.on("message_start", (event, ctx) => {
+    const marker = parseGoalDispatchMarker(event.message);
+    if (!marker) return;
+    const pending = pendingGoalDispatch;
+    if (!pending || !sameGoalDispatch(marker, pending)) return;
+
+    clearDispatchStartWatchdog();
+    pendingGoalDispatch = null;
+    if (activeDispatchToken === pending.dispatchToken) {
+      dispatchScheduled = false;
+      activeDispatchToken = null;
+    }
+    if (!pending.cancelled) {
+      notify(ctx, "goal continuation was queued behind another run; retrying after it settles", "info");
+    }
+  });
+
   // `agent_end` fires while pi still considers the run active and before retry, compaction,
   // and queued follow-up handling. `agent_settled` is the first lifecycle point where the
   // idle scheduling invariant is true and no automatic continuation remains.
-  (pi as unknown as LocalLifecycleExtensionApi).on("agent_settled", (_event, ctx) => {
+  pi.on("agent_settled", (_event, ctx) => {
     if (activeGoalDispatch) {
       const settledDispatchToken = activeGoalDispatch.dispatchToken;
       activeGoalDispatch = null;
