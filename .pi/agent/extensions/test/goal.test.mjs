@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   brightRed,
   buildGoalBorderLabel,
+  isGoalBeingPursued,
   formatDurationMs,
   formatGoalCompletionStats,
   formatGoalStatusSummary,
@@ -118,7 +119,10 @@ test("goal state helpers create, budget-limit, complete, and schedule safely", (
 
   const limited = markGoalBudgetLimited(used, 1300);
   assert.equal(limited.status, "budget_limited");
-  assert.equal(buildGoalBorderLabel(limited), "⚑ goal |");
+  assert.equal(buildGoalBorderLabel(limited), "⚑ goal paused (budget) |");
+  assert.equal(isGoalBeingPursued(limited), false);
+  assert.equal(isGoalBeingPursued(goal), true);
+  assert.equal(buildGoalBorderLabel(null), undefined);
 
   const complete = markGoalCompleteFromAudit(goal, {
     decision: "complete",

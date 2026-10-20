@@ -15,6 +15,7 @@ import { buildAnchoredContinuationMessage, buildFallbackContinuationMessage, bui
 import {
   brightRed,
   buildGoalBorderLabel,
+  isGoalBeingPursued,
   GOAL_STATE_ENTRY_TYPE,
   formatGoalCompletionStats,
   formatGoalStatusSummary,
@@ -477,7 +478,7 @@ export default function goalExtension(pi: ExtensionAPI) {
   };
 
   registerTuiBrokerEditorBadgeProvider("goal", () => {
-    if (!currentGoal) return null;
+    if (!isGoalBeingPursued(currentGoal)) return null;
     return { text: buildGoalEditorIndicator(), priority: 200, borderColor: "#f38ba8" };
   });
 
@@ -505,7 +506,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 
     if (currentGoal && !editorOverrideActive) {
       ctx.ui.setEditorComponent(
-        (tui, theme, keybindings) => new GoalEditor(tui, theme, keybindings, () => currentGoal !== null, () => currentGoal),
+        (tui, theme, keybindings) => new GoalEditor(tui, theme, keybindings, () => isGoalBeingPursued(currentGoal), () => currentGoal),
       );
       editorOverrideActive = true;
       return;
@@ -543,6 +544,11 @@ export default function goalExtension(pi: ExtensionAPI) {
     }
   };
 
+  /** Footer status derived from the live goal. The only writer apart from the transient "auditing" label. */
+  const syncGoalStatus = (ctx: ExtensionContext): void => {
+    setStatus(ctx, buildGoalBorderLabel(currentGoal));
+  };
+
   const setCurrentGoal = (ctx: ExtensionContext, goal: GoalState | null) => {
     const previousGoalId = currentGoal?.goalId ?? null;
     const previousGoalStatus = currentGoal?.status ?? null;
@@ -574,7 +580,7 @@ export default function goalExtension(pi: ExtensionAPI) {
         activeDispatchToken = null;
       }
     }
-    setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
+    syncGoalStatus(ctx);
     applyEditorOverride(ctx);
     refreshTuiBrokerEditor();
     persistGoal(ctx);
@@ -604,7 +610,7 @@ export default function goalExtension(pi: ExtensionAPI) {
       return;
     }
 
-    setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
+    syncGoalStatus(ctx);
     applyEditorOverride(ctx);
     refreshTuiBrokerEditor();
   };
@@ -775,9 +781,9 @@ export default function goalExtension(pi: ExtensionAPI) {
             } finally {
               closeAuditLoader?.();
               if (activeAuditController === auditController) activeAuditController = null;
-              if (activeDispatchToken === scheduledDispatchToken) {
-                setStatus(ctx, currentGoal ? buildGoalBorderLabel(currentGoal) : undefined);
-              }
+              // Always restore from the live goal. Gating this on the dispatch token left "auditing" on
+              // screen when /goal budget|clear|replace stopped the goal while the audit was running.
+              syncGoalStatus(ctx);
             }
 
             if (!currentGoal || currentGoal.goalId !== goalAtDispatchStart.goalId) return;

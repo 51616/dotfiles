@@ -57,9 +57,9 @@ If session-tree state is missing, the runtime falls back to the per-session in-m
 
 The editor badge/border reflects active goal-chasing state, not repeat state.
 
-When a goal exists, the user editor border is red and the top-border text indicator is the bold label `─ ⟐ PURSUING GOAL` with no leading whitespace. The footer status text is `⚑ goal |`; detailed state remains available through `/goal status`.
+While a goal is `active`, the user editor border is red and the top-border text indicator is the bold label `─ ⟐ PURSUING GOAL` with no leading whitespace. The footer status text is `⚑ goal |`. A `budget_limited` goal is not being pursued: it drops the badge and red border and shows `⚑ goal paused (budget) |` until `/goal clear`. Detailed state remains available through `/goal status`.
 
-During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing |`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface.
+During external completion audits, the extension shows a `BorderedLoader` spinner labeled `Auditing goal completion…` when the interactive UI is available and changes the footer status text to `⚑ auditing |`. The loader is closed in the audit `finally` path so audit success, failure, timeout fallback, and thrown errors restore the editor surface. That path always restores the footer from the live goal state: when `/goal budget`, `clear`, or `replace` stops the goal mid-audit, `⚑ auditing |` must not stay on screen.
 
 Auto-checkpointing and session compaction have higher priority than goal continuation. Audited continuations wait 10 seconds before starting the external audit, giving auto-checkpoint footer detection and compaction a chance to claim the session first. If the shared auto-checkpoint cycle marker is active, or a `session_before_compact` event has fired without a matching `session_compact` or abort, goal defers audit and follow-up dispatch so checkpoint/manual compaction can finish first.
 

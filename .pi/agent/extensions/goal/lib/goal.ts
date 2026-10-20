@@ -148,9 +148,20 @@ export function formatBudget(turnBudget: number | null): string {
   return turnBudget === null ? "∞" : String(turnBudget);
 }
 
-export function buildGoalBorderLabel(goal: GoalState | null): string {
-  if (!goal) return "goal none";
+/**
+ * Footer status for the current goal, or undefined when nothing should be shown.
+ * Only an active goal is "being pursued"; a budget-limited goal waits for `/goal budget` or `/goal clear`.
+ */
+export function buildGoalBorderLabel(goal: GoalState | null): string | undefined {
+  if (!goal) return undefined;
+  if (goal.status === "budget_limited") return "⚑ goal paused (budget) |";
+  if (goal.status !== "active") return undefined;
   return "⚑ goal |";
+}
+
+/** Whether the editor should show the PURSUING GOAL badge and goal border color. */
+export function isGoalBeingPursued(goal: GoalState | null): boolean {
+  return goal?.status === "active";
 }
 
 export function formatDurationMs(elapsedMs: number): string {

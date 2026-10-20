@@ -10,6 +10,11 @@ import {
   resetCheckpointCycleState,
   setCheckpointCycleActive,
 } from "../lib/autockpt/autockpt-runtime-state.ts";
+import { getTuiBrokerEditorBadges } from "../tui-broker/lib/runtime.ts";
+
+function isGoalEditorBadgeVisible() {
+  return getTuiBrokerEditorBadges().some((badge) => badge.key === "goal");
+}
 
 function flushTimers() {
   return new Promise((resolve) => setTimeout(resolve, 20));
@@ -1492,6 +1497,50 @@ test("budget exhaustion marks budget_limited and stops scheduling", async () => 
   assert.equal(auditCalls, 1);
   assert.equal(harness.sentMessages.length, 1);
   assert.equal(getGoalSnapshotForSession("session-1").status, "budget_limited");
+});
+
+// Found in tmux E2E on pi 1.3.0: after `/goal budget 1` during the audit window the goal was
+// budget_limited, but the footer kept "⚑ auditing |" and the editor kept "PURSUING GOAL" until
+// `/goal clear`. A stopped goal must not look like an active one.
+test("a budget-limited goal drops the active-goal status and editor badge", async () => {
+  const auditGate = deferred();
+  const harness = createHarness({
+    auditRunner: async () => {
+      await auditGate.promise;
+      return {
+        ok: true,
+        attempts: 1,
+        auditSessionPath: "/tmp/audit.jsonl",
+        commands: [],
+        audit: {
+          decision: "continue",
+          confidence: "high",
+          summary: "continue",
+          completedItems: [],
+          remainingItems: ["next"],
+          evidence: ["plan.md"],
+          sourcePaths: ["plan.md"],
+          continuationMessage: "Next.",
+        },
+      };
+    },
+  });
+  harness.handlers.get("session_start")({}, harness.ctx);
+  await createIdleGoalAndClearStarter(harness, "finish within one turn");
+
+  harness.handlers.get("agent_settled")({}, harness.ctx);
+  await flushTimers();
+  assert.equal(harness.statuses.at(-1)?.text, "⚑ auditing |");
+
+  await harness.commands.get("goal").handler("budget 1", harness.ctx);
+  assert.equal(getGoalSnapshotForSession("session-1").status, "budget_limited");
+  auditGate.resolve();
+  await flushTimers();
+
+  const goalStatuses = harness.statuses.filter((status) => status.key === "goal");
+  assert.notEqual(goalStatuses.at(-1)?.text, "⚑ auditing |", "audit status must not outlive the stopped goal");
+  assert.notEqual(goalStatuses.at(-1)?.text, "⚑ goal |", "a stopped goal must not show the active-goal status");
+  assert.equal(isGoalEditorBadgeVisible(), false, "a stopped goal must not keep the PURSUING GOAL badge");
 });
 
 test("blank command rejects a vague previous user message", async () => {
