@@ -5,32 +5,24 @@ This file links the proving tests that anchor extension behavior which is easy t
 ## Activity block reducer and widget stay honest, bounded, and width-safe
 
 Owned by:
+- `.pi/extensions/test/activity-block-index.test.mjs` (lifecycle on the pi 1.3.0 event order, via `test/helpers/activity-block-harness.mjs`)
 - `.pi/extensions/test/activity-block-state.test.mjs`
 - `.pi/extensions/test/activity-block-widget.test.mjs`
-- `.pi/extensions/test/activity-block-index.test.mjs`
+- `.pi/extensions/activity-block/test/typecheck.test.mjs`
 
 What this proves:
-- reasoning-only runs keep the latest useful thinking excerpt and terminal state
-- text streaming marks the block as responding so the spinner can stop cleanly
-- tool totals/active/completed/failed counts stay honest across sequential and parallel tool execution
-- aborted runs do not leak a stale running state
-- the live block installs as an `aboveEditor` widget while suppressing the stock `Working...` row when `ctx.ui.setWidget` is available, the matching active transcript renderer returns no rows while the dock is visible, the dock reflects thinking and tool lifecycle updates, terminal complete/aborted/error blocks remain docked until the next input, queued steering replaces the dock with the next active block, default mode clears the dock, and zen mode hides/restores the dock without exposing duplicate transcript blocks
-- the widget prefers the latest active tool when tools are running, reuses compact-tool-view-style colors for `read`/`write`/`edit`/`bash`, applies tool-state background highlighting to the live tool row, renders thinking as markdown, subsumes both tool-active and thinking-only live work under `Cooking`, and drops the spinner while responding
-- `Esc` aborts only when the extension has an active turn
-- historical transcript suppression stays active after `turn_end`, so finished turns do not suddenly replay default tool rows
-- live transcript suppression stays active across tool-result continuation boundaries and is released only when the active block is finalized on `agent_end`
-- `before_turn_response` with non-empty trigger messages creates one fresh activity block for each initial, queued steering/follow-up, and triggerTurn custom-message turn, instead of looking like a fresh outer turn
-- queued steering freezes the current block immediately, persists it as `Interrupted by steering`, and starts the next block under the steering message
-- bare `agent_end` failures still finalize the active block with the correct terminal state
-- resumed sessions continue the persisted local turn counter instead of resetting block turn identity/numbering to `1`
-- compact mode keeps only the header/first line of the latest thinking text in the bottom-left footer status without an extra previous-activity row or duplicate live thinking block, and keeps the selected tool actions sticky while newer thinking updates arrive, with the newest visible action nearest the bottom footer
-- thinking expansion opens the full current thinking text up to 15 rendered lines, without reopening a tool detail pane
-- blank spacer rows stay between the thinking/tool sections and the footer so the block reads cleanly
-- live running-state labels append the shared scanner spinner while running, except `Responding`, which stays static
-- timers start at `0s`, avoid sub-second precision, and freeze after completion
-- the footer/detail line keeps the timer right-aligned, formats the left side as `<X> tool calls (<Y> failed) · <tokens>`, adds `<N> compactions` when `N > 1`, buckets tokens in 1K increments with `< 1K tokens` below the first bucket, and keeps context-based token counts scoped to the active block instead of the whole session
-- narrow terminals stay width-safe and the widget remains height-bounded
-
+- one permanent `aboveEditor` dock per session, height-neutral when idle; block mode hides pi's working row and every tool row (empty self-shell renderers), default mode gives both back
+- each run anchors exactly one block below its trigger message and above the reply; retries and compaction continuations reuse it; the block finalizes only on `agent_settled`
+- a mid-run steer freezes the block as `Interrupted by steering`; a follow-up after finished work freezes it as `Completed`; the next block anchors under the steering/follow-up message
+- the run's own trigger, hidden custom messages, and tool results never split a block; displayed custom triggers do
+- a post-steer block never adopts tool results from the earlier block that `agent_end.messages` still carries
+- failures before any assistant output leave no orphan anchor or snapshot; error/abort/dangling-tool terminal states persist with the right label
+- nested codemode tool calls are not counted
+- resume restores snapshots for current `custom` anchors and legacy `custom_message` anchors, reconstructs missing tool rows from the transcript, continues the turn counter, and keeps legacy anchors out of model context
+- token counts stay block-scoped, including the first block of a session and the first block after compaction (no whole-context counts)
+- timers stop on finish and shutdown; zen mode hides dock and transcript blocks and restores them
+- the widget keeps tool colors, markdown thinking, the scanner spinner (static while `Responding`), right-aligned timers, 1K token buckets, the 20-line bound, and width safety
+- activity-block typechecks against the workspace's pinned pi runtime
 
 ## Goal continuation is explicit, audited, and budget-safe
 

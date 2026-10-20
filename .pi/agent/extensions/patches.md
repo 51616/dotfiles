@@ -4,56 +4,28 @@ This file is the operator note for future pi after a fresh pi upgrade or reinsta
 
 ## Patch classes
 
-There are four different kinds of local patch state here.
+There are three different kinds of local patch state here.
 
-1. **pi core patch stack**
-   - target: upstream `pi-mono`
-   - why: `activity-block` depends on transcript-control and turn-lifecycle seams that are still not upstream in the exact form this vault expects
+No pi core patch is needed anymore: since 2026-10-20 `activity-block` runs on stock pi 1.3.0 through the public
+extension API (see `activity-block/README.md`). The old `activity-block/patches/` stack and the core-rebuild step of
+`reapply-local-patches.sh` were removed; running an old core rebuild would downgrade pi.
 
-2. **extension/package repo patch**
+1. **extension/package repo patch**
    - target: a separately installed package repo under `~/.pi/agent/git/...`
    - why: `pi-fff` must cooperate with `tui-broker` without taking editor ownership back
 
-3. **runtime package/dependency patches**
+2. **runtime package/dependency patches**
    - target: installed `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` package copies used by pi
    - why: runtime retry/timeout behavior must fail cleanly instead of hanging or silently changing transports
 
-4. **extension source compatibility edits already baked into local extensions**
+3. **extension source compatibility edits already baked into local extensions**
    - target: files under `~/.pi/agent/extensions/`
    - why: a few local extensions had stale lifecycle hooks that drifted from newer pi API surfaces
    - these are not normally something you reapply after a new pi binary install; they should already live in the local extension source tree
 
 ## What to reapply after a new pi install
 
-### 1) activity-block core patch stack
-
-Current default target:
-- `earendil-works/pi-mono v0.80.6`
-
-Source of truth:
-- `~/.pi/agent/extensions/activity-block/patches/v0.80.6/README.md`
-- `~/.pi/agent/extensions/activity-block/patches/v0.80.6/pi-core-local-extension-seams.patch`
-
-Apply order:
-1. `pi-core-local-extension-seams.patch`
-
-Older saved stacks before `v0.70.0` still use the three-patch split:
-1. `pi-core-live-transcript-mode.patch`
-2. `pi-core-custom-message-turn-lifecycle.patch`
-3. `pi-core-before-turn-response-lifecycle.patch`
-
-Operational shortcut:
-- `bash ~/vault/.pi/scripts/pi/reapply-local-patches.sh`
-- default core version in that script should track the current live pi install
-
-What this restores:
-- `ctx.ui.setLiveTranscriptMode(...)`
-- `ctx.ui.setHistoricalTranscriptMode(...)`
-- `before_agent_start` metadata for `triggerTurn` custom messages
-- extension event `before_turn_response`
-- queued-turn trigger preservation needed by `activity-block`
-
-### 2) pi-fff broker interop patch
+### 1) pi-fff broker interop patch
 
 This is the important **extension-only / package-side** patch for the `pi-fff` + `tui-broker` pair.
 
@@ -96,7 +68,7 @@ What this restores:
 - legacy `pi-fff` contributes only an autocomplete wrapper through broker hooks when broker is active
 - the context-usage meter and broker-owned editor border stay visible
 
-### 3) pi-ai strict WebSocket transport patch
+### 2) pi-ai strict WebSocket transport patch
 
 This is the runtime dependency patch that keeps explicit Codex WebSocket modes strict.
 
@@ -134,7 +106,7 @@ What this restores:
 - `transport: "auto"` may still fall back to SSE after WebSocket retries are exhausted
 - strict WebSocket mode ignores stale per-session fallback state created while the session was in `auto`
 
-### 4) saved runtime-resilience diffs for v0.75.5
+### 3) saved runtime-resilience diffs for v0.75.5
 
 These patch artifacts capture old live global package edits that were not previously represented by the `activity-block` core stack or the strict WebSocket patch. They remain as historical v0.75.5 reconstruction notes. Upstream v0.80.6 already carries the retry/timeout baseline that mattered here; the current fast path reapplies only the strict WebSocket transport boundary on top of v0.80.6.
 
@@ -143,7 +115,7 @@ Source of truth:
 - `~/vault/.pi/scripts/pi/patches/earendil-pi-ai-runtime-resilience-base-v0.75.5.patch`
 
 Apply order if you need to reconstruct the exact current global runtime on `0.75.5`:
-1. install the `activity-block` patched `@earendil-works/pi-coding-agent` tarball
+1. install `@earendil-works/pi-coding-agent@0.75.5` (historical; the activity-block core patch no longer exists)
 2. apply `earendil-pi-coding-agent-runtime-resilience-v0.75.5.patch` to `$(npm root -g)/@earendil-works/pi-coding-agent`
 3. apply `earendil-pi-ai-runtime-resilience-base-v0.75.5.patch` to a clean registry `@earendil-works/pi-ai@0.75.5` package root
 4. apply `earendil-pi-ai-strict-websocket-npm-v0.75.5.patch` to that same `@earendil-works/pi-ai` package root
@@ -159,7 +131,7 @@ What this restores:
 
 The broad `reapply-local-patches.sh` fast path does not apply these two runtime-resilience diffs. Treat them as historical artifacts for reconstructing the old v0.75.5 runtime, not as current v0.80.6 steps.
 
-### 5) tui-broker status
+### 4) tui-broker status
 
 `tui-broker` does **not** currently have a separate patch file to apply after reinstall.
 
@@ -185,7 +157,7 @@ These are not package-reinstall patches. They are local extension source edits t
 ### pi-ssh
 - path: `~/.pi/agent/extensions/pi-ssh/index.ts`
 - local behavior to preserve: first persistent-shell marker prints on a fresh line so the first remote bash command does not hang behind the login prompt
-- this is extension-local and should remain in the extension source tree; it is not part of the `activity-block` core stack
+- this is extension-local and should remain in the extension source tree
 
 ## One command when you just want the known stack back
 
@@ -196,7 +168,6 @@ bash ~/vault/.pi/scripts/pi/reapply-local-patches.sh
 That script is the broad repair entrypoint and should cover:
 - the baked extension compatibility checks
 - the `pi-fff` broker interop patch
-- the `activity-block` core patch stack and reinstall
 - the `pi-ai` strict WebSocket transport patch
 - the extension workspace local runtime package refresh from the same patched tarballs, so tests import the patched runtime surface
 

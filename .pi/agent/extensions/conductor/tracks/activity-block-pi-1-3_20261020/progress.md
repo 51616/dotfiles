@@ -1,6 +1,6 @@
 # activity-block on pi 1.3.0 public extension API — progress log
 
-Started 2026-10-20. Owner: pi. Status: in progress.
+Started 2026-10-20. Owner: pi. Status: complete (2026-10-20).
 
 ## Goal
 
@@ -23,7 +23,7 @@ Agreed scope (chat with Tan, 2026-10-20):
   Evidence: session started 04:11Z on 1.3.0 has 0 `activity-block-*` entries; the 02:02Z session (patched 0.80.6) has 220.
 - The extension test workspace (`~/.pi/agent/extensions/node_modules`) contains patched `@earendil-works/*@0.80.6`
   and `@mariozechner/*@0.70.0`. Tests therefore never exercised the live 1.3.0 runtime.
-- `goal/index.ts` also registers the patched `before_turn_response` event (line ~1099). Out of scope here; reported to Tan.
+- (Corrected later) `goal/index.ts` no longer uses `before_turn_response`; see Out of scope.
 - Steering in 1.3.0 never aborts: queued messages are injected inside the same agent loop after the current
   assistant turn and its tools finish (`pi-agent-core/dist/agent-loop.js` `runLoop`).
 - One user prompt can produce several `agent_start`/`agent_end` pairs (retry, auto-compaction continuation,
@@ -76,10 +76,15 @@ Agreed scope (chat with Tan, 2026-10-20):
       tests in `test/activity-block-index.test.mjs`; view-mode/dock/trigger tests ported. Removed the patch-contract
       test and the before_turn_response steering test (superseded by harness steering tests).
       Full suite: 568 tests, 567 pass, 0 fail, 1 pre-existing skip (was 564 / 2 fail).
-- [ ] P5 Remove patch artifacts + patch-contract test; update README, `.lat-md/activity-block.md`, `patches.md`.
-- [ ] P6 Remove core-rebuild step from `~/vault/.pi/scripts/pi/reapply-local-patches.sh` (+ its .md).
-- [ ] P7 End-to-end: run real pi 1.3.0 in tmux with a faux/cheap model, verify dock, hidden rows, steering split, resume.
-- [ ] P8 Full regression run + final report.
+- [x] P5 Removed `activity-block/patches/` (684K, v0.65.0..v0.80.6) and the 2026-04-07 investigation note; rewrote
+      README, `.lat-md/activity-block.md`, the activity-block sections of `.lat-md/extensions.md` / `tests.md`, and
+      `patches.md`. Added `activity-block/tsconfig.json` + `test/typecheck.test.mjs` (tsc against pinned pi types).
+- [x] P6 Vault commit `ee48632`: core rebuild removed from `reapply-local-patches.sh` (+ .md and
+      `.pi/scripts/.lat-md/local-patch-reapply.md`, which also still listed the deleted diff-review tracker).
+      `--skip-pi-fff --skip-pi-ai` run passes (goal tests 63/63). Lattice check passes.
+- [x] P7 E2E done (see section above), on the minimal and the full real extension set.
+- [x] P8 Final: 573 tests, 572 pass, 0 fail, 1 pre-existing skip. tsc clean. Lattice: only the 8 pre-existing pi-ssh
+      link errors.
 
 ## E2E (stock pi 1.3.0 in tmux, faux scripted model)
 
@@ -125,9 +130,47 @@ tui-broker, custom-spinner, activity-block, faux-e2e.
 
 ## Assumptions (to report)
 
-(filled in as they are made)
+1. Steering split is soft: no abort. A steer typed during a long tool shows up as a new block only after that tool
+   finishes (that is when pi injects it). pi's own "Steering: ..." queue line covers the wait.
+2. Label rule for splits: previous turn ended with `toolUse` -> `Interrupted by steering`; otherwise -> `Completed`.
+3. A displayed custom message delivered mid-run (e.g. goal/self-checkpointing with deliverAs steer/followUp) splits
+   like a user steer. Hidden custom messages never split.
+4. A run that fails before any assistant message leaves no block (no orphan). In practice pi emits an assistant
+   error message for provider failures, so those still get a block with the error label.
+5. `/activity-block mode` switches apply to new tool rows only; existing rows change when pi rebuilds the chat.
+   Leaving block mode mid-run finalizes the running block as `Switched to default view`.
+6. Tool results with images still show the image (pi draws images outside the renderer).
+7. Token count: first block of a session no longer counts the system prompt/tool schemas (baseline = first usage).
+8. The extension workspace now pins pi 1.3.0 (`@mariozechner/*` are npm aliases to `@earendil-works/*`).
+   When pi is upgraded, bump `package.json` and run the suite; the typecheck test catches API drift.
+9. E2E used a faux scripted model (pi's own `fauxProvider`), not a real model; visual layout was read from tmux
+   text captures, not screenshots.
+
+## Out of scope / follow-ups for Tan
+
+- (Corrected) `goal` is already on 1.3.0 events (`before_agent_start` with `messageType: "custom"`); the
+  `before_turn_response` hit noted at the start came from a scratch copy taken before goal was updated mid-session.
+- `@earendil-works/pi-ai` 1.3.0 does not match any saved strict-WebSocket patch: strict WebSocket mode is currently
+  not enforced on the live install.
+- `@ff-labs/pi-fff` 0.11.0 (agent cache) does not match the saved broker patches but does not need them.
+- Global `@ff-labs/pi-fff` is still 0.8.1 (patched); pi loads the 0.11.0 package-cache copy.
 
 ## Log
 
 - 2026-10-20: baseline extension suite (before this track, after removing fast/diff-review): 333 tests, 332 pass,
   1 pre-existing failure (`@ff-labs/pi-fff contributes autocomplete without replacing tui-broker editor`).
+
+## Follow-up: /goal port check (2026-10-20)
+
+- goal uses only real pi 1.3.0 events (before_agent_start with messageType custom, agent_settled, message_start, ...).
+  Typecheck against pinned pi 1.3.0 types: clean. Goal tests (77 incl. tui-broker interop): pass.
+- Live E2E (full config, faux model, nested audit `pi -p` also on the faux model via settings `extensions`):
+  full cycle works: start -> dispatch marker -> instruction injected -> work -> audit (continue) -> continuation ->
+  audit (complete) -> "Goal complete" + auto-clear. `/goal clear` mid-run stops it with no audit. A user prompt typed
+  during the audit window runs normally; the stale audit is discarded and a fresh one runs after.
+- **Bug found and fixed**: `/goal budget 1` while the audit was running left the footer on "auditing" and the editor
+  on "PURSUING GOAL" until `/goal clear`. Causes: the audit finally-block only restored status when its dispatch
+  token was still current, and the badge/label treated any non-null goal as pursued. Fix: one `syncGoalStatus` from
+  live state; `isGoalBeingPursued` (status active) gates the badge/border; budget-limited shows
+  `goal paused (budget)`. Regression test added; `.lat-md/goal.md` UI contract updated.
+- Note: raising the budget on a budget-limited goal does not resume it (documented: stays until /goal clear).

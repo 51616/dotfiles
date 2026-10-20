@@ -4,7 +4,7 @@ This lattice maps the extension entrypoints exposed through `.pi/extensions/`.
 
 ## activity-block
 
-Owns the bounded live-activity widget, transcript suppression, and turn-scoped status rendering used while the agent is working.
+Owns the bounded live-activity dock and per-prompt transcript blocks, hiding pi's tool rows and working row through the pi 1.3.0 public extension API.
 
 See also [[activity-block]].
 

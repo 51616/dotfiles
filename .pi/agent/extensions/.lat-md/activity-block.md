@@ -1,73 +1,55 @@
 # Activity block
 
-Owns the bounded activity block that renders live work as a docked `aboveEditor` widget while suppressing pi core's separate `Working...` row, then preserves terminal blocks as transcript history between each user turn and its assistant response.
+Owns the bounded activity block. It shows live work in an above-editor dock while pi works, then leaves one block per prompt (or steering/follow-up message) in the transcript, on stock pi 1.3.0.
 
-Entrypoint: [[activity-block/index.ts]].
+Entrypoint: [[activity-block/index.ts]]. Lifecycle rules: [[activity-block/lib/activity-block-controller.ts]].
 
-## Responsibilities
+## Transcript ownership on pi 1.3
 
-These are the behaviors the extension must keep stable when the live summary UX changes.
+Only public extension API is used; there is no pi core patch. Each surface has one owner.
 
-- reduce live assistant/tool events into one current summary surface, keep `Cooking` as the fallback running label when no thinking header is available, and use the latest thinking header as the bottom-left footer label whenever the block is still thinking, including during tool-active phases
-- keep tool history in three block-local views that cycle `latest -> recent (5 latest) -> all` on every toggle, even when the turn has few or zero tool calls; pad undersized tool-history views with neutral grey placeholder rows above the selected tools so the newest visible tool stays nearest the bottom footer and larger history views grow upward, show a dim inline per-tool elapsed timer suffix on each tool row, and keep the full-history panel tool-only by hiding the separate thinking panel unless the dedicated thinking toggle is explicitly expanded
-- keep thinking text behind the dedicated block-local toggle instead of auto-expanding it alongside the tool history; thoughts stay in their own bounded thinking area rather than being mixed into the tool timeline, and the full tool-history view should not inject a fallback `No recent tool details` row when there are no tool rows to show
-- append the shared opencode-style scanner spinner to the bottom-left footer header while the block is running, and stop that spinner once the final assistant response is streaming so `Responding` stays static
-- render block content with white as the default text color while preserving pink borders, compact-tool-view-style tool colors for `read`/`write`/`edit`/`bash`, and readable search rows for `fffind`/`ffgrep`
-- keep the footer/detail line bottom-aligned even in expanded tool view, with a spacer row after the expanded tool list: the latest status/thinking header plus the shared scanner spinner sits bottom-left, while lowercase tool-call count text with inline failure suffixes (`X tool calls (Y failed)`), a block-scoped token-count bucket from usage/context estimates (subtract the context baseline captured when the block starts), and the elapsed timer are grouped on the bottom-right
-- render thinking excerpts as markdown instead of plain text, using the latest thinking header as the bottom-left footer label during reasoning-only phases, avoiding duplicate live thinking headers in compact mode, and showing the full current thinking text above the tool-call history list in the thinking-expanded view
-- support block-local `ctrl+alt+t` expansion for the currently shown thinking excerpt only, without expanding hidden historical transcript rows or stealing the built-in global toggles
-- let `Esc` abort the active turn without interfering when no turn is active
-- keep the rendered block width-safe and height-bounded to 20 total lines so narrow terminals do not crash rendering or let the block sprawl
-- keep a stable local per-session turn identity in message details/state so repeated similar turns stay distinguishable without showing a visible `Turn #X` line inside the block
-- own the block-local tool-history view toggle (`latest -> recent -> all`), including command/shortcut affordances and line budgeting
-- support a global zen mode from `/activity-block zen [on|off]` or `ctrl+alt+z` that hides activity blocks entirely while the mode is enabled; activating it should toast a message that includes `Zen mode`
-- support a runtime transcript view mode from `/activity-block mode block|default`; `block` claims live and historical transcript ownership, while `default` clears transcript suppression and hides activity-block messages so pi core renders its normal tool-call transcript without restarting the session
-- request the Phase 2 transcript-mode seams when available so inline tool rows, replayed tool rows, the separate working spinner row, and thinking placeholders are absorbed into the block
-- install the live block as the `activity-block-live-dock` `aboveEditor` widget while a turn is active when `ctx.ui.setWidget` is available, keep it docked through final assistant response streaming, hide the matching active transcript message to prevent duplicate UI, and clear the dock immediately on completion/abort/error so the transcript block becomes visible as history; contexts without `setWidget` stay in documented transcript-only mode rather than hiding the block
-- treat `agent_end` without matching `tool_execution_end` or terminal tool-result events as a terminal failure for still-running tool rows, so websocket/provider errors do not leave command timers counting forever
-- keep historical transcript suppression active across completed turns so the block remains the canonical transcript surface after the assistant finishes
-- reconstruct historical activity-block snapshots from resumed session transcript entries when the saved `activity-block-state` entry is missing or has stale empty tool rows, so `/resume` can still show prior tool calls inside the block
-- keep the saved core patch notes in `activity-block/README.md` and `activity-block/patches/` aligned with the extension’s real dependency on pi core changes
+- Tool rows: [[activity-block/lib/activity-block-tool-rows.ts]] registers a `pi.registerToolRenderer` resolver. In block mode it returns `renderShell: "self"` with empty components, so pi draws zero lines for every tool row, live and on resume. pi picks renderers when a row is created, so a mode switch only affects new rows until the chat is rebuilt.
+- Working row: `ctx.ui.setWorkingVisible(false)` in block mode. pi resets it in `resetExtensionUI`, so it is reapplied on every `session_start`.
+- Dock: one `aboveEditor` widget installed on `session_start`. It renders nothing when idle and keeps the `TUI` handle used for `requestRender()`.
+- Thinking: not hidden. pi's `hideThinkingBlock` setting owns it. Hiding it would leave blank spacer lines that no 1.3.0 extension hook can remove.
+- Transcript anchor: a `custom` entry `activity-block-turn` written with `pi.appendEntry` and drawn by `pi.registerEntryRenderer`. It is never sent to the model.
+
+## Run lifecycle
+
+The block follows pi 1.3.0's agent-session events. One user prompt can span several `agent_start`/`agent_end` pairs, so only `agent_settled` is final.
+
+- `agent_start` creates the active block. It is idempotent: retries and compaction continuations reuse the block.
+- The first assistant `message_start` of a block writes its anchor. Extension handlers run before pi's UI sees that event, and pi inserts custom entries above a streaming assistant component, so the anchor lands below the trigger message and above the reply.
+- A user or displayed custom `message_start` while the block is anchored splits it. The block's last `turn_end` decides the label: `toolUse` means a steer cut the work short (`Interrupted by steering`), anything else means a follow-up after finished work (`Completed`). The run's own trigger never splits, because the block is not yet anchored at that point.
+- `turn_end` and `agent_end` are recorded. `agent_settled` finalizes the block and writes the `activity-block-state` snapshot.
+- A block that never got an anchor (failure before any assistant message) is dropped instead of persisted.
 
 ## Invariants
 
 These constraints keep the block honest and prevent it from becoming another noisy transcript.
 
-- each triggered turn, including queued steering/follow-up/custom-message turns, keeps its own completed block attached below the triggering message and above the assistant response; while the same turn is visible in the live dock, the transcript renderer for that turn must return no rows so the user never sees duplicate activity blocks; after the initial trigger user message has been consumed, a later queued steering user `message_start` while a block is active must freeze the current block immediately and prime the next block under that steering message before the next `before_turn_response` inserts its transcript anchor
-- tool-result continuation subturns keep using the same active block; the extension only starts a fresh block for a new user-triggered turn boundary, and a queued steering user message should cut that boundary as soon as its transcript message appears
-- queued steering user turns are primed as soon as their later user transcript message appears, while the initial trigger user message for the current block is ignored once so normal prompts do not self-split; the custom activity-block transcript message is then attached on the following `before_turn_response`, and empty-trigger continuation turns still reuse the current block
-- historical transcript suppression stays enabled for the session, live transcript suppression stays enabled until the current active block is finalized on `agent_end`, and the terminal dock clears as soon as the active block reaches a terminal state
-- `agent_end` still finalizes the active block when a run fails before `turn_end` is emitted, marks any still-running tools as failed with `completedAt = endedAt`, and completion/abort/error paths clear the dock immediately so the transcript snapshot becomes visible
-- each block retains a stable local per-session turn identity, even though the rendered block no longer shows a visible `Turn #<id>` header line
-- resumed sessions continue the persisted turn counter instead of resetting to `Turn #1`
-- the block elapsed timer freezes at `endedAt` once a run completes or aborts and formats from `0s` without sub-second precision; every tool row shows its own inline elapsed timer suffix from `startedAt`, including successful and failed historical tool rows, freezes at `completedAt`, and stays hidden until it reaches at least `10s`
-- the block keeps current and previous activity summaries in state so live prioritization and future UI changes can reason about recent transitions without rebuilding transcript history
-- the reducer persists enough rich data for the latest visible thinking item to support block-local expansion after the turn finishes
-- while a turn is active, the block refreshes token counts from `ctx.getContextUsage()` on a short interval and subtracts the block-start baseline so the displayed token bucket reflects the current block instead of the whole session
-- the in-block footer spinner refreshes while the active block is visible and stops once assistant `text_*` streaming begins
-- `Esc` is consumed only while this extension has an active turn to abort, and even instant aborted turns keep a minimal terminal block for audit history
-- tool counts stay honest for sequential and parallel tool execution
-- even in expanded mode, the block stays bounded and shows excerpts rather than a full transcript
-- if the core transcript-mode seams are unavailable, the block still works as a Phase 1 summary surface but replayed history falls back to default pi rendering
-- default transcript view mode intentionally clears historical transcript suppression; switching back to block mode reapplies suppression for future rendering but does not erase core-rendered rows already shown while default mode was active
+- Exactly one surface shows a block at a time: the dock while it runs, the transcript anchor afterwards. While docked, the anchor's renderer returns no rows.
+- The tool counts of a block cover only tools that the block itself started. `agent_end.messages` spans the whole agent run, so settling must ignore tool results from blocks that were frozen before a steer.
+- Token counts are scoped to the block. The baseline is the context usage at block start, or the first non-zero usage when pi reports none yet (fresh session, or right after compaction). Zero-usage streaming partials never become a baseline.
+- Nested codemode tool calls (`parentToolCallId`) are not block tool rows.
+- Leaving block mode finalizes a running block (`Switched to default view`) instead of dropping it.
+- Sessions written by the pre-1.3.0 patched runtime stored anchors as displayed `custom_message` entries. They render through `registerMessageRenderer`, and the `context` hook filters them out of model requests.
+- The rendered block stays width-safe and at most 20 lines tall.
 
 ## Change guidance
 
-Use this map to avoid fixing only the rendered block text while leaving the event contract or suppression path stale.
+Use this map to change the right layer.
 
-- Change the reducer/summary logic in `activity-block/lib/activity-block-state.ts` when counts, failure suffixes, tool prioritization, recent thinking excerpts, tool preview payloads, or frozen terminal timing are wrong.
-- Change line budgeting, compact/expanded allocation, truncation, markdown rendering, spacing, per-state colors, or tool-history-only rendering in `activity-block/lib/activity-block-widget.ts` when narrow terminals overflow, the block grows too tall, thinking expansion shows the wrong payload, row spacing regresses, or thoughts leak back into the tool list.
-- Change `activity-block/index.ts` when the toggle command/shortcut wiring, periodic context-usage refresh, block-spawn timing, live-dock install/clear timing, active transcript hiding, terminal dock clear behavior, zen-mode hiding/toast behavior, run-lifecycle behavior, or `Esc` abort handling is wrong.
-- Change `activity-block/lib/activity-block-history.ts` when `/resume` fails to recover tool rows from historical assistant `toolCall` messages and matching `toolResult` messages, or when persisted snapshots need merge/backfill behavior.
-- If tool rows suddenly reappear when the assistant finishes, inspect `activity-block/index.ts` turn-finish cleanup first; clearing historical transcript mode on `agent_end` triggers an interactive-mode transcript rebuild.
-- If the block stops suppressing live or replayed tool rows, or stops collapsing thinking, inspect the canonical pi core seams in `~/research/pi-mono/packages/coding-agent/src/modes/interactive/interactive-mode.ts`.
+- Lifecycle, splits, timers, dock visibility, mode switches: [[activity-block/lib/activity-block-controller.ts]].
+- Counts, failure labels, thinking excerpts, tool previews, token scoping: [[activity-block/lib/activity-block-state.ts]].
+- Layout, truncation, colors, spinner: [[activity-block/lib/activity-block-widget.ts]].
+- Resume reconstruction and anchor parsing: [[activity-block/lib/activity-block-history.ts]].
+- When pi is upgraded, bump the pinned runtime in the workspace `package.json`. Then run the typecheck test and the harness tests, because pi loads extensions with jiti, which strips types without checking them.
 
 ## Verification
 
-These checks prove the reducer, transcript block line budgeting, lattice wiring, and extension loading path still agree.
+These checks prove the lifecycle, reducer, and widget still agree with pi 1.3.0.
 
-- `.pi/extensions/test/activity-block-state.test.mjs`
-- `.pi/extensions/test/activity-block-widget.test.mjs`
-- `.pi/extensions/test/activity-block-index.test.mjs` proves `Esc` abort handling, `before_turn_response`-driven per-turn block creation for user/custom/queued turns, live dock installation in the `aboveEditor` slot, active transcript duplicate hiding while the dock is visible, immediate terminal dock clearing for complete/aborted/error turns, queued-steering dock replacement, default-mode dock clearing, zen-mode dock hiding/restoration, one-block behavior across tool-result continuation boundaries until `agent_end`, active-block finalization on bare `agent_end` failures, dangling running-tool failure on terminal `agent_end`, resume-safe turn numbering, and that historical transcript suppression stays active after completion
-- `.pi/extensions/test/activity-block-state.test.mjs`, `.pi/extensions/test/activity-block-widget.test.mjs`, `.pi/extensions/test/activity-block-view-mode.test.mjs`, `.pi/extensions/test/activity-block-thinking-visibility.test.mjs`, and `.pi/extensions/test/activity-block-index.test.mjs` also prove current/previous activity tracking, markdown-aware thinking rendering, single-block live thinking display, cycling tool-history views (`latest`, `recent`, `all`) with newest-visible rows bottom-anchored, placeholder padding above undersized history views, and compact-tool-view-style tool-row background highlighting, block-local thinking expansion, full-history staying tool-only, block-scoped token counting from context baselines, block timers from `0s` without sub-second precision, per-tool timers for running/success/error rows once they reach `10s`, 20-line bounded layouts, row spacing, and width-safe layouts
-- `node --test .pi/extensions/test/activity-block-view-mode.test.mjs .pi/extensions/test/activity-block-thinking-visibility.test.mjs`
+- [[tests#Activity block reducer and widget stay honest, bounded, and width-safe]]
+- `node --test test/activity-block-*.test.mjs activity-block/test/*.test.mjs`. `test/helpers/activity-block-harness.mjs` replays pi 1.3.0's event order.
+- `activity-block/test/typecheck.test.mjs` runs `tsc` against the pinned pi types.

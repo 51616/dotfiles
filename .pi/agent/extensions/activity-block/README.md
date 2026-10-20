@@ -1,180 +1,64 @@
 # activity-block
 
-This extension depends on **pi core changes** before you use it for the intended transcript UX.
+Shows the agent's live work (thinking header, tool calls, counts, tokens, timer) in one bounded panel above the
+editor while pi works, then leaves a compact block in the transcript between each prompt and its reply.
 
-Saved patch artifacts are **versioned by upstream pi-mono tag**.
+It runs on **stock pi** (`@earendil-works/pi-coding-agent` 1.3.0) using only the public extension API.
+Earlier versions needed a patched pi core (`setLiveTranscriptMode`, `before_turn_response`, ...); those patches
+and the core-rebuild step were removed on 2026-10-20.
 
-For **pi-mono v0.78.0** (current default for the live install):
-- `patches/v0.78.0/pi-core-local-extension-seams.patch`
-- `patches/v0.78.0/README.md`
+## What it does
 
-For **pi-mono v0.77.0**, **v0.75.5**, and **v0.70.0**:
-- `patches/v<version>/pi-core-local-extension-seams.patch`
-- `patches/v<version>/README.md`
+| Behavior | How (pi 1.3.0 API) |
+|---|---|
+| Live panel above the editor | One permanent `aboveEditor` widget per session (`ctx.ui.setWidget`). It draws nothing while idle. |
+| Hide pi's working row | `ctx.ui.setWorkingVisible(false)` in block mode; the panel has its own scanner. |
+| Hide pi's tool rows (live and when a session is reopened) | `pi.registerToolRenderer` returns `renderShell: "self"` with empty components in block mode. |
+| Block in the transcript | A `custom` entry `activity-block-turn` written with `pi.appendEntry` on the block's first assistant message, drawn by `pi.registerEntryRenderer`. Custom entries are never sent to the model. |
+| Final block state | A `custom` entry `activity-block-state` written when the run settles (no renderer; data only). |
+| New block for steering / follow-up messages | A user (or displayed custom) message arriving mid-run freezes the current block and starts a new one. Its anchor is written on the next assistant message, so it sits under that message. |
 
-Older split patch stacks are kept for older installs.
+Thinking is **not** hidden from the transcript. pi's own `hideThinkingBlock` setting decides whether thinking
+shows collapsed (`Thinking...`) or expanded. The panel keeps its own thinking header/excerpt.
 
-For **pi-mono v0.67.6**:
-- `patches/v0.67.6/pi-core-live-transcript-mode.patch`
-- `patches/v0.67.6/pi-core-custom-message-turn-lifecycle.patch`
-- `patches/v0.67.6/pi-core-before-turn-response-lifecycle.patch`
-- `patches/v0.67.6/README.md`
+## Commands and keys
 
-For **pi-mono v0.67.2**:
-- `patches/v0.67.2/pi-core-live-transcript-mode.patch`
-- `patches/v0.67.2/pi-core-custom-message-turn-lifecycle.patch`
-- `patches/v0.67.2/pi-core-before-turn-response-lifecycle.patch`
-- `patches/v0.67.2/README.md`
+- `/activity-block` or `ctrl+alt+a`: cycle tool history `latest -> recent (5) -> all`. Arguments: `latest`, `recent`, `all`.
+- `/activity-block-thinking [expand|collapse]` or `ctrl+alt+t`: show the current thinking text inside the block.
+- `/activity-block zen [on|off]` or `ctrl+alt+z`: hide blocks entirely (pi's tool rows stay hidden).
+- `/activity-block mode default|block`: `default` gives tool rows and the working row back to pi and stops creating
+  blocks. Rows already on screen keep their look until pi rebuilds the chat (resume, reload, compaction).
 
-For **pi-mono v0.66.1**:
-- `patches/v0.66.1/pi-core-live-transcript-mode.patch`
-- `patches/v0.66.1/pi-core-custom-message-turn-lifecycle.patch`
-- `patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch`
-- `patches/v0.66.1/README.md`
+## Lifecycle (one run)
 
-For **pi-mono v0.65.2**:
-- `patches/v0.65.2/pi-core-live-transcript-mode.patch`
-- `patches/v0.65.2/pi-core-custom-message-turn-lifecycle.patch`
-- `patches/v0.65.2/pi-core-before-turn-response-lifecycle.patch`
+1. `agent_start`: create the active block (idempotent: retries and compaction continuations reuse it).
+2. First assistant `message_start`: write the transcript anchor.
+3. `message_update` / `tool_execution_*`: update the block (nested codemode calls are skipped).
+4. User or displayed custom `message_start` while the block is anchored: freeze it (`Interrupted by steering`, or
+   `Completed` when the previous turn had finished its tool work, as for a follow-up) and start a new block.
+5. `agent_end`: remember the terminal event (not final; pi may retry or continue).
+6. `agent_settled`: finish the block and write `activity-block-state`.
 
-For **pi-mono v0.65.0**:
-- `patches/v0.65.0/pi-core-live-transcript-mode.patch`
-- `patches/v0.65.0/pi-core-custom-message-turn-lifecycle.patch`
-- `patches/v0.65.0/pi-core-before-turn-response-lifecycle.patch`
+Sessions written by the old patched runtime stored anchors as `custom_message` entries. They still render through
+`pi.registerMessageRenderer`, and the `context` hook keeps them out of model requests.
 
-Legacy/older patch artifacts (kept for reference; may not apply to v0.65.0):
-- `patches/pi-core-live-transcript-mode.patch`
-- `patches/pi-core-custom-message-turn-lifecycle.patch`
+## Files
 
-Important: the current extension relies on `before_turn_response` for per-turn block creation, especially queued steering/follow-up/custom-message turns that must freeze the current block and start a fresh one under the queued trigger message. The current `v0.78.0` combined patch stack and the older saved stacks include that lifecycle seam.
+- `index.ts`: wiring of pi events, renderers, commands, shortcuts.
+- `lib/activity-block-controller.ts`: lifecycle and UI ownership rules.
+- `lib/activity-block-tool-rows.ts`: tool-row hiding.
+- `lib/activity-block-state.ts`: reducer from pi events to block state.
+- `lib/activity-block-widget.ts`: the bounded block component.
+- `lib/activity-block-history.ts`: anchor parsing and snapshot reconstruction on resume.
+- `lib/activity-block-commands.ts`: argument parsers.
 
-Patch notes:
-- `patches/pi-core-custom-message-turn-lifecycle.md`
-
-## Why this patch is required
-
-The extension now relies on two core interactive-mode seams:
-- `ctx.ui.setLiveTranscriptMode({ toolRows, thinking, working })`
-- `ctx.ui.setHistoricalTranscriptMode({ toolRows, thinking })`
-
-Without those seams in pi core, the extension cannot cleanly control transcript ownership for:
-- live tool rows
-- replayed tool rows on `/resume` and `pi --session <id>`
-- the separate working spinner row
-- live thinking placeholders
-- replayed thinking placeholders
-
-That means the activity block may still load, but the intended behavior is **not supported** until the patch is applied to pi core.
-
-## Patch target
-
-Apply the changes to the canonical `pi-mono` repo.
-
-Current dependency surfaces for full activity-block behavior:
-- `packages/agent/src/{types.ts,agent.ts,agent-loop.ts}`
-- `packages/agent/test/agent.test.ts`
-- `packages/coding-agent/src/core/extensions/{index.ts,runner.ts,types.ts}`
-- `packages/coding-agent/src/core/agent-session.ts`
-- `packages/coding-agent/src/index.ts`
-- `packages/coding-agent/src/modes/interactive/{interactive-mode.ts}`
-- `packages/coding-agent/src/modes/interactive/components/{assistant-message.ts,tool-execution.ts}`
-- `packages/coding-agent/src/modes/rpc/rpc-mode.ts`
-- `packages/coding-agent/test/{agent-session-custom-message-turn.test.ts,interactive-mode-live-transcript.test.ts,tool-execution-component.test.ts}`
-- `packages/coding-agent/docs/{extensions.md,tui.md}`
-- `packages/coding-agent/examples/extensions/{README.md,live-transcript-mode.ts}`
-
-The saved patch files in this directory cover three required concerns for the full current extension behavior:
-- transcript-mode seams
-- the custom-message trigger fix so queued custom turns preserve the same trigger metadata/lifecycle
-- `before_turn_response` queued-turn boundaries so steering/follow-up/custom-message turns can spawn fresh blocks without extra tool-continuation blocks
-
-The current `v0.78.0` stack and the older saved stacks include that full stack today.
-
-Behavior covered by the total patch:
-- suppress live tool rows, live thinking placeholders, and the stock working spinner row while the block owns active-turn UX; the block footer appends the shared opencode-style scanner spinner to the current bottom-left header
-- suppress replayed tool rows and replayed thinking placeholders on session resume so the block remains the canonical transcript surface
-- keep hidden-tool state stable across later tool updates
-- let extensions suppress hidden-thinking labels entirely when they provide their own summary surface
-
-Current extension-side presentation expectations:
-- the active block renders as the `activity-block-live-dock` `aboveEditor` widget when `ctx.ui.setWidget` is available, with pi core's separate `Working...` row suppressed; the dock remains pinned through final assistant response streaming, the matching active transcript message renders no rows while the dock is visible, and the dock is cleared as soon as the turn completes/aborts/errors so the historical transcript block appears immediately
-- if a UI context does not expose `ctx.ui.setWidget`, the extension deliberately keeps the transcript block visible instead of hiding it; this is a reduced transcript-only mode for older/fake contexts, not the intended live TUI behavior
-- compact mode shows only the header/first line of the latest thinking text; the thinking body opens only in the block-local thinking-expanded view
-- the latest three tool actions stay visible while newer thinking updates arrive, with the most recent action shown first instead of being flushed out by the thinking update
-- streaming tool-call drafts are shown before execution starts; file mutations render intent labels like `Writing to <path>` and `Editing <path>` while the model is still emitting the full file content or edit payload
-- the block should never show multiple visible thinking bodies at once
-- `/activity-block mode default` clears live and historical transcript suppression and hides activity-block messages so pi core's normal tool-call transcript is visible without restarting; `/activity-block mode block` reapplies activity-block transcript ownership for later turns
-- `/activity-block zen on` only hides the activity block while keeping block transcript ownership; it is not a replacement for default transcript mode
-- resumed sessions reconstruct missing or stale historical block snapshots from assistant `toolCall` messages and matching `toolResult` messages, so previous tool rows remain visible even when `activity-block-state` was not appended before shutdown
-
-Extension-side lifecycle note:
-- keep historical transcript suppression enabled for the whole interactive session once the extension claims transcript ownership
-- keep live transcript suppression enabled until the current active block is finalized on `agent_end`; tool-result continuation turns reuse the same block across intermediate `turn_end` events
-- when `agent_end` arrives without `tool_execution_end` or a terminal tool-result message for a running tool, stamp that tool as failed at the block end time so provider/websocket errors cannot leave command timers alive
-- create the block from `before_turn_response` so each real trigger turn stays ordered as `user -> activity block -> assistant`, including queued steering turns inside an active agent run; the live dock is only a UI projection of that same transcript anchor, not a second message
-- do not inject the block with `pi.sendMessage()` during assistant streaming; that turns the block into a queued custom message instead of a passive transcript artifact
-- do not clear historical transcript mode on `agent_end`
-- clearing historical transcript mode after a completed turn can trigger interactive-mode history rebuild and make the just-finished turn’s tool rows suddenly reappear
-
-## Apply steps
-
-For the current default saved patch artifacts (**pi-mono v0.78.0**):
+## Verify
 
 ```bash
-cd ~/research/pi-mono
-git checkout v0.78.0
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.78.0/pi-core-local-extension-seams.patch
+cd ~/.pi/agent/extensions
+npx tsc -p activity-block/tsconfig.json            # typecheck against the pinned pi runtime
+node --test test/activity-block-*.test.mjs activity-block/test/*.test.mjs
 ```
 
-For older split-stack installs, apply the versioned three-patch set. Example for **pi-mono v0.67.2**:
-
-```bash
-cd ~/research/pi-mono
-git checkout v0.67.2
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-live-transcript-mode.patch
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-custom-message-turn-lifecycle.patch
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.67.2/pi-core-before-turn-response-lifecycle.patch
-```
-
-For **pi-mono v0.66.1**:
-
-```bash
-cd ~/research/pi-mono
-git checkout v0.66.1
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-live-transcript-mode.patch
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-custom-message-turn-lifecycle.patch
-git apply /home/tan/.pi/agent/extensions/activity-block/patches/v0.66.1/pi-core-before-turn-response-lifecycle.patch
-```
-
-For a clean **v0.78.0** verification pass after applying the patches:
-
-```bash
-cd ~/research/pi-mono
-npm ci
-npm -w packages/tui run build
-npm -w packages/ai run build
-npm -w packages/agent test -- test/agent.test.ts
-npm -w packages/agent run build
-npm -w packages/coding-agent test -- test/suite/agent-session-model-extension.test.ts
-npm -w packages/coding-agent run build
-npm install -g ./packages/agent ./packages/coding-agent
-```
-
-Then start a fresh pi session. `/reload` refreshes extension code, but it does not swap the already-running coding-agent core inside the current session.
-
-## Notes for maintainers
-
-- This patch is the current canonical pi-core dependency for the activity-block extension.
-- The extension-side transcript block code lives entirely in this extension directory.
-- If upstream pi core changes these files, this patch may need a manual rebase.
-- The extension’s transcript ordering fix (`user -> activity block -> assistant`) is extension-side and is **not** part of the core patch.
-- The extension currently inserts its block from `before_turn_response`, so each real trigger turn gets one block while tool-result continuation turns reuse the current block.
-- The extension must leave historical transcript suppression active across completed turns and keep live suppression active until the active block is finalized on `agent_end`, because tool-result continuations reuse that block.
-- The saved `v0.78.0` patch set is the current default. It is exported as one `pi-core-local-extension-seams.patch` artifact, while older saved stacks remain available for older installs.
-- The saved `v0.67.2` patch set keeps the same underlying change set as `v0.66.1`; the `before_turn_response` patch was rebased so it applies cleanly after the first two patches on `v0.67.2`.
-- The saved `v0.66.1` patch set also includes the separate `before_turn_response` lifecycle patch required for queued steering/follow-up/custom-message turn boundaries.
-- The same lifecycle patch remains part of the saved `v0.65.2` and `v0.65.0` stacks.
-- Patch generation commits (local `pi-mono` regen/rebase work; the same underlying change set carries forward through the saved stacks, with a fresh `v0.67.6` rebase exported as the current default):
-  - `36f7ceea` `fix(coding-agent): rebase custom extension hooks onto v0.67.6`
-  - `b7653a4b` `feat(coding-agent): add extension transcript modes`
-  - `e321d8ec` `fix(coding-agent): run before_agent_start on triggerTurn custom messages`
+`test/helpers/activity-block-harness.mjs` replays pi 1.3.0's event order, so lifecycle tests exercise the same
+sequence as the real runtime. The extension workspace pins pi in `package.json`; bump it together with pi.
