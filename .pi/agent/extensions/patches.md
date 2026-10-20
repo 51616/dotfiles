@@ -182,11 +182,6 @@ These are not package-reinstall patches. They are local extension source edits t
 - state to preserve: no stale `session_switch` hook
 - reason: `session_start` already covers the relevant restore paths on current pi versions
 
-### pi-diff-review-turn-tracker
-- path: `~/.pi/agent/extensions/pi-diff-review-turn-tracker/index.ts`
-- state to preserve: no stale `session_switch` hook
-- reason: `session_start` already covers the relevant reset paths on current pi versions
-
 ### pi-ssh
 - path: `~/.pi/agent/extensions/pi-ssh/index.ts`
 - local behavior to preserve: first persistent-shell marker prints on a fresh line so the first remote bash command does not hang behind the login prompt

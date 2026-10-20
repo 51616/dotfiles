@@ -11,6 +11,10 @@ function createMode({ activeKind }) {
   mode.isInitialized = true;
   mode.runtimeHost = { session: { settingsManager: { getShowTerminalProgress: () => false } } };
   mode.footer = { invalidate() {} };
+  // pi >= 1.x reports program status (terminal title/progress) on every event.
+  mode.programStatus = { handleEvent() {} };
+  mode.options = { tuiMode: "regular" };
+  mode.setEditorWorkingStatusIndicator = () => {};
   mode.activeStatusIndicator = activeKind
     ? {
         kind: activeKind,

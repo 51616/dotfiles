@@ -18,12 +18,7 @@ export type ActivityBlockMessageDetails = {
 type SessionMessage = Extract<SessionEntry, { type: "message" }>["message"];
 type HistoricalAssistantMessage = Extract<SessionMessage, { role: "assistant" }>;
 type HistoricalToolResultMessage = Extract<SessionMessage, { role: "toolResult" }>;
-type HistoricalToolCall = {
-	type: "toolCall";
-	id: string;
-	name: string;
-	arguments?: Record<string, unknown>;
-};
+type HistoricalToolCall = Extract<HistoricalAssistantMessage["content"][number], { type: "toolCall" }>;
 
 type HistoricalActivityBlock = {
 	turnId: string;
@@ -32,12 +27,23 @@ type HistoricalActivityBlock = {
 	lastAssistant?: HistoricalAssistantMessage;
 };
 
+/**
+ * Read the block anchor identity from a session entry.
+ *
+ * Current anchors are `custom` entries (`pi.appendEntry`, data = details). Sessions written by the
+ * pre-1.3.0 patched runtime stored anchors as displayed `custom_message` entries (details field).
+ * Both use the same customType so one reader covers live and historical sessions.
+ */
 export function getActivityBlockMessageDetails(
 	entry: SessionEntry,
-	messageType: string,
+	anchorType: string,
 ): ActivityBlockMessageDetails | undefined {
-	if (entry.type !== "custom_message" || entry.customType !== messageType) return undefined;
-	const details = entry.details;
+	if (entry.type === "custom" && entry.customType === anchorType) return parseActivityBlockDetails(entry.data);
+	if (entry.type === "custom_message" && entry.customType === anchorType) return parseActivityBlockDetails(entry.details);
+	return undefined;
+}
+
+export function parseActivityBlockDetails(details: unknown): ActivityBlockMessageDetails | undefined {
 	if (!details || typeof details !== "object") return undefined;
 	const turnId = (details as { turnId?: unknown }).turnId;
 	const turnDisplayId = (details as { turnDisplayId?: unknown }).turnDisplayId;
@@ -153,13 +159,14 @@ function getHistoricalToolCalls(message: HistoricalAssistantMessage): Historical
 	return message.content.filter(isHistoricalToolCall);
 }
 
+// Session files are parsed JSON, so the static ToolCall type is not a runtime guarantee. Keep the shape check.
 function isHistoricalToolCall(content: HistoricalAssistantMessage["content"][number]): content is HistoricalToolCall {
 	if (!content || typeof content !== "object") return false;
 	if (content.type !== "toolCall") return false;
-	const candidate = content as { id?: unknown; name?: unknown; arguments?: unknown };
-	if (typeof candidate.id !== "string" || !candidate.id) return false;
-	if (typeof candidate.name !== "string" || !candidate.name) return false;
-	if (candidate.arguments !== undefined && (!candidate.arguments || typeof candidate.arguments !== "object" || Array.isArray(candidate.arguments))) return false;
+	if (typeof content.id !== "string" || !content.id) return false;
+	if (typeof content.name !== "string" || !content.name) return false;
+	const args: unknown = content.arguments;
+	if (args !== undefined && (!args || typeof args !== "object" || Array.isArray(args))) return false;
 	return true;
 }
 

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import tuiBroker from "../tui-broker/index.ts";
 import { __resetTuiBrokerRuntimeForTests } from "../tui-broker/lib/runtime.ts";
 
@@ -37,10 +38,27 @@ function discoverPiFffEntrypoints() {
 
 const PI_FFF_ENTRYPOINTS = discoverPiFffEntrypoints();
 
+// pi loads extension packages with jiti and aliases the pi package names to its own runtime. pi-fff lives
+// outside this workspace (global npm / agent npm cache), so bare resolution of `@earendil-works/*` fails from
+// its directory. Mirror pi's alias map with this workspace's pinned runtime instead of a fake loader.
 function createJitiImporter() {
   const require = createRequire(import.meta.url);
-  const { createJiti } = require("@mariozechner/jiti");
-  return createJiti(import.meta.url, { moduleCache: false });
+  const { createJiti } = require("jiti");
+  const alias = {};
+  for (const name of ["pi-coding-agent", "pi-agent-core", "pi-tui", "pi-ai"]) {
+    // ESM-only packages: resolve through the import conditions, as pi's loader does.
+    const entry = fileURLToPath(import.meta.resolve(`@earendil-works/${name}`));
+    alias[`@earendil-works/${name}`] = entry;
+    alias[`@mariozechner/${name}`] = entry;
+  }
+  // pi also maps the legacy `@sinclair/typebox` name to the `typebox` package it ships.
+  const piRequire = createRequire(alias["@earendil-works/pi-coding-agent"]);
+  for (const subpath of ["", "/compile", "/value"]) {
+    const entry = piRequire.resolve(`typebox${subpath}`);
+    alias[`typebox${subpath}`] = entry;
+    alias[`@sinclair/typebox${subpath}`] = entry;
+  }
+  return createJiti(import.meta.url, { moduleCache: false, alias });
 }
 
 async function loadPiFff(entrypoint) {
@@ -59,6 +77,12 @@ function createFakePi() {
     registerCommand() {},
     registerFlag() {},
     registerTool() {},
+    // pi-fff >= 0.11 manages its tool loadout and persists its mode.
+    getActiveTools() {
+      return [];
+    },
+    setActiveTools() {},
+    appendEntry() {},
     getFlag() {
       return undefined;
     },
@@ -97,6 +121,10 @@ function createFakeCtx(cwd) {
         return "";
       },
       getBranch() {
+        return [];
+      },
+      // pi-fff >= 0.11 restores its tool mode from session entries during session_start.
+      getEntries() {
         return [];
       },
     },

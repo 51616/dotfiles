@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { CombinedAutocompleteProvider, Editor, TUI } from "../node_modules/@mariozechner/pi-tui/dist/index.js";
+// pi-tui 1.x split the old TUI class into TuiMainScreen (regular mode, pi default) and TuiAltScreen.
+import { CombinedAutocompleteProvider, Editor, TuiMainScreen } from "../node_modules/@mariozechner/pi-tui/dist/index.js";
 
 const ENTRYPOINT = "../command-palette/index.ts";
 const PROMPT_HELPERS_ENTRYPOINT = "../command-palette/lib/prompt-templates.ts";
@@ -258,17 +259,16 @@ test("command palette frame width stays capped on wide renders", async () => {
 });
 
 
-test("extension workspace pi-tui dependency matches coding-agent's tui range", async () => {
-  const workspacePkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  const codingAgentPkg = JSON.parse(
-    readFileSync(new URL("../node_modules/@mariozechner/pi-coding-agent/package.json", import.meta.url), "utf8"),
-  );
+test("extension workspace pi-tui matches the pi-tui version pi-coding-agent was built with", async () => {
+  const readPkg = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
+  const codingAgentPkg = readPkg("../node_modules/@mariozechner/pi-coding-agent/package.json");
+  // pi >= 1.0 publishes under @earendil-works; @mariozechner/* are npm aliases kept for old import paths.
+  const expected = codingAgentPkg.dependencies["@earendil-works/pi-tui"];
 
-  assert.equal(
-    workspacePkg.dependencies["@mariozechner/pi-tui"],
-    codingAgentPkg.dependencies["@mariozechner/pi-tui"],
-    "expected extensions to use the same pi-tui range as pi-coding-agent",
-  );
+  assert.ok(expected, "pi-coding-agent should declare an @earendil-works/pi-tui dependency");
+  for (const path of ["../node_modules/@mariozechner/pi-tui/package.json", "../node_modules/@earendil-works/pi-tui/package.json"]) {
+    assert.equal(readPkg(path).version, expected, `${path} should match the pi-tui version pi-coding-agent pins`);
+  }
 });
 
 test("command palette executes prompt templates with inline insertion", async () => {
@@ -404,7 +404,7 @@ function renderedFooter(renderedLines) {
 test("dismissFocusedEditorAutocomplete clears slash autocomplete before opening the palette", async () => {
   const { dismissFocusedEditorAutocomplete } = await loadModule();
   const terminal = new StubTerminal();
-  const tui = new TUI(terminal);
+  const tui = new TuiMainScreen(terminal);
   const editor = new Editor(tui, createEditorTheme());
   tui.addChild(editor);
   tui.setFocus(editor);
@@ -441,7 +441,7 @@ test("palette status row stops inheriting underlying autocomplete text after dis
   };
 
   async function renderStatusLine(dismissAutocomplete) {
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const editor = new Editor(tui, createEditorTheme());
     tui.addChild(editor);
     tui.setFocus(editor);

@@ -40,14 +40,6 @@ See also [[goal]].
 
 Entrypoint: [[goal/index.ts]].
 
-## Fast service tier toggle
-
-Owns `/fast`, the session-local OpenAI service-tier toggle for priority processing.
-
-The extension only injects `service_tier=priority` while fast mode is enabled, and only for direct `openai` or `openai-codex` providers. Default mode leaves provider requests untouched. The selected tier persists in `~/.pi/agent/fast-service-tier.json`, so `/reload` and new pi launches keep the last `/fast` choice. While active, it contributes `⚡Fast` through the `tui-broker` footer model-effort suffix slot so the label renders immediately after the model reasoning effort. Runtime diagnostics are bounded in `~/.pi/agent/logs/fast-service-tier.jsonl`; runtime state and logs are intentionally outside tracked extension source.
-
-Entrypoint: [[fast/index.ts]].
-
 ## git-state
 
 Owns the live Git working-tree meter that contributes to the `tui-broker` editor top-right border slot.
@@ -77,22 +69,6 @@ Owns SSH-aware `fffind` and `ffgrep` overrides that use the active `pi-ssh` sess
 See also [[remote-fff-forward]].
 
 Entrypoint: [[remote-fff-forward/index.ts]].
-
-## pi-diff-review-tui
-
-Owns the interactive diff-review overlay and related TUI surfaces for human-in-the-loop patch review.
-
-See also [[pi-diff-review-tui]].
-
-Entrypoint: [[pi-diff-review-tui/index.ts]].
-
-## pi-diff-review-turn-tracker
-
-Captures per-turn diff-review evidence by diffing start-vs-end synthetic workspace trees, so review sessions stay inspectable and SSH turn startup does not depend on remote file crawling.
-
-See also [[pi-diff-review-turn-tracker]].
-
-Entrypoint: [[pi-diff-review-turn-tracker/index.ts]].
 
 ## pi-instance-manager
 

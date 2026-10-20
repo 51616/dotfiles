@@ -72,6 +72,10 @@ function createFakeCtx(options = {}) {
       getAvailable() {
         return [{ id: "gpt-5.4", provider: "openai-codex", contextWindow: 272000, reasoning: true }];
       },
+      // goal checks auth before dispatching (pi ModelRegistry.hasConfiguredAuth).
+      hasConfiguredAuth() {
+        return true;
+      },
     };
 
   const calls = [];

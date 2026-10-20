@@ -1,863 +1,455 @@
 // @lat: [[tests#Activity block reducer and widget stay honest, bounded, and width-safe]]
+// Lifecycle contract of activity-block on the pi 1.3.0 public extension API.
 import test from "node:test";
 import assert from "node:assert/strict";
-import stripAnsi from "strip-ansi";
-import activityBlockExtension from "../activity-block/index.ts";
+import {
+  assistantMessage,
+  createActivityBlockHarness,
+  stateEntries,
+  userMessage,
+} from "./helpers/activity-block-harness.mjs";
 
-const theme = {
-  bold: (text) => text,
-  fg: (_name, text) => text,
-  bg: (_name, text) => text,
-  italic: (text) => text,
-  underline: (text) => text,
-  strikethrough: (text) => text,
-};
+const thinking = (text) => ({ type: "thinking", thinking: text });
+const text = (value) => ({ type: "text", text: value });
+const toolCall = (id, name, args) => ({ type: "toolCall", id, name, arguments: args });
 
-function makePiStub() {
-  const handlers = new Map();
-  const renderers = new Map();
-  const shortcuts = new Map();
-  const commands = new Map();
-
-  return {
-    handlers,
-    renderers,
-    shortcuts,
-    commands,
-    pi: {
-      on(name, handler) {
-        handlers.set(String(name), handler);
-      },
-      registerMessageRenderer(customType, renderer) {
-        renderers.set(String(customType), renderer);
-      },
-      registerCommand(name, options) {
-        commands.set(String(name), options);
-      },
-      registerShortcut(shortcut, options) {
-        shortcuts.set(String(shortcut), options);
-      },
-      appendEntry() {},
-    },
-  };
+function entryIndex(harness, predicate) {
+  return harness.entries.findIndex(predicate);
 }
 
-function makeCtx(entries = [], options = {}) {
-  let abortCalls = 0;
-  let terminalInputHandler;
-  let unsubscribeCalls = 0;
-  const historicalModes = [];
-  const liveModes = [];
-  const statuses = [];
-  const widgetCalls = [];
-  let contextUsageTokens = options.contextUsageTokens;
-  let idle = options.idle ?? true;
+test("session_start installs one above-editor dock and hands the working row to the block", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
 
-  const ui = {
-    setStatus(_key, text) {
-      statuses.push(text);
-    },
-    setLiveTranscriptMode(mode) {
-      liveModes.push(mode);
-    },
-    setHistoricalTranscriptMode(mode) {
-      historicalModes.push(mode);
-    },
-    notify() {},
-    onTerminalInput(handler) {
-      terminalInputHandler = handler;
-      return () => {
-        unsubscribeCalls += 1;
-      };
-    },
-  };
-
-  if (options.widgets) {
-    ui.setWidget = (key, content, widgetOptions) => {
-      widgetCalls.push({ key, content, options: widgetOptions });
-    };
-  }
-
-  const ctx = {
-    hasUI: true,
-    isIdle() {
-      return idle;
-    },
-    abort() {
-      abortCalls += 1;
-    },
-    getContextUsage() {
-      if (contextUsageTokens === undefined) return undefined;
-      return { tokens: contextUsageTokens, contextWindow: 200_000, percent: contextUsageTokens / 2_000 };
-    },
-    sessionManager: {
-      getBranch() {
-        return entries;
-      },
-    },
-    ui,
-  };
-
-  return {
-    ctx,
-    setContextUsageTokens(value) {
-      contextUsageTokens = value;
-    },
-    setIdle(value) {
-      idle = value;
-    },
-    getTerminalInputHandler() {
-      return terminalInputHandler;
-    },
-    counts() {
-      return { abortCalls, unsubscribeCalls, historicalModes, liveModes, statuses, widgetCalls };
-    },
-  };
-}
-
-function triggerTurnResponse(handlers, ctx, text = "hi", options = {}) {
-  const role = options.role ?? "user";
-  const triggerMessage = role === "custom"
-    ? { role: "custom", customType: options.customType ?? "test-custom", content: text }
-    : { role: "user", content: [{ type: "text", text }] };
-
-  return handlers.get("before_turn_response")({
-    type: "before_turn_response",
-    turnIndex: options.turnIndex ?? 0,
-    triggerMessages: [triggerMessage],
-    systemPrompt: options.systemPrompt ?? "",
-  }, ctx);
-}
-
-function latestWidgetCall(widgetCalls, key = "activity-block-live-dock") {
-  return widgetCalls.filter((call) => call.key === key).at(-1);
-}
-
-function latestVisibleWidgetCall(widgetCalls, key = "activity-block-live-dock") {
-  return widgetCalls.filter((call) => call.key === key && call.content !== undefined).at(-1);
-}
-
-function renderWidgetCall(call, width = 80) {
-  assert.equal(typeof call?.content, "function");
-  const component = call.content({}, theme);
-  return component.render(width).map((line) => stripAnsi(line));
-}
-
-test("activity-block session_start enables historical transcript suppression", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-
-  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }]);
+  const docks = harness.widgetCalls.filter((call) => call.key === "activity-block-live-dock");
+  assert.equal(docks.length, 1);
+  assert.equal(docks[0].options?.placement, "aboveEditor");
+  assert.deepEqual(harness.workingVisible, [false]);
+  // Idle dock is height-neutral: no block, no rows.
+  assert.deepEqual(harness.renderDock(), []);
 });
 
-test("activity-block no longer installs a terminal escape handler and relies on turn lifecycle events instead", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx, getTerminalInputHandler, counts } = makeCtx();
-  activityBlockExtension(pi);
+test("headless sessions do not touch UI surfaces but still persist blocks", async () => {
+  const harness = createActivityBlockHarness({ hasUI: false });
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([text("done")]);
+  await harness.run.end();
+  await harness.run.settle();
 
-  await handlers.get("session_start")({}, ctx);
-  assert.equal(getTerminalInputHandler(), undefined);
-  assert.equal(counts().abortCalls, 0);
-
-  const firstTurn = await triggerTurnResponse(handlers, ctx, "hi");
-  assert.equal(firstTurn?.message?.details?.turnDisplayId, "1");
-  assert.equal(getTerminalInputHandler(), undefined);
-  assert.equal(counts().abortCalls, 0);
+  assert.equal(harness.widgetCalls.length, 0);
+  assert.deepEqual(harness.workingVisible, []);
+  assert.equal(harness.anchors().length, 1);
+  assert.equal(stateEntries(harness).length, 1);
 });
 
-test("activity-block keeps historical transcript suppression after a turn finishes", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
+test("a run shows a live dock and anchors its block between the prompt and the reply", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start(userMessage("inspect"));
 
-  await handlers.get("session_start")({}, ctx);
-  await triggerTurnResponse(handlers, ctx, "hi");
-  await handlers.get("turn_end")({
-    type: "turn_end",
-    turnIndex: 0,
-    message: { role: "assistant", content: [], stopReason: "stop" },
-    toolResults: [],
-  }, ctx);
+  assert.ok(harness.renderDock().some((line) => line.includes("Waiting for the first update")));
+  assert.equal(harness.anchors().length, 0, "anchor waits for the first assistant message");
 
-  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }]);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
+  const reply = await harness.run.assistant([thinking("Checking the repo"), toolCall("t1", "read", { path: "README.md" })], "toolUse");
+  const promptIndex = entryIndex(harness, (entry) => entry.message?.role === "user");
+  const anchorIndex = entryIndex(harness, (entry) => entry.customType === "activity-block-turn");
+  const replyIndex = entryIndex(harness, (entry) => entry.message === reply);
+  assert.ok(promptIndex < anchorIndex && anchorIndex < replyIndex, "anchor sits below the prompt and above the reply");
 
-  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
-
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }, undefined]);
+  // While the block is docked, its transcript twin renders nothing (no duplicate block).
+  assert.deepEqual(harness.renderAnchor(harness.anchors()[0]), []);
+  assert.ok(harness.renderDock().some((line) => line.includes("Checking the repo")));
 });
 
-test("activity-block creates a block for custom trigger messages via before_turn_response", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx } = makeCtx();
-  activityBlockExtension(pi);
-
-  const turn = await triggerTurnResponse(handlers, ctx, "[autockpt] write checkpoint", {
-    role: "custom",
-    customType: "pi-self-checkpointing",
-  });
-
-  assert.equal(turn?.message?.details?.turnDisplayId, "1");
+test("dock tracks thinking and tool lifecycle and requests renders", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  const before = harness.renderRequests();
+  await harness.run.assistant([thinking("Planning"), toolCall("t1", "read", { path: "README.md", offset: 1, limit: 2 })], "toolUse");
+  await harness.emit("tool_execution_start", { toolCallId: "t1", toolName: "read", args: { path: "README.md", offset: 1, limit: 2 } });
+  assert.ok(harness.renderDock().some((line) => line.includes("read README.md:1-2")));
+  await harness.emit("tool_execution_end", { toolCallId: "t1", toolName: "read", result: { content: [{ type: "text", text: "x" }] }, isError: false });
+  assert.ok(harness.renderDock().some((line) => line.includes("✓ read README.md:1-2")));
+  assert.ok(harness.renderRequests() > before, "controller asks the TUI to redraw the dock");
 });
 
-test("activity-block docks the active block above the editor and hides the active transcript duplicate", async () => {
-  const { pi, handlers, renderers } = makePiStub();
-  const { ctx, counts } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
+test("one block spans tool-result continuations and finalizes on agent_settled", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  const first = await harness.run.assistant([toolCall("t1", "bash", { command: "ls" })], "toolUse");
+  await harness.run.tool("t1", "bash", { command: "ls" });
+  await harness.run.turnEnd(first);
+  const second = await harness.run.assistant([text("All done")]);
+  await harness.run.turnEnd(second);
 
-  await handlers.get("session_start")({}, ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "dock me");
-  const widgetCall = latestVisibleWidgetCall(counts().widgetCalls);
+  assert.equal(harness.anchors().length, 1, "continuation turns reuse the block");
+  assert.equal(stateEntries(harness).length, 0);
 
-  assert.equal(widgetCall?.options?.placement, "aboveEditor");
-  assert.ok(renderWidgetCall(widgetCall).some((line) => line.includes("Waiting for the first update")));
+  await harness.run.end([first, second]);
+  assert.equal(stateEntries(harness).length, 0, "agent_end alone is not final");
+  assert.ok(harness.renderDock().length > 0, "dock stays up until the run settles");
 
-  const renderer = renderers.get("activity-block-turn");
-  const activeTranscript = renderer({ details: turn.message.details }, {}, theme);
-  assert.deepEqual(activeTranscript.render(80), []);
+  await harness.run.settle();
+  const [state] = stateEntries(harness);
+  assert.equal(state.data.turnId, harness.anchors()[0].data.turnId);
+  assert.equal(state.data.snapshot.runState, "complete");
+  assert.equal(state.data.snapshot.totalTools, 1);
+  assert.deepEqual(harness.renderDock(), [], "dock clears once settled");
+  assert.ok(harness.renderAnchor(harness.anchors()[0]).some((line) => line.includes("COMPLETED!")));
 });
 
-test("activity-block live dock reflects thinking and tool lifecycle updates", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx, counts } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
+test("retry and compaction continuations within one prompt keep a single block", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  const failed = await harness.run.assistant([], "error");
+  await harness.run.end([failed]);
+  // pi retries with agent.continue(): a second agent_start without a new trigger message.
+  await harness.emit("agent_start");
+  await harness.emit("turn_start", { turnIndex: 0 });
+  await harness.run.assistant([text("recovered")]);
+  await harness.run.end();
+  await harness.run.settle();
 
-  await handlers.get("session_start")({}, ctx);
-  await triggerTurnResponse(handlers, ctx, "update dock");
-  const beforeThinkingRefreshes = counts().statuses.length;
-
-  await handlers.get("message_update")({
-    type: "message_update",
-    message: {
-      role: "assistant",
-      content: [{ type: "thinking", thinking: "Checking the repo before using a tool" }],
-      stopReason: "stop",
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-      api: "anthropic-messages",
-      provider: "faux",
-      model: "faux-model",
-      timestamp: Date.now(),
-    },
-    assistantMessageEvent: { type: "thinking_delta", delta: "Checking the repo before using a tool", contentIndex: 0, partial: {} },
-  }, ctx);
-
-  assert.ok(counts().statuses.length > beforeThinkingRefreshes);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Checking the repo before using a tool")));
-  const beforeToolStartRefreshes = counts().statuses.length;
-
-  await handlers.get("tool_execution_start")({
-    type: "tool_execution_start",
-    toolCallId: "tool-1",
-    toolName: "read",
-    args: { path: "README.md", offset: 1, limit: 2 },
-  }, ctx);
-
-  assert.ok(counts().statuses.length > beforeToolStartRefreshes);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("read README.md:1-2")));
-  const beforeToolUpdateRefreshes = counts().statuses.length;
-
-  await handlers.get("tool_execution_update")({
-    type: "tool_execution_update",
-    toolCallId: "tool-1",
-    toolName: "read",
-    args: { path: "NOTES.md", offset: 3, limit: 2 },
-    partialResult: { content: [{ type: "text", text: "partial" }] },
-  }, ctx);
-
-  assert.ok(counts().statuses.length > beforeToolUpdateRefreshes);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("read NOTES.md:3-4")));
-  const beforeToolEndRefreshes = counts().statuses.length;
-
-  await handlers.get("tool_execution_end")({
-    type: "tool_execution_end",
-    toolCallId: "tool-1",
-    toolName: "read",
-    result: { content: [{ type: "text", text: "done" }] },
-    isError: false,
-  }, ctx);
-
-  assert.ok(counts().statuses.length > beforeToolEndRefreshes);
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("✓ read NOTES.md:3-4")));
+  assert.equal(harness.anchors().length, 1);
+  const [state] = stateEntries(harness);
+  assert.equal(state.data.snapshot.runState, "complete", "the retry's success replaces the earlier error");
 });
 
-test("activity-block clears the terminal block dock immediately after completion", async () => {
-  const { pi, handlers, renderers } = makePiStub();
-  const { ctx, counts } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
+test("a steering message freezes the current block and anchors a new one under the steer", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start(userMessage("first"));
+  const first = await harness.run.assistant([toolCall("t1", "read", { path: "a.md" })], "toolUse");
+  await harness.run.tool("t1", "read", { path: "a.md" });
+  await harness.run.turnEnd(first);
 
-  await handlers.get("session_start")({}, ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "finish docked");
-  const renderer = renderers.get("activity-block-turn");
-  const transcript = renderer({ details: turn.message.details }, {}, theme);
+  const steer = userMessage("actually check b.md");
+  await harness.run.steer(steer);
+  const [frozen] = stateEntries(harness);
+  assert.equal(frozen.data.turnId, harness.anchors()[0].data.turnId);
+  assert.equal(frozen.data.snapshot.finalLabel, "Interrupted by steering");
+  assert.ok(harness.renderAnchor(harness.anchors()[0]).some((line) => line.includes("Interrupted by steering")));
+  assert.ok(harness.renderDock().some((line) => line.includes("Waiting for the first update")), "dock now shows the new block");
 
-  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
+  const reply = await harness.run.assistant([text("checked b.md")]);
+  const anchors = harness.anchors();
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[1].data.turnDisplayId, "2");
+  const steerIndex = entryIndex(harness, (entry) => entry.message === steer);
+  const secondAnchorIndex = harness.entries.indexOf(anchors[1]);
+  const replyIndex = entryIndex(harness, (entry) => entry.message === reply);
+  assert.ok(steerIndex < secondAnchorIndex && secondAnchorIndex < replyIndex, "second block sits under the steering message");
 
-  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
-  assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("COMPLETED!")));
+  await harness.run.end();
+  await harness.run.settle();
+  assert.equal(stateEntries(harness).length, 2);
+  assert.equal(stateEntries(harness)[1].data.turnId, anchors[1].data.turnId);
 });
 
-test("activity-block clears aborted and errored terminal docks immediately", async () => {
-  for (const terminal of [
-    { stopReason: "aborted", expected: "Aborted" },
-    { stopReason: "error", errorMessage: "boom", expected: "Error: boom" },
+// Found in tmux E2E: a follow-up (Alt+Enter) arrives after the loop finished its work, so the earlier block
+// completed normally and must not be labeled as interrupted.
+test("a follow-up after a finished turn completes the earlier block instead of interrupting it", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start(userMessage("slow"));
+  const first = await harness.run.assistant([toolCall("t1", "bash", { command: "sleep" })], "toolUse");
+  await harness.run.tool("t1", "bash", { command: "sleep" });
+  await harness.run.turnEnd(first);
+  const done = await harness.run.assistant([text("SLOW-DONE")]);
+  await harness.run.turnEnd(done);
+  await harness.run.steer(userMessage("follow up"));
+
+  const [frozen] = stateEntries(harness);
+  assert.equal(frozen.data.snapshot.runState, "complete");
+  assert.equal(frozen.data.snapshot.finalLabel, "Completed");
+  assert.equal(frozen.data.snapshot.totalTools, 1);
+});
+
+// Regression (found in tmux E2E on pi 1.3.0): agent_end carries every message of the whole run. Tool results
+// from the block before a steer must not be adopted by the block after it.
+test("a post-steer block does not adopt tool results from the earlier block at agent_end", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start(userMessage("slow"));
+  const first = await harness.run.assistant([toolCall("t1", "bash", { command: "sleep 6" })], "toolUse");
+  await harness.run.tool("t1", "bash", { command: "sleep 6" });
+  await harness.run.turnEnd(first);
+  await harness.run.steer(userMessage("steer now"));
+  const reply = await harness.run.assistant([text("ECHO: steer now")]);
+  const toolResult = { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [], isError: false };
+  await harness.run.end([first, toolResult, userMessage("steer now"), reply]);
+  await harness.run.settle();
+
+  const [frozen, second] = stateEntries(harness);
+  assert.equal(frozen.data.snapshot.totalTools, 1);
+  assert.equal(second.data.snapshot.totalTools, 0, "the steer segment ran no tools");
+  assert.equal(second.data.snapshot.finalLabel, "Completed");
+});
+
+test("the run's own trigger message and custom triggerTurn starts do not split", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start({ role: "custom", customType: "pi-self-checkpointing", content: "[autockpt]", display: true, timestamp: 0 });
+  await harness.run.assistant([text("ok")]);
+  await harness.run.end();
+  await harness.run.settle();
+
+  assert.equal(harness.anchors().length, 1);
+  assert.equal(stateEntries(harness).length, 1);
+  assert.equal(stateEntries(harness)[0].data.snapshot.finalLabel, "Completed");
+});
+
+test("a displayed custom message delivered mid-run splits like a steer", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "read", { path: "a.md" })], "toolUse");
+  await harness.run.steer({ role: "custom", customType: "goal-continue", content: "keep going", display: true, timestamp: 0 });
+  await harness.run.assistant([text("continuing")]);
+  assert.equal(harness.anchors().length, 2);
+});
+
+test("hidden custom messages and tool results never split a block", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "read", { path: "a.md" })], "toolUse");
+  await harness.emit("message_start", { message: { role: "custom", customType: "ctx", content: "x", display: false, timestamp: 0 } });
+  await harness.run.tool("t1", "read", { path: "a.md" });
+  await harness.run.assistant([text("done")]);
+  assert.equal(harness.anchors().length, 1);
+  assert.equal(stateEntries(harness).length, 0);
+});
+
+test("errors before any assistant output leave no orphan block", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.end([assistantMessage([text("")], "error", { errorMessage: "boom" })]);
+  await harness.run.settle();
+
+  assert.equal(harness.anchors().length, 0);
+  assert.equal(stateEntries(harness).length, 0);
+  assert.deepEqual(harness.renderDock(), []);
+});
+
+test("terminal states persist error, abort, and dangling tool failures", async () => {
+  for (const scenario of [
+    { stopReason: "aborted", expected: "Aborted", runState: "aborted" },
+    { stopReason: "error", errorMessage: "boom", expected: "Error: boom", runState: "error" },
   ]) {
-    const { pi, handlers, renderers } = makePiStub();
-    const { ctx, counts } = makeCtx([], { widgets: true });
-    activityBlockExtension(pi);
-
-    await handlers.get("session_start")({}, ctx);
-    const turn = await triggerTurnResponse(handlers, ctx, terminal.stopReason);
-    const renderer = renderers.get("activity-block-turn");
-    const transcript = renderer({ details: turn.message.details }, {}, theme);
-
-    await handlers.get("agent_end")({
-      type: "agent_end",
-      messages: [{
-        role: "assistant",
-        content: [],
-        stopReason: terminal.stopReason,
-        errorMessage: terminal.errorMessage,
-      }],
-    }, ctx);
-
-    assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
-    assert.ok(transcript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes(terminal.expected)));
+    const harness = createActivityBlockHarness();
+    await harness.startSession();
+    await harness.run.start();
+    const failed = await harness.run.assistant([text("partial")], scenario.stopReason);
+    await harness.run.end([{ ...failed, errorMessage: scenario.errorMessage }]);
+    await harness.run.settle(scenario.stopReason === "aborted");
+    const [state] = stateEntries(harness);
+    assert.equal(state.data.snapshot.runState, scenario.runState);
+    assert.equal(state.data.snapshot.finalLabel, scenario.expected);
+    assert.ok(harness.renderAnchor(harness.anchors()[0]).some((line) => line.includes(scenario.expected)));
   }
+
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "bash", { command: "sleep 60" })], "toolUse");
+  await harness.emit("tool_execution_start", { toolCallId: "t1", toolName: "bash", args: { command: "sleep 60" } });
+  await harness.run.end();
+  await harness.run.settle(true);
+  const [state] = stateEntries(harness);
+  assert.equal(state.data.snapshot.runState, "error");
+  assert.equal(state.data.snapshot.finalLabel, "Error: active command cancelled");
+  assert.equal(state.data.snapshot.failedTools, 1);
 });
 
-test("activity-block creates a fresh block for each queued turn", async () => {
-  const { pi, handlers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx } = makeCtx();
-  activityBlockExtension(pi);
-
-  const firstTurn = await triggerTurnResponse(handlers, ctx, "first");
-  await handlers.get("turn_end")({
-    type: "turn_end",
-    turnIndex: 0,
-    message: { role: "assistant", content: [], stopReason: "stop" },
-    toolResults: [],
-  }, ctx);
-  const secondTurn = await triggerTurnResponse(handlers, ctx, "second", { turnIndex: 1 });
-  await handlers.get("turn_end")({
-    type: "turn_end",
-    turnIndex: 1,
-    message: { role: "assistant", content: [], stopReason: "stop" },
-    toolResults: [],
-  }, ctx);
-  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
-
-  assert.equal(firstTurn?.message?.details?.turnDisplayId, "1");
-  assert.equal(secondTurn?.message?.details?.turnDisplayId, "2");
-  assert.equal(appended.length, 2);
-  assert.equal(appended[0].type, "activity-block-state");
-  assert.equal(appended[1].type, "activity-block-state");
-  assert.equal(appended[0].data.turnId, firstTurn?.message?.details?.turnId);
-  assert.equal(appended[1].data.turnId, secondTurn?.message?.details?.turnId);
+test("nested codemode tool calls are not counted as block tool rows", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "codemode", { script: "x" })], "toolUse");
+  await harness.emit("tool_execution_start", { toolCallId: "t1", toolName: "codemode", args: {} });
+  await harness.emit("tool_execution_start", { toolCallId: "t1/1", toolName: "read", args: { path: "a" }, parentToolCallId: "t1" });
+  await harness.emit("tool_execution_end", { toolCallId: "t1/1", toolName: "read", result: { content: [] }, isError: false, parentToolCallId: "t1" });
+  await harness.emit("tool_execution_end", { toolCallId: "t1", toolName: "codemode", result: { content: [] }, isError: false });
+  await harness.run.end();
+  await harness.run.settle();
+  assert.equal(stateEntries(harness)[0].data.snapshot.totalTools, 1);
 });
 
-test("activity-block keeps one block across tool-result continuation boundaries until agent_end", async () => {
-  const { pi, handlers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
+test("tool rows are hidden in block mode and restored in default mode", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  const base = { renderShell: "default", renderCall: () => ({ render: () => ["base"] }) };
 
-  await handlers.get("session_start")({}, ctx);
-  const firstTurn = await triggerTurnResponse(handlers, ctx, "inspect");
-  await handlers.get("turn_end")({
-    type: "turn_end",
-    turnIndex: 0,
-    message: { role: "assistant", content: [], stopReason: "stop" },
-    toolResults: [{ role: "toolResult", toolCallId: "tool-1", toolName: "read", content: [], isError: false }],
-  }, ctx);
+  const hidden = harness.resolveToolRenderers("bash", base);
+  assert.equal(hidden.renderShell, "self");
+  assert.deepEqual(hidden.renderCall({}, {}, {}).render(80), []);
+  assert.deepEqual(hidden.renderResult({ content: [] }, { expanded: false, isPartial: false }, {}, {}).render(80), []);
 
-  assert.equal(firstTurn?.message?.details?.turnDisplayId, "1");
-  assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
+  await harness.commands.get("activity-block").handler("mode default", harness.ctx);
+  assert.equal(harness.resolveToolRenderers("bash", base), base);
+  assert.deepEqual(harness.workingVisible.at(-1), true, "default mode gives the working row back to pi");
 
-  const continuationTurn = await handlers.get("before_turn_response")({
-    type: "before_turn_response",
-    turnIndex: 1,
-    triggerMessages: [],
-    systemPrompt: "",
-  }, ctx);
-
-  assert.equal(continuationTurn, undefined);
-  assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [
-    undefined,
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-  ]);
-
-  await handlers.get("turn_end")({
-    type: "turn_end",
-    turnIndex: 1,
-    message: { role: "assistant", content: [], stopReason: "stop" },
-    toolResults: [],
-  }, ctx);
-
-  assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [
-    undefined,
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-  ]);
-
-  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
-
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].data.turnId, firstTurn?.message?.details?.turnId);
-  assert.deepEqual(counts().liveModes, [
-    undefined,
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-    undefined,
-  ]);
+  await harness.commands.get("activity-block").handler("mode block", harness.ctx);
+  assert.equal(harness.resolveToolRenderers("bash", base).renderShell, "self");
+  assert.deepEqual(harness.workingVisible.at(-1), false);
 });
 
-test("activity-block freezes the current block when a queued steering message starts processing", async () => {
-  const { pi, handlers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx, counts, setIdle } = makeCtx();
-  activityBlockExtension(pi);
+test("default mode stops new blocks and finalizes a running block instead of dropping it", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "read", { path: "a.md" })], "toolUse");
 
-  await handlers.get("session_start")({}, ctx);
-  const firstTurn = await triggerTurnResponse(handlers, ctx, "first");
-  setIdle(false);
+  await harness.commands.get("activity-block").handler("mode default", harness.ctx);
+  const [state] = stateEntries(harness);
+  assert.equal(state.data.snapshot.finalLabel, "Switched to default view");
+  assert.deepEqual(harness.renderDock(), []);
+  assert.deepEqual(harness.renderAnchor(harness.anchors()[0]), [], "default mode hides blocks");
+  assert.match(harness.notifications.at(-1).message, /Default pi tool-call view/);
 
-  await handlers.get("input")({ type: "input", text: "steer now", source: "interactive" }, ctx);
-
-  assert.equal(appended.length, 0);
-  assert.deepEqual(counts().liveModes, [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
-
-  await handlers.get("message_start")({
-    type: "message_start",
-    message: { role: "user", content: [{ type: "text", text: "steer now" }] },
-  }, ctx);
-
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].data.turnId, firstTurn?.message?.details?.turnId);
-  assert.equal(appended[0].data.snapshot.finalLabel, "Interrupted by steering");
-  assert.deepEqual(counts().liveModes, [
-    undefined,
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-    { toolRows: "hide", thinking: "hide", working: "hide" },
-  ]);
-
-  const secondTurn = await triggerTurnResponse(handlers, ctx, "steer now", { turnIndex: 1 });
-  assert.equal(secondTurn?.message?.details?.turnDisplayId, "2");
-  assert.equal(appended.length, 1);
+  await harness.run.end();
+  await harness.run.settle();
+  await harness.run.start();
+  await harness.run.assistant([text("plain")]);
+  assert.equal(harness.anchors().length, 1, "no new block while in default mode");
 });
 
-test("activity-block queued steering replaces the docked block with the next active turn", async () => {
-  const { pi, handlers, renderers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx, counts, setIdle } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
+test("zen mode hides the dock and transcript blocks and restores them", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([toolCall("t1", "read", { path: "a.md" })], "toolUse");
+  assert.ok(harness.renderDock().length > 0);
 
-  await handlers.get("session_start")({}, ctx);
-  const firstTurn = await triggerTurnResponse(handlers, ctx, "first");
-  const renderer = renderers.get("activity-block-turn");
-  const firstTranscript = renderer({ details: firstTurn.message.details }, {}, theme);
-  setIdle(false);
+  await harness.commands.get("activity-block").handler("zen on", harness.ctx);
+  assert.deepEqual(harness.renderDock(), []);
+  assert.deepEqual(harness.renderAnchor(harness.anchors()[0]), []);
+  assert.match(harness.notifications.at(-1).message, /Zen mode enabled/);
 
-  await handlers.get("input")({ type: "input", text: "steer now", source: "interactive" }, ctx);
-  await handlers.get("message_start")({
-    type: "message_start",
-    message: { role: "user", content: [{ type: "text", text: "steer now" }] },
-  }, ctx);
-
-  assert.equal(appended[0].data.snapshot.finalLabel, "Interrupted by steering");
-  assert.ok(firstTranscript.render(80).map((line) => stripAnsi(line)).some((line) => line.includes("Interrupted by steering")));
-  assert.ok(renderWidgetCall(latestVisibleWidgetCall(counts().widgetCalls)).some((line) => line.includes("Waiting for the first update")));
-
-  const secondTurn = await triggerTurnResponse(handlers, ctx, "steer now", { turnIndex: 1 });
-  const secondTranscript = renderer({ details: secondTurn.message.details }, {}, theme);
-
-  assert.equal(secondTurn?.message?.details?.turnDisplayId, "2");
-  assert.deepEqual(secondTranscript.render(80), []);
+  await harness.shortcuts.get("ctrl+alt+z").handler(harness.ctx);
+  assert.ok(harness.renderDock().length > 0);
+  assert.deepEqual(harness.renderAnchor(harness.anchors()[0]), [], "running block is still owned by the dock");
+  assert.match(harness.notifications.at(-1).message, /Zen mode disabled/);
 });
 
-test("activity-block agent_end without turn_end persists the terminal error state", async () => {
-  const { pi, handlers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx } = makeCtx();
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  await triggerTurnResponse(handlers, ctx, "hi");
-  await handlers.get("agent_end")({
-    type: "agent_end",
-    messages: [{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", errorMessage: "boom" }],
-  }, ctx);
-
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].data.snapshot.runState, "error");
-  assert.equal(appended[0].data.snapshot.finalLabel, "Error: boom");
-});
-
-test("activity-block fails dangling running tools on bare agent_end", async () => {
-  const { pi, handlers } = makePiStub();
-  const appended = [];
-  pi.appendEntry = (type, data) => appended.push({ type, data });
-  const { ctx } = makeCtx();
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  await triggerTurnResponse(handlers, ctx, "run command");
-  await handlers.get("tool_execution_start")({
-    type: "tool_execution_start",
-    toolCallId: "tool-1",
-    toolName: "bash",
-    args: { command: "sleep 60" },
-  }, ctx);
-  await handlers.get("agent_end")({ type: "agent_end", messages: [] }, ctx);
-
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].data.snapshot.runState, "error");
-  assert.equal(appended[0].data.snapshot.finalLabel, "Error: active command cancelled");
-  assert.equal(appended[0].data.snapshot.activeTools, 0);
-  assert.equal(appended[0].data.snapshot.failedTools, 1);
-  assert.equal(appended[0].data.snapshot.tools[0]?.state, "error");
-});
-
-test("activity-block resume continues the persisted turn counter", async () => {
-  const { pi, handlers } = makePiStub();
-  const persistedEntries = [
-    {
-      type: "custom",
-      customType: "activity-block-state",
-      data: {
-        turnId: "turn-100-7",
-        snapshot: {
-          runState: "complete",
-          startedAt: 100,
-          endedAt: 120,
-          finalLabel: "complete",
-          latestThinking: "",
-          thinkingSummaries: [],
-          isResponding: false,
-          tools: [],
-          totalTools: 0,
-          activeTools: 0,
-          completedTools: 0,
-          failedTools: 0,
-        },
-      },
-    },
+test("resume restores snapshots and continues the turn counter for new and legacy anchors", async () => {
+  const persisted = {
+    runState: "complete", startedAt: 100, endedAt: 120, finalLabel: "Completed",
+    latestThinking: "", latestThinkingFull: "", thinkingSummaries: [], isResponding: false,
+    tools: [], totalTools: 0, activeTools: 0, completedTools: 0, failedTools: 0,
+  };
+  const entries = [
+    { type: "custom_message", customType: "activity-block-turn", content: "activity block", display: true, details: { turnId: "turn-100-6", turnDisplayId: "6" }, timestamp: "2026-05-23T00:00:00.000Z" },
+    { type: "custom", customType: "activity-block-state", data: { turnId: "turn-100-6", snapshot: persisted } },
+    { type: "custom", customType: "activity-block-turn", data: { turnId: "turn-200-7", turnDisplayId: "7" }, timestamp: "2026-10-20T00:00:00.000Z" },
+    { type: "custom", customType: "activity-block-state", data: { turnId: "turn-200-7", snapshot: persisted } },
   ];
-  const { ctx } = makeCtx(persistedEntries);
-  activityBlockExtension(pi);
+  const harness = createActivityBlockHarness({ entries });
+  await harness.startSession("resume");
 
-  await handlers.get("session_start")({}, ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "after resume");
+  assert.ok(harness.renderLegacyAnchor({ turnId: "turn-100-6", turnDisplayId: "6" }).some((line) => line.includes("COMPLETED!")));
+  assert.ok(harness.renderAnchor(entries[2]).some((line) => line.includes("COMPLETED!")));
 
-  assert.equal(turn?.message?.details?.turnDisplayId, "8");
+  await harness.run.start();
+  await harness.run.assistant([text("next")]);
+  assert.equal(harness.anchors().at(-1).data.turnDisplayId, "8");
 });
 
-test("activity-block resume reconstructs historical tool rows when snapshot state is missing", async () => {
-  const { pi, handlers, renderers } = makePiStub();
-  const details = { turnId: "turn-100-1", turnDisplayId: "1" };
-  const persistedEntries = [
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:00.000Z",
-      message: { role: "user", content: [{ type: "text", text: "inspect" }], timestamp: 100 },
-    },
-    {
-      type: "custom_message",
-      customType: "activity-block-turn",
-      content: "activity block",
-      display: true,
-      details,
-      timestamp: "2026-05-23T00:00:01.000Z",
-    },
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:02.000Z",
-      message: {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "README.md", offset: 1, limit: 10 } }],
-        stopReason: "toolUse",
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-        api: "anthropic-messages",
-        provider: "faux",
-        model: "faux-model",
-        timestamp: 200,
-      },
-    },
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:03.000Z",
-      message: {
-        role: "toolResult",
-        toolCallId: "tool-1",
-        toolName: "read",
-        content: [{ type: "text", text: "hello" }],
-        isError: false,
-        timestamp: 300,
-      },
-    },
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:04.000Z",
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "done" }],
-        stopReason: "stop",
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-        api: "anthropic-messages",
-        provider: "faux",
-        model: "faux-model",
-        timestamp: 400,
-      },
-    },
+test("resume reconstructs tool rows from the transcript when the snapshot is missing", async () => {
+  const anchor = { type: "custom", customType: "activity-block-turn", data: { turnId: "turn-100-1", turnDisplayId: "1" }, timestamp: "2026-10-20T00:00:01.000Z" };
+  const entries = [
+    { type: "message", timestamp: "2026-10-20T00:00:00.000Z", message: userMessage("inspect") },
+    anchor,
+    { type: "message", timestamp: "2026-10-20T00:00:02.000Z", message: assistantMessage([toolCall("t1", "read", { path: "README.md", offset: 1, limit: 10 })], "toolUse") },
+    { type: "message", timestamp: "2026-10-20T00:00:03.000Z", message: { role: "toolResult", toolCallId: "t1", toolName: "read", content: [{ type: "text", text: "hi" }], isError: false, timestamp: 300 } },
+    { type: "message", timestamp: "2026-10-20T00:00:04.000Z", message: assistantMessage([text("done")]) },
   ];
-  const { ctx } = makeCtx(persistedEntries);
-  activityBlockExtension(pi);
+  const harness = createActivityBlockHarness({ entries });
+  await harness.startSession("resume");
 
-  await handlers.get("session_start")({}, ctx);
-  const renderer = renderers.get("activity-block-turn");
-  const component = renderer({ details }, {}, theme);
-  const rendered = component.render(80).map((line) => stripAnsi(line));
-
+  const rendered = harness.renderAnchor(anchor);
   assert.ok(rendered.some((line) => line.includes("✓ read README.md:1-10")));
   assert.ok(rendered.some((line) => line.includes("1 tool calls")));
-
-  const nextTurn = await triggerTurnResponse(handlers, ctx, "after resume");
-  assert.equal(nextTurn?.message?.details?.turnDisplayId, "2");
 });
 
-test("activity-block resume recovers tool rows when persisted snapshot has stale empty tools", async () => {
-  const { pi, handlers, renderers } = makePiStub();
-  const details = { turnId: "turn-100-1", turnDisplayId: "1" };
-  const persistedEntries = [
-    {
-      type: "custom_message",
-      customType: "activity-block-turn",
-      content: "activity block",
-      display: true,
-      details,
-      timestamp: "2026-05-23T00:00:01.000Z",
-    },
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:02.000Z",
-      message: {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: { command: "printf hi" } }],
-        stopReason: "toolUse",
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-        api: "anthropic-messages",
-        provider: "faux",
-        model: "faux-model",
-        timestamp: 200,
-      },
-    },
-    {
-      type: "message",
-      timestamp: "2026-05-23T00:00:03.000Z",
-      message: {
-        role: "toolResult",
-        toolCallId: "tool-1",
-        toolName: "bash",
-        content: [{ type: "text", text: "hi" }],
-        isError: false,
-        timestamp: 300,
-      },
-    },
-    {
-      type: "custom",
-      customType: "activity-block-state",
-      data: {
-        turnId: "turn-100-1",
-        snapshot: {
-          runState: "complete",
-          startedAt: 100,
-          endedAt: 400,
-          finalLabel: "Completed",
-          latestThinking: "",
-          latestThinkingFull: "",
-          thinkingSummaries: [],
-          isResponding: false,
-          tools: [],
-          totalTools: 0,
-          activeTools: 0,
-          completedTools: 0,
-          failedTools: 0,
-        },
-      },
-      timestamp: "2026-05-23T00:00:05.000Z",
-    },
+test("legacy custom_message anchors are filtered out of model context", async () => {
+  const harness = createActivityBlockHarness();
+  const messages = [
+    userMessage("hi"),
+    { role: "custom", customType: "activity-block-turn", content: "activity block", display: true, timestamp: 0 },
+    { role: "custom", customType: "other", content: "keep", display: true, timestamp: 0 },
   ];
-  const { ctx } = makeCtx(persistedEntries);
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  const renderer = renderers.get("activity-block-turn");
-  const component = renderer({ details }, {}, theme);
-  const rendered = component.render(80).map((line) => stripAnsi(line));
-
-  assert.ok(rendered.some((line) => line.includes("✓ $ printf hi")));
-  assert.ok(rendered.some((line) => line.includes("1 tool calls")));
+  const result = await harness.emit("context", { messages });
+  assert.deepEqual(result.messages.map((message) => message.customType ?? message.role), ["user", "other"]);
 });
 
-test("activity-block mode default restores core transcript modes and stops inserting new blocks", async () => {
-  const { pi, handlers, commands } = makePiStub();
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  await commands.get("activity-block").handler("mode default", ctx);
-
-  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }, undefined]);
-  assert.deepEqual(counts().liveModes, [undefined, undefined]);
-  assert.equal(await triggerTurnResponse(handlers, ctx, "default view"), undefined);
-
-  await commands.get("activity-block").handler("mode block", ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "block view");
-
-  assert.equal(turn?.message?.details?.turnDisplayId, "1");
-  assert.deepEqual(counts().historicalModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide" }]);
-  assert.deepEqual(counts().liveModes.slice(-2), [undefined, { toolRows: "hide", thinking: "hide", working: "hide" }]);
+test("session_tree re-hydrates the branch and drops the active block", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([text("x")]);
+  await harness.emit("session_tree", { newLeafId: null, oldLeafId: null });
+  assert.deepEqual(harness.renderDock(), []);
 });
 
-test("activity-block mode default clears the live dock when processed", async () => {
-  const { pi, handlers, commands, renderers } = makePiStub();
-  const { ctx, counts } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "default clears dock");
-  const renderer = renderers.get("activity-block-turn");
-  const transcript = renderer({ details: turn.message.details }, {}, theme);
-
-  assert.deepEqual(transcript.render(80), []);
-  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
-
-  await commands.get("activity-block").handler("mode default", ctx);
-
-  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
-  assert.deepEqual(transcript.render(80), []);
-  assert.deepEqual(counts().historicalModes.slice(-1), [undefined]);
-  assert.deepEqual(counts().liveModes.slice(-1), [undefined]);
-});
-
-test("activity-block zen mode hides and restores the retained live dock without exposing transcript duplicates", async () => {
-  const { pi, handlers, commands, renderers } = makePiStub();
-  const { ctx, counts } = makeCtx([], { widgets: true });
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  const turn = await triggerTurnResponse(handlers, ctx, "zen dock");
-  const renderer = renderers.get("activity-block-turn");
-  const transcript = renderer({ details: turn.message.details }, {}, theme);
-
-  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
-  assert.deepEqual(transcript.render(80), []);
-
-  await commands.get("activity-block").handler("zen on", ctx);
-
-  assert.equal(latestWidgetCall(counts().widgetCalls)?.content, undefined);
-  assert.deepEqual(transcript.render(80), []);
-
-  await commands.get("activity-block").handler("zen off", ctx);
-
-  assert.ok(latestVisibleWidgetCall(counts().widgetCalls));
-  assert.deepEqual(transcript.render(80), []);
-});
-
-test("activity-block keeps only the thinking expansion control", () => {
-  const { pi, shortcuts, commands } = makePiStub();
-  activityBlockExtension(pi);
-
-  assert.ok(shortcuts.has("ctrl+alt+t"));
-  assert.ok(!shortcuts.has("ctrl+alt+o"));
-  assert.ok(!shortcuts.has("ctrl+t"));
-  assert.ok(!shortcuts.has("ctrl+o"));
-  assert.ok(commands.has("activity-block-thinking"));
-  assert.ok(!commands.has("activity-block-tool"));
-});
-
-test("activity-block does not publish a status-bar hint", async () => {
-  const { pi, handlers, shortcuts } = makePiStub();
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
-
-  await handlers.get("session_start")({}, ctx);
-  await triggerTurnResponse(handlers, ctx, "hi");
-  await shortcuts.get("ctrl+alt+a")?.handler(ctx);
-  await shortcuts.get("ctrl+alt+t")?.handler(ctx);
-
-  const statuses = counts().statuses.filter(Boolean);
-  assert.deepEqual(statuses, []);
-});
-
-test("activity-block context token counts stay scoped to the active block", async () => {
-  const originalSetInterval = globalThis.setInterval;
-  const originalClearInterval = globalThis.clearInterval;
+test("block token count is scoped to the block via the context-usage baseline", async () => {
   const ticks = [];
-  globalThis.setInterval = (callback) => {
-    ticks.push(callback);
-    return { unref() {} };
-  };
-  globalThis.clearInterval = () => {};
+  const harness = createActivityBlockHarness({
+    contextUsageTokens: 1200,
+    clock: { setInterval: (callback) => { ticks.push(callback); return {}; }, clearInterval() {} },
+  });
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([thinking("x")]);
+  assert.ok(!harness.renderDock(56).some((line) => line.includes("tokens")));
 
-  try {
-    const { pi, handlers, renderers } = makePiStub();
-    const { ctx, setContextUsageTokens } = makeCtx([], { contextUsageTokens: 1200 });
-    activityBlockExtension(pi);
+  harness.setContextUsageTokens(1700);
+  for (const tick of ticks) tick();
+  assert.ok(harness.renderDock(56).some((line) => line.includes("< 1K tokens")));
 
-    await handlers.get("session_start")({}, ctx);
-    const turn = await triggerTurnResponse(handlers, ctx, "token test");
-    const renderer = renderers.get("activity-block-turn");
-    const component = renderer({ details: turn.message.details }, {}, {
-      bold: (text) => text,
-      fg: (_name, text) => text,
-      bg: (_name, text) => text,
-      italic: (text) => text,
-      underline: (text) => text,
-      strikethrough: (text) => text,
-    });
-
-    let rendered = component.render(56).map((line) => stripAnsi(line));
-    assert.ok(!rendered.some((line) => line.includes("tokens")));
-
-    setContextUsageTokens(1700);
-    for (const tick of ticks) tick?.();
-    rendered = component.render(56).map((line) => stripAnsi(line));
-    assert.ok(rendered.some((line) => line.includes("< 1K tokens")));
-
-    setContextUsageTokens(2300);
-    for (const tick of ticks) tick?.();
-    rendered = component.render(56).map((line) => stripAnsi(line));
-    assert.ok(rendered.some((line) => line.includes(" 1K tokens")));
-    assert.ok(!rendered.some((line) => line.includes("< 1K tokens")));
-    assert.ok(!rendered.some((line) => line.includes(" 2K tokens")));
-  } finally {
-    globalThis.setInterval = originalSetInterval;
-    globalThis.clearInterval = originalClearInterval;
-  }
+  harness.setContextUsageTokens(2300);
+  for (const tick of ticks) tick();
+  const lines = harness.renderDock(56);
+  assert.ok(lines.some((line) => line.includes(" 1K tokens")));
+  assert.ok(!lines.some((line) => line.includes("< 1K tokens")));
 });
 
-test("activity-block session shutdown clears transcript modes without terminal-listener teardown", async () => {
-  const { pi, handlers } = makePiStub();
-  const { ctx, counts } = makeCtx();
-  activityBlockExtension(pi);
+test("timers stop when the block finishes and on shutdown", async () => {
+  const live = new Set();
+  const harness = createActivityBlockHarness({
+    clock: {
+      setInterval: (callback) => { const handle = { callback }; live.add(handle); return handle; },
+      clearInterval: (handle) => live.delete(handle),
+    },
+  });
+  await harness.startSession();
+  await harness.run.start();
+  await harness.run.assistant([thinking("x")]);
+  assert.ok(live.size > 0);
+  await harness.run.end();
+  await harness.run.settle();
+  assert.equal(live.size, 0);
 
-  await handlers.get("session_start")({}, ctx);
-  await handlers.get("session_shutdown")({}, ctx);
+  await harness.run.start();
+  await harness.run.assistant([thinking("y")]);
+  await harness.emit("session_shutdown", { reason: "quit" });
+  assert.equal(live.size, 0);
+});
 
-  assert.equal(counts().unsubscribeCalls, 0);
-  assert.deepEqual(counts().historicalModes, [{ toolRows: "hide", thinking: "hide" }, undefined]);
-  assert.deepEqual(counts().liveModes, [undefined, undefined]);
+test("controls: thinking toggle, view cycle, and no status-bar output", async () => {
+  const harness = createActivityBlockHarness();
+  await harness.startSession();
+  assert.ok(harness.shortcuts.has("ctrl+alt+t"));
+  assert.ok(harness.shortcuts.has("ctrl+alt+a"));
+  assert.ok(harness.commands.has("activity-block-thinking"));
+  assert.ok(!harness.commands.has("activity-block-tool"));
+
+  await harness.commands.get("activity-block-thinking").handler("", harness.ctx);
+  assert.match(harness.notifications.at(-1).message, /No activity block/);
 });

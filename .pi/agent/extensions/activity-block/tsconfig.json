@@ -1,0 +1,14 @@
+{
+  "//": "Typecheck activity-block against the pinned pi runtime: npx tsc -p activity-block/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["index.ts", "lib/*.ts", "../lib/shared/*.ts"]
+}

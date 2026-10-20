@@ -39,4 +39,4 @@ description: |
 ## Verification
 
 - Validate the skill frontmatter:
-  - `python3 /home/tan/.pi/agent/skills/skill-authoring/scripts/quick_validate.py /home/tan/.pi/agent/skills/read-git-repo`
+  - `python3 /home/tan/vault/.pi/skills/skill-authoring/scripts/quick_validate.py /home/tan/.pi/agent/skills/read-git-repo`

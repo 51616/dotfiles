@@ -7,7 +7,7 @@ description: |
   - review a diff / patch / PR summary
   - review `spec.md`, `plan.md`, `resume.md`, and change evidence for contradictions or gaps
   - look for correctness, maintainability, safety, observability, and test coverage issues
-  Outputs: the skill script runs Codex CLI with `gpt-5.5` and high reasoning, then returns a concise review with concrete findings, assumptions, and suggested fixes.
+  Outputs: the skill script runs Codex CLI with `gpt-5.6-sol` and max reasoning, then returns a concise review with concrete findings, assumptions, and suggested fixes.
 ---
 
 # codex-review
@@ -31,7 +31,7 @@ Tool arguments map to the script CLI. You only need `--timeout-seconds` when ove
 The script runs:
 
 ```bash
-codex exec -m gpt-5.5 -c model_reasoning_effort=high --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "<prompt>"
+codex exec -m gpt-5.6-sol -c model_reasoning_effort=max --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "<prompt>"
 ```
 
 and prints only the final agent message on success.

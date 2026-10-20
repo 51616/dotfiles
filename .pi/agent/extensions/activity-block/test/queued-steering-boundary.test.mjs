@@ -1,15 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shouldStartNewBlockAfterMessageStart } from "../index.ts";
+import { isTriggerMessage } from "../index.ts";
 
-test("queued steering-style user messages split the current activity block after the initial trigger message", () => {
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "user" }, true, false), true);
+test("user messages and displayed custom messages are block triggers", () => {
+	assert.equal(isTriggerMessage({ role: "user" }), true);
+	assert.equal(isTriggerMessage({ role: "custom", display: true }), true);
 });
 
-test("initial trigger user message and non-user messages do not split the current activity block", () => {
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "user" }, true, true), false);
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "assistant" }, true, false), false);
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "toolResult" }, true, false), false);
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "custom", customType: "activity-block-turn" }, true, false), false);
-	assert.equal(shouldStartNewBlockAfterMessageStart({ role: "user" }, false, false), false);
+test("assistant, tool results, hidden custom messages, and bash executions never start a block", () => {
+	assert.equal(isTriggerMessage({ role: "assistant" }), false);
+	assert.equal(isTriggerMessage({ role: "toolResult" }), false);
+	assert.equal(isTriggerMessage({ role: "custom", display: false }), false);
+	assert.equal(isTriggerMessage({ role: "custom" }), false);
+	assert.equal(isTriggerMessage({ role: "bashExecution" }), false);
 });

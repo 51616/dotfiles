@@ -34,7 +34,6 @@ The canonical implementation path is `~/.pi/agent/extensions/`. Vault-facing `.p
 - `pi-slash.ts`: slash-command bridge for agent-driven session commands.
 - `self-checkpointing/`: checkpoint lifecycle and resume blocking.
 - `pi-instance-manager/`: session coordination and queue behavior.
-- `pi-diff-review-*`: turn tracking and review TUI workflows.
 - `tui-broker/`: shared editor/footer surface coordination.
 
 ## Constraints

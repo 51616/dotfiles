@@ -150,7 +150,7 @@ export class ActivityBlockMessageComponent implements Component {
 	private readonly getThinkingExpanded: () => boolean;
 	private readonly getCompactionCount: () => number;
 	private readonly shouldHide: () => boolean;
-	private readonly markdownTheme: MarkdownTheme;
+	private markdownTheme: MarkdownTheme;
 
 	constructor(
 		theme: Theme,

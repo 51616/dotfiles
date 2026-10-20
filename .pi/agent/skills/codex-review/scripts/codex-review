@@ -11,8 +11,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-MODEL = "gpt-5.5"
-REASONING_EFFORT = "high"
+MODEL = "gpt-5.6-sol"
+REASONING_EFFORT = "max"
 DEFAULT_TIMEOUT_SECONDS = 3600
 SESSION_ROOT = Path.home() / ".codex" / "sessions"
 

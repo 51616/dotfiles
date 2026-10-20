@@ -140,7 +140,7 @@ The helper derives the current production launcher, renders its SHA-256 into `sc
 - Canonical `skill://...` handling and workspace file routing live in the required companion `skill-uri` extension so the same skill interface works in both local and SSH sessions. Its registration is scoped to the extension lifecycle and removed on shutdown/reload.
 - `pi-ssh` publishes the active SSH session through `pi-ssh/lib/pi-ssh-session-runtime.ts`.
 - `pi-ssh` keeps the active SSH runtime in a process-local cache while pi replaces sessions for `/new`, `/resume`, and `/fork`; `/reload`, quit, failed setup, or a changed SSH target disposes it cleanly.
-- `skill-uri`, `self-checkpointing`, and `pi-diff-review-*` consume that session directly for remote workspace ops, remote diff inspection, local staged editor flows, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
+- `skill-uri` and `self-checkpointing` consume that session directly for remote workspace ops, `run_skill_script` staging/execution, and SSH-backed checkpoint probing.
 - Consumers that need SSH repo identity should use the shared `resolveActivePiSshRepoIdentity(localCwd)` helper instead of doing ad hoc late `session.repoRoot(...)` lookups. That helper caches the resolved remote repo root for the active session and preserves SSH-specific failures instead of masking them as local fallback behavior.
 - The shared session helpers currently assume `git` is present for `repoRoot()` and `python3` or `python` is present for `stat()`.
 - `PiSshSession.execText()` is the shared low-latency text-command path backed by the persistent remote shell. Use it for git/text workflows where combined PTY output is acceptable.

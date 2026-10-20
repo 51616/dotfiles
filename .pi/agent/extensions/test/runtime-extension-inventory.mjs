@@ -38,14 +38,6 @@ export const REGRESSION_MATRIX = {
     "test/runtime-entrypoint-imports.test.mjs",
     "low-effort-compaction/test/index.test.mjs",
   ],
-  "pi-diff-review-tui": [
-    "pi-diff-review-tui/test/app.test.mjs",
-    "pi-diff-review-tui/test/review-session.test.mjs",
-  ],
-  "pi-diff-review-turn-tracker": [
-    "pi-diff-review-turn-tracker/test/entrypoint.test.mjs",
-    "pi-diff-review-turn-tracker/test/artifacts.test.mjs",
-  ],
   "pi-instance-manager": [
     "test/pi-instance-manager-entrypoint-import.test.mjs",
     "test/pi-instance-manager-queue.test.mjs",

@@ -1,7 +1,7 @@
 ---
 name: conductor
 description: |
-  Use when: the user asks to plan or start/resume a track, or when the work is large enough to benefit from a durable spec/plan/resume workflow. Trigger on phrases like "write a spec", "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly benefits explicit planning before implementation.
+  Use when: the user asks to plan or start/resume a track. Trigger on phrases like "write a spec", "plan this", "start a track", "make a conductor track", "resume the track", or when the work clearly benefits explicit planning before implementation.
   Don’t use when: the task is a tiny one-off edit or simple Q&A (use normal repo editing instead), or when the user explicitly wants a repeated scrutiny loop with per-round `review -> trim -> implement` artifacts (use `conductor-scrutinize` instead).
   Outputs: self-contained track artifacts with an elaborate behavior spec, a concrete implementation plan, and a current resume that a future agent can use without reading chat history or session-specific references.
 ---

@@ -71,6 +71,24 @@ test("usage token sync also stays block-scoped once a baseline exists", () => {
   assert.equal(state.latestTokenCount, 136800);
 });
 
+test("usage without a baseline (first block after compaction) becomes the baseline instead of the block count", () => {
+  const state = createInitialActivityBlockState();
+  setTurnTokenBaseline(state, null);
+  // A fresh session estimates 0 tokens before the system prompt is recorded; that is not a usable baseline.
+  setTurnTokenBaseline(state, 0);
+  assert.equal(state.turnTokenBaseline, undefined);
+
+  // Streaming partials report zero usage first; that must not become the baseline.
+  syncLatestTokenCount(state, 0, "usage");
+  assert.equal(state.turnTokenBaseline, undefined);
+
+  syncLatestTokenCount(state, 3015, "usage");
+  assert.equal(state.latestTokenCount, undefined);
+
+  syncLatestTokenCount(state, 3320, "usage");
+  assert.equal(state.latestTokenCount, 305);
+});
+
 test("text streaming marks the block as responding until the turn ends", () => {
   const state = createInitialActivityBlockState();
 
@@ -86,7 +104,9 @@ test("text streaming marks the block as responding until the turn ends", () => {
 
   let snapshot = getActivityBlockSnapshot(state);
   assert.equal(snapshot.isResponding, true);
-  assert.equal(snapshot.latestTokenCount, 1800);
+  // Without a block baseline the first usage is whole-context size, so it seeds the baseline (see the
+  // post-compaction test) instead of being reported as this block's tokens.
+  assert.equal(snapshot.latestTokenCount, undefined);
 
   applyToolStart(
     state,

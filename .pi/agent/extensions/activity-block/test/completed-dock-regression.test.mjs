@@ -1,150 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initTheme } from "@mariozechner/pi-coding-agent";
-import activityBlockExtension from "../index.ts";
+import { createActivityBlockHarness, stateEntries } from "../../test/helpers/activity-block-harness.mjs";
 
 initTheme();
 
-const colorTheme = {
-	bold: (text) => `<b>${text}</b>`,
-	fg: (name, text) => `<${name}>${text}</${name}>`,
-	bg: (_name, text) => text,
-	italic: (text) => text,
-	underline: (text) => text,
-	strikethrough: (text) => text,
-};
+test("responding turns stay in the above-editor dock until the run settles", async () => {
+	const harness = createActivityBlockHarness();
+	await harness.startSession();
+	await harness.run.start();
+	await harness.run.assistant([{ type: "text", text: "done" }]);
+	const [anchor] = harness.anchors();
 
-function makePiStub() {
-	const handlers = new Map();
-	const appended = [];
-	let renderer;
-	return {
-		handlers,
-		appended,
-		getRenderer() {
-			assert.ok(renderer, "activity-block renderer was registered");
-			return renderer;
-		},
-		pi: {
-			on(name, handler) {
-				handlers.set(String(name), handler);
-			},
-			registerMessageRenderer(type, factory) {
-				renderer = { type, factory };
-			},
-			registerCommand() {},
-			registerShortcut() {},
-			appendEntry(type, data) {
-				appended.push({ type, data });
-			},
-		},
-	};
-}
+	assert.match(harness.renderDock().join("\n"), /Responding/);
+	assert.deepEqual(harness.renderAnchor(anchor), [], "no duplicate block in the transcript while docked");
 
-function makeCtx() {
-	const widgetCalls = [];
-	return {
-		widgetCalls,
-		ctx: {
-			hasUI: true,
-			isIdle() {
-				return true;
-			},
-			getContextUsage() {
-				return { tokens: 0 };
-			},
-			sessionManager: {
-				getBranch() {
-					return [];
-				},
-			},
-			ui: {
-				setStatus() {},
-				setLiveTranscriptMode() {},
-				setHistoricalTranscriptMode() {},
-				notify() {},
-				setWidget(key, content, options) {
-					widgetCalls.push({ key, content, options });
-				},
-			},
-		},
-	};
-}
+	await harness.run.end([{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }]);
+	assert.match(harness.renderDock().join("\n"), /Responding/, "agent_end is not final; pi may still retry");
 
-async function startActivityBlockTurn(handlers, ctx) {
-	return handlers.get("before_turn_response")({
-		type: "before_turn_response",
-		turnIndex: 0,
-		triggerMessages: [{ role: "user", content: [{ type: "text", text: "do it" }] }],
-		systemPrompt: "",
-	}, ctx);
-}
-
-function renderTranscriptBlock(renderer, details) {
-	const component = renderer.factory({
-		role: "custom",
-		customType: renderer.type,
-		content: "activity block",
-		details,
-	}, {}, colorTheme);
-	return component.render(80);
-}
-
-test("responding turns stay in the above-editor dock until completion", async () => {
-	const { pi, handlers, appended, getRenderer } = makePiStub();
-	const { ctx, widgetCalls } = makeCtx();
-	activityBlockExtension(pi);
-
-	await handlers.get("session_start")({ type: "session_start" }, ctx);
-	const prepared = await startActivityBlockTurn(handlers, ctx);
-	const details = prepared?.message?.details;
-	assert.ok(details?.turnId, "activity-block turn message was created");
-	const dockCall = widgetCalls.at(-1);
-	assert.equal(typeof dockCall?.content, "function");
-	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
-
-	await handlers.get("message_update")({
-		type: "message_update",
-		message: { role: "assistant", content: [{ type: "text", text: "done" }] },
-		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "done", partial: { role: "assistant", content: [] } },
-	}, ctx);
-
-	assert.equal(widgetCalls.at(-1), dockCall);
-	assert.match(dockCall.content({}, colorTheme).render(80).join("\n"), /Responding/);
-	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
-
-	await handlers.get("agent_end")({
-		type: "agent_end",
-		messages: [{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }],
-	}, ctx);
-
-	assert.equal(appended.length, 1);
-	assert.equal(appended[0].type, "activity-block-state");
-	assert.equal(widgetCalls.at(-1)?.content, undefined);
-	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
+	await harness.run.settle();
+	assert.equal(stateEntries(harness).length, 1);
+	assert.deepEqual(harness.renderDock(), []);
+	assert.match(harness.renderAnchor(anchor).join("\n"), /COMPLETED!/);
 });
 
-test("completed turns clear the above-editor dock and reveal the transcript block immediately", async () => {
-	const { pi, handlers, appended, getRenderer } = makePiStub();
-	const { ctx, widgetCalls } = makeCtx();
-	activityBlockExtension(pi);
-
-	await handlers.get("session_start")({ type: "session_start" }, ctx);
-	const prepared = await startActivityBlockTurn(handlers, ctx);
-	const details = prepared?.message?.details;
-	assert.ok(details?.turnId, "activity-block turn message was created");
-	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
-	assert.equal(typeof widgetCalls.at(-1)?.content, "function");
-	assert.deepEqual(renderTranscriptBlock(getRenderer(), details), []);
-
-	await handlers.get("agent_end")({
-		type: "agent_end",
-		messages: [{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }],
-	}, ctx);
-
-	assert.equal(appended.length, 1);
-	assert.equal(appended[0].type, "activity-block-state");
-	assert.equal(widgetCalls.at(-1)?.key, "activity-block-live-dock");
-	assert.equal(widgetCalls.at(-1)?.content, undefined);
-	assert.match(renderTranscriptBlock(getRenderer(), details).join("\n"), /COMPLETED!/);
+test("the dock widget is installed once per session and never re-registered per run", async () => {
+	const harness = createActivityBlockHarness();
+	await harness.startSession();
+	for (let index = 0; index < 3; index += 1) {
+		await harness.run.start();
+		await harness.run.assistant([{ type: "text", text: `run ${index}` }]);
+		await harness.run.end();
+		await harness.run.settle();
+	}
+	assert.equal(harness.widgetCalls.filter((call) => call.key === "activity-block-live-dock").length, 1);
+	assert.equal(harness.anchors().length, 3);
+	assert.deepEqual(harness.anchors().map((anchor) => anchor.data.turnDisplayId), ["1", "2", "3"]);
 });

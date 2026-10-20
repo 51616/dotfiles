@@ -396,7 +396,7 @@ export function finishRun(state: ActivityBlockState, event: AgentEndEvent | Turn
 	if (finalThinking.length > 0) {
 		state.thinkingSummaries = finalThinking;
 		state.latestThinking = finalThinking[0] ?? state.latestThinking;
-		state.latestThinkingFull = extractLatestThinkingFromAssistantMessage(finalAssistant) ?? state.latestThinkingFull;
+		state.latestThinkingFull = (finalAssistant && extractLatestThinkingFromAssistantMessage(finalAssistant)) || state.latestThinkingFull;
 		if (state.currentActivity?.kind !== "tool") {
 			recordActivity(state, { kind: "thinking", summary: state.latestThinking, timestamp: now });
 		}
@@ -420,7 +420,10 @@ export function interruptRun(state: ActivityBlockState, now: number, finalLabel 
 }
 
 export function setTurnTokenBaseline(state: ActivityBlockState, tokenCount: number | null | undefined): void {
-	if (typeof tokenCount !== "number" || !Number.isFinite(tokenCount) || tokenCount < 0) return;
+	// 0 means "nothing measured yet" (fresh session before the system prompt is recorded), not an empty context.
+	// Leave the baseline unset so the first real usage seeds it; otherwise the first block of every session would
+	// report the whole system prompt + tool schemas as its own tokens (seen in E2E: 15K on a 3-request block).
+	if (typeof tokenCount !== "number" || !Number.isFinite(tokenCount) || tokenCount <= 0) return;
 	state.turnTokenBaseline = tokenCount;
 }
 
@@ -446,7 +449,13 @@ export function syncLatestTokenCount(
 		state.latestTokenCount = Math.max(state.latestTokenCount ?? 0, turnScopedTokens);
 		return;
 	}
-	state.latestTokenCount = Math.max(state.latestTokenCount ?? 0, tokenCount);
+	// No baseline: pi reports `tokens: null` until the first reply after a compaction. The first usage is the
+	// whole context, not this block's work, so adopt it as the baseline like the context path does.
+	// (Found in tmux E2E on pi 1.3.0: the first block after /compact showed the whole-session count.)
+	// Streaming partials carry all-zero usage until the provider reports it; pi skips those as "no data" and so
+	// must we, or a 0 baseline would turn every later count back into a whole-context total.
+	if (tokenCount === 0) return;
+	state.turnTokenBaseline = tokenCount;
 }
 
 export function getActivityBlockSnapshot(state: ActivityBlockState): ActivityBlockSnapshot {
@@ -480,7 +489,7 @@ export function getActivityBlockSnapshot(state: ActivityBlockState): ActivityBlo
 }
 
 export function extractLatestThinkingExcerpt(event: MessageUpdateEvent): string {
-	const latestThinking = getLatestThinkingBlock(event.message.content);
+	const latestThinking = getLatestThinkingBlock(getAssistantContent(event));
 	return latestThinking ? normalizeExcerpt(latestThinking.thinking) : "";
 }
 
@@ -613,7 +622,7 @@ function isTextResponseEvent(event: MessageUpdateEvent): boolean {
 function extractToolCallDraft(event: MessageUpdateEvent): ToolCallDraft | undefined {
 	const contentIndex = getToolCallContentIndex(event);
 	if (contentIndex === undefined) return undefined;
-	const content = event.message.content[contentIndex];
+	const content = getAssistantContent(event)[contentIndex];
 	if (!content || content.type !== "toolCall") return undefined;
 	const toolCallId = getStringProperty(content, ["id"]);
 	const toolName = getStringProperty(content, ["name"]);
@@ -656,7 +665,10 @@ function applyTerminalToolResults(state: ActivityBlockState, event: AgentEndEven
 		const toolName = getStringProperty(toolResult, ["toolName"]);
 		if (!toolCallId || !toolName) continue;
 		const existing = state.tools.get(toolCallId);
-		if (existing && existing.state !== "running") continue;
+		// Only settle tools this block started. `agent_end.messages` spans the whole agent run, so after a
+		// steering split it also holds tool results that belong to the earlier, already-frozen block.
+		// (Found in tmux E2E on pi 1.3.0: the post-steer block reported the pre-steer tool call.)
+		if (!existing || existing.state !== "running") continue;
 		applyToolEnd(
 			state,
 			{
@@ -863,17 +875,22 @@ function clipMultiline(text: string | undefined): string | undefined {
 }
 
 function extractLatestThinkingContent(event: MessageUpdateEvent): string {
-	const latestThinking = getLatestThinkingBlock(event.message.content);
+	const latestThinking = getLatestThinkingBlock(getAssistantContent(event));
 	return latestThinking?.thinking.trim() ?? "";
 }
 
-function getLatestThinkingBlock(content: Array<{ type: string } & Record<string, unknown>>) {
+type AssistantContentBlock = Extract<MessageUpdateEvent["message"], { role: "assistant" }>["content"][number];
+
+/** `message_update` is typed with every AgentMessage role; only assistant messages carry content blocks we read. */
+function getAssistantContent(event: MessageUpdateEvent): readonly AssistantContentBlock[] {
+	return event.message.role === "assistant" ? event.message.content : [];
+}
+
+function getLatestThinkingBlock(content: readonly AssistantContentBlock[]): { thinking: string } | undefined {
 	for (let index = content.length - 1; index >= 0; index -= 1) {
 		const item = content[index];
-		if (item.type !== "thinking") continue;
-		const thinking = (item as { thinking?: unknown }).thinking;
-		if (typeof thinking === "string" && thinking.trim()) {
-			return { thinking };
+		if (item?.type === "thinking" && item.thinking.trim()) {
+			return { thinking: item.thinking };
 		}
 	}
 	return undefined;
