@@ -14,7 +14,7 @@ export type QuotaSnapshot = {
   secondary: QuotaWindow | null;
   planType: string | null;
   rateLimitReachedType: string | null;
-  source: "codex-session-log" | "codex-app-server";
+  source: "codex-session-log" | "codex-app-server" | "claude-oauth-usage";
   observedAtMs: number;
 };
 
@@ -56,6 +56,7 @@ const BAR_CHAR = "━";
 const BAR_FILLED_COLOR = "#a6adc8";
 const BAR_EMPTY_COLOR = "#45475a";
 const TEXT_COLOR = "#6c7086";
+export const QUOTA_TEXT_COLOR = TEXT_COLOR;
 const RGB_HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 function isObject(value: unknown): value is JsonObject {
@@ -375,7 +376,7 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function ansiTrueColor(text: string, hex: string): string {
+export function ansiTrueColor(text: string, hex: string): string {
   const normalized = hex.trim();
   if (!RGB_HEX_REGEX.test(normalized) || !text) return text;
   const red = Number.parseInt(normalized.slice(1, 3), 16);
