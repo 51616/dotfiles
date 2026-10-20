@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import tuiBroker from "../index.ts";
 import goalExtension from "../../goal/index.ts";
-import { applyFffEditorMode } from "/home/tan/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/editor-mode.ts";
 import {
   __resetTuiBrokerRuntimeForTests,
   getTuiBrokerRuntimeSnapshot,
@@ -291,60 +290,6 @@ test("tui-broker applies registered autocomplete-provider wrappers", async () =>
   editor.setAutocompleteProvider(baseProvider);
 
   assert.deepEqual(wrappedProvider, { provider: baseProvider, wrapped: true });
-});
-
-test("tui-broker keeps editor ownership when pi-fff uses broker composition hooks", async () => {
-  __resetTuiBrokerRuntimeForTests();
-  __resetGoalRuntimeStoreForTests();
-
-  const pi = createFakePi();
-  tuiBroker(pi);
-
-  const ctx = createFakeCtx();
-  for (const handler of pi.events.get("session_start") ?? []) {
-    await handler({}, ctx);
-  }
-
-  let wrappedProvider = null;
-  const createWrappedProvider = (provider) => {
-    wrappedProvider = { provider, wrapped: true };
-    return wrappedProvider;
-  };
-
-  applyFffEditorMode({
-    mode: "both",
-    setEditorComponent: (factory) => ctx.ui.setEditorComponent(factory),
-    createEditorFactory: () => ({ constructor: { name: "FffEditor" } }),
-    broker: {
-      installed: true,
-      registerWrapper: () => registerTuiBrokerAutocompleteProviderWrapper("pi-fff", createWrappedProvider),
-      unregisterWrapper: () => unregisterTuiBrokerAutocompleteProviderWrapper("pi-fff"),
-      requestReinstall: () => requestTuiBrokerEditorReinstall(),
-    },
-  });
-
-  const editorCalls = ctx.calls.filter((entry) => entry.type === "editor");
-  assert.equal(editorCalls.length, 2);
-
-  const finalEditor = createEditorInstance(ctx, "last");
-  assert.equal(finalEditor.constructor.name, "ContextUsageEditor");
-
-  const snapshot = getTuiBrokerRuntimeSnapshot({ sessionName: ctx.sessionManager.getSessionName() });
-  assert.deepEqual(snapshot.autocompleteWrappers, ["pi-fff"]);
-
-  const baseProvider = {
-    getSuggestions() {
-      return null;
-    },
-    applyCompletion() {
-      return null;
-    },
-  };
-
-  finalEditor.setAutocompleteProvider(baseProvider);
-
-  assert.deepEqual(wrappedProvider, { provider: baseProvider, wrapped: true });
-  assert.match(finalEditor.render(60).at(-1) ?? "", /12\.2%\/272k/);
 });
 
 test("tui-broker keeps the user editor border on the configured color", async () => {

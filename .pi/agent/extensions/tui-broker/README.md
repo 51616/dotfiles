@@ -16,8 +16,7 @@ Behavior notes:
 
 Notes:
 - pi core stays unpatched; direct surface ownership is a local convention enforced by tests for the curated extension set, not a global runtime block
-- `pi-fff` is the main known package interop case. When broker is active, `pi-fff` must stay on the broker autocomplete-wrapper + editor-reinstall path instead of replacing the editor directly.
-- The concrete package patch point is `~/.pi/agent/git/github.com/SamuelLHuber/pi-fff/src/index.ts`. The broker-side tripwire for that contract lives in `tui-broker/test/interop.test.mjs`.
+- `pi-fff` is the main known package interop case. Since `@ff-labs/pi-fff` 0.11.0 it contributes autocomplete through pi's native `ctx.ui.addAutocompleteProvider(...)` and never replaces the editor, so no package patch is needed. Tripwires: `test/ff-labs-pi-fff-broker-interop.test.mjs` (behavior) and `tui-broker/test/surface-ownership-guard.test.mjs` (source scan of the installed package).
 
 Test with:
 
